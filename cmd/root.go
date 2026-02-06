@@ -1,0 +1,36 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+
+	"crant_type_look/internal/config"
+
+	"github.com/spf13/cobra"
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "crant_type_look",
+	Short: "Query CRANT ant connectome neurons and inject into Neuroglancer states",
+	Long: `crant_type_look queries the CRANT ant connectome dataset for neuron root IDs
+by classification (super_class, cell_class, cell_type, cell_subtype) and
+injects them into a Neuroglancer state JSON.
+
+Run 'crant_type_look setup' to configure your SeaTable API token.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if cmd.Annotations["requiresToken"] != "true" {
+			return nil
+		}
+		if token := config.GetAPIToken(); token != "" {
+			return nil
+		}
+		return config.RunSetupPrompt()
+	},
+}
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}

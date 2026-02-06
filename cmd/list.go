@@ -1,0 +1,86 @@
+package cmd
+
+import (
+	"fmt"
+
+	"crant_type_look/internal/seatable"
+
+	"github.com/spf13/cobra"
+)
+
+var listCmd = &cobra.Command{
+	Use:   "list <field>",
+	Short: "List distinct values for a classification field",
+	Long: `List distinct values for a classification field from the CRANT dataset.
+
+Valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread
+
+Examples:
+  crant_type_look list super_class --count
+  crant_type_look list cell_class --super-class sensory --count
+  crant_type_look list cell_type --cell-class kenyon_cell`,
+	Annotations: map[string]string{"requiresToken": "true"},
+	Args:        cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		field := args[0]
+
+		client, err := seatable.NewClient()
+		if err != nil {
+			return err
+		}
+
+		filters := &seatable.Filters{
+			SuperClass:  listSuperClass,
+			CellClass:   listCellClass,
+			CellType:    listCellType,
+			CellSubtype: listCellSubtype,
+			Side:        listSide,
+			Region:      listRegion,
+			Tract:       listTract,
+		}
+
+		resp, err := seatable.QueryDistinct(client, field, filters, listCount)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range resp.Results {
+			val := row[field]
+			if val == nil || val == "" {
+				continue
+			}
+			if listCount {
+				count := row["count"]
+				fmt.Printf("%-40s %v\n", val, count)
+			} else {
+				fmt.Println(val)
+			}
+		}
+
+		return nil
+	},
+}
+
+var (
+	listCount       bool
+	listSuperClass  string
+	listCellClass   string
+	listCellType    string
+	listCellSubtype string
+	listSide        string
+	listRegion      string
+	listTract       string
+)
+
+func init() {
+	listCmd.Flags().BoolVar(&listCount, "count", false, "Show count of neurons for each value")
+	listCmd.Flags().StringVar(&listSuperClass, "super-class", "", "Filter by super_class")
+	listCmd.Flags().StringVar(&listCellClass, "cell-class", "", "Filter by cell_class")
+	listCmd.Flags().StringVar(&listCellType, "cell-type", "", "Filter by cell_type")
+	listCmd.Flags().StringVar(&listCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
+	listCmd.Flags().StringVar(&listSide, "side", "", "Filter by side")
+	listCmd.Flags().StringVar(&listRegion, "region", "", "Filter by region")
+	listCmd.Flags().StringVar(&listTract, "tract", "", "Filter by tract")
+
+	rootCmd.AddCommand(listCmd)
+}
