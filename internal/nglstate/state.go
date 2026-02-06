@@ -108,14 +108,12 @@ func WriteState(result *LoadResult, outputFile string) error {
 			return err
 		}
 		if err := clipboard.Write(nglURL); err != nil {
-			// Fallback to stdout if clipboard fails
 			fmt.Println(nglURL)
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "Neuroglancer URL copied to clipboard\n")
 		return nil
 	default:
-		// Stdin or file without -o: write JSON to stdout
 		return writeToStdout(result.State)
 	}
 }
@@ -133,7 +131,7 @@ func writeToFile(state map[string]interface{}, path string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("writing file %q: %w", path, err)
 	}
 	fmt.Fprintf(os.Stderr, "Wrote state to %s\n", path)

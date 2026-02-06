@@ -34,7 +34,7 @@ func credentialFilePath() string {
 }
 
 // ReadStoredToken reads the base64-encoded token from ~/.crant_type_look/credentials.
-// Returns empty string if the file doesn't exist or can't be read.
+// Returns empty string if the file doesn't exist or can't be read. TODO: add a log here
 func ReadStoredToken() string {
 	path := credentialFilePath()
 	if path == "" {
@@ -51,18 +51,17 @@ func ReadStoredToken() string {
 	return string(decoded)
 }
 
-// StoreToken base64-encodes the token and writes it to ~/.crant_type_look/credentials.
 func StoreToken(token string) error {
 	path := credentialFilePath()
 	if path == "" {
 		return fmt.Errorf("could not determine home directory")
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(token))
-	if err := os.WriteFile(path, []byte(encoded+"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(encoded+"\n"), 0o600); err != nil {
 		return fmt.Errorf("writing credentials file: %w", err)
 	}
 	return nil

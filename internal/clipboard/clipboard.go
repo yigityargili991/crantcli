@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// Read returns the current system clipboard content.
 func Read() (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -28,7 +27,6 @@ func Read() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Write sets the system clipboard content.
 func Write(content string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {

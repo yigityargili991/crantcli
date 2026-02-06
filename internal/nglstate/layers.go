@@ -6,7 +6,7 @@ import (
 )
 
 // FindSegmentationLayer finds the first segmentation layer in the state, or
-// one matching the given name. Returns the layer map and its index.
+// one matching the given name. Returns the layer map and its index. Of course, this all is tuned to our dataset
 func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[string]interface{}, int, error) {
 	layersRaw, ok := state["layers"]
 	if !ok {
@@ -78,7 +78,7 @@ func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
 	layer["segments"] = toInterfaceSlice(segments)
 }
 
-// SetSegmentColor sets the segment colors in a segmentation layer.
+// SetSegmentColor sets the segment colors in a segmentation layer. otherwise ui wont set it to the seed
 // Color format: "#rrggbb"
 func SetSegmentColor(layer map[string]interface{}, rootIDs []string, color string) {
 	if color == "" {
