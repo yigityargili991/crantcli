@@ -27,7 +27,7 @@ Requires Go 1.25.5+.
 git clone https://github.com/yigityargili991/crant_type_look.git
 cd crant_type_look
 make build      # produces ./crant_type_look
-make install    # installs to $GOPATH/bin
+make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
 ```
 
 ### From releases
