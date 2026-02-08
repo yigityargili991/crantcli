@@ -283,22 +283,34 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	
 	os.Setenv("HOME", tempHome)
 
-	testURLs := []string{
-		"https://example.com/neuroglancer/#!{}",
-		"https://spelunker.cave-explorer.org/#!{\"layers\":[]}",
-		"https://neuroglancer-demo.appspot.com/#!{\"position\":[1,2,3]}",
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "simple_url",
+			url:  "https://example.com/neuroglancer/#!{}",
+		},
+		{
+			name: "url_with_layers",
+			url:  "https://spelunker.cave-explorer.org/#!{\"layers\":[]}",
+		},
+		{
+			name: "url_with_position",
+			url:  "https://neuroglancer-demo.appspot.com/#!{\"position\":[1,2,3]}",
+		},
 	}
 
-	for _, testURL := range testURLs {
-		t.Run(testURL, func(t *testing.T) {
-			err := writeLastStateURL(testURL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := writeLastStateURL(tt.url)
 			if err != nil {
 				t.Fatalf("write failed: %v", err)
 			}
 
 			url := readLastStateURL()
-			if url != testURL {
-				t.Errorf("round-trip failed: wrote %q, read %q", testURL, url)
+			if url != tt.url {
+				t.Errorf("round-trip failed: wrote %q, read %q", tt.url, url)
 			}
 		})
 	}
