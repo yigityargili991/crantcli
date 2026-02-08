@@ -7,7 +7,14 @@ import (
 	"strings"
 )
 
+// testCachePath allows tests to override the cache directory.
+// If set, it's used instead of $HOME/.crant_type_look
+var testCachePath string
+
 func lastStateFilePath() string {
+	if testCachePath != "" {
+		return filepath.Join(testCachePath, "last_state_url")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
