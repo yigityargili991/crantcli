@@ -79,6 +79,9 @@ func normalizeResultKeys(resp *SQLResponse) {
 	}
 
 	for _, row := range resp.Results {
+		if row == nil {
+			continue
+		}
 		for _, col := range resp.Metadata {
 			if col.Key == "" || col.Name == "" {
 				continue
