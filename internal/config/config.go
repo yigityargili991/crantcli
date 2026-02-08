@@ -67,13 +67,25 @@ func StoreToken(token string) error {
 	return nil
 }
 
-// GetAPIToken returns the SeaTable API token, checking the stored credential file
-// first, then falling back to the CRANTTABLE_TOKEN environment variable.
+func readTokenFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func GetAPIToken() string {
 	if token := ReadStoredToken(); token != "" {
 		return token
 	}
-	return os.Getenv("CRANTTABLE_TOKEN")
+	if token := os.Getenv("CRANTTABLE_TOKEN"); token != "" {
+		return token
+	}
+	if path := os.Getenv("CRANTTABLE_TOKEN_FILE"); path != "" {
+		return readTokenFile(path)
+	}
+	return ""
 }
 
 // RunSetupPrompt interactively prompts the user for their SeaTable token and stores it.

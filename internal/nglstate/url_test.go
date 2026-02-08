@@ -47,6 +47,23 @@ func TestDecodeURL(t *testing.T) {
 			want:  map[string]interface{}{"layers": []interface{}{}},
 		},
 		{
+			name:  "plus signs are preserved in fragment json",
+			input: "https://example.org/#!{\"source\":\"graphene://middleauth+https://x\"}",
+			want:  map[string]interface{}{"source": "graphene://middleauth+https://x"},
+		},
+		{
+			name:  "repairs legacy middleauth source with spaces",
+			input: "https://example.org/#!{\"layers\":[{\"source\":\"graphene://middleauth https://x\",\"type\":\"segmentation\"}]}",
+			want: map[string]interface{}{
+				"layers": []interface{}{
+					map[string]interface{}{
+						"source": "graphene://middleauth+https://x",
+						"type":   "segmentation",
+					},
+				},
+			},
+		},
+		{
 			name:    "no fragment",
 			input:   "https://example.org/",
 			wantErr: true,
@@ -79,7 +96,7 @@ func TestDecodeURL(t *testing.T) {
 
 func TestEncodeURL(t *testing.T) {
 	state := map[string]interface{}{"layers": []interface{}{}}
-	
+
 	t.Run("default viewer", func(t *testing.T) {
 		got, err := EncodeURL(state, "")
 		if err != nil {

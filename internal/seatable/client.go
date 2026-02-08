@@ -66,6 +66,29 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding SQL response: %w", err)
 	}
+	normalizeResultKeys(&result)
 
 	return &result, nil
+}
+
+// normalizeResultKeys ensures each row can be read by both SeaTable column key
+// (e.g. "0000") and column name (e.g. "root_id").
+func normalizeResultKeys(resp *SQLResponse) {
+	if resp == nil || len(resp.Metadata) == 0 || len(resp.Results) == 0 {
+		return
+	}
+
+	for _, row := range resp.Results {
+		for _, col := range resp.Metadata {
+			if col.Key == "" || col.Name == "" {
+				continue
+			}
+			if _, exists := row[col.Name]; exists {
+				continue
+			}
+			if v, ok := row[col.Key]; ok {
+				row[col.Name] = v
+			}
+		}
+	}
 }
