@@ -6,14 +6,37 @@ import (
 	"testing"
 )
 
+// setupTestHome creates a temporary HOME directory for testing and ensures
+// the original HOME environment variable is restored after the test.
+func setupTestHome(t *testing.T) (tempHome string, cleanup func()) {
+	t.Helper()
+	tempHome = t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempHome)
+	
+	cleanup = func() {
+		os.Setenv("HOME", originalHome)
+	}
+	return tempHome, cleanup
+}
+
+// unsetHome temporarily unsets the HOME environment variable for testing
+// and ensures it is restored after the test.
+func unsetHome(t *testing.T) (cleanup func()) {
+	t.Helper()
+	originalHome := os.Getenv("HOME")
+	os.Unsetenv("HOME")
+	
+	cleanup = func() {
+		os.Setenv("HOME", originalHome)
+	}
+	return cleanup
+}
+
 func TestLastStateFilePath(t *testing.T) {
 	t.Run("returns empty string when HOME cannot be determined", func(t *testing.T) {
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-
-		// Unset HOME to simulate error
-		os.Unsetenv("HOME")
+		cleanup := unsetHome(t)
+		defer cleanup()
 
 		path := lastStateFilePath()
 		if path != "" {
@@ -22,14 +45,8 @@ func TestLastStateFilePath(t *testing.T) {
 	})
 
 	t.Run("returns correct path when HOME is set", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
 
 		path := lastStateFilePath()
 		expected := filepath.Join(tempHome, ".crant_type_look", "last_state_url")
@@ -41,14 +58,10 @@ func TestLastStateFilePath(t *testing.T) {
 
 func TestReadLastStateURL(t *testing.T) {
 	t.Run("returns empty string when file does not exist", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		_ = tempHome // Used via environment variable
 
 		url := readLastStateURL()
 		if url != "" {
@@ -57,12 +70,8 @@ func TestReadLastStateURL(t *testing.T) {
 	})
 
 	t.Run("returns empty string when HOME cannot be determined", func(t *testing.T) {
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-
-		// Unset HOME to simulate error
-		os.Unsetenv("HOME")
+		cleanup := unsetHome(t)
+		defer cleanup()
 
 		url := readLastStateURL()
 		if url != "" {
@@ -71,14 +80,8 @@ func TestReadLastStateURL(t *testing.T) {
 	})
 
 	t.Run("reads and trims whitespace from file", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
 
 		// Create the cache directory and file
 		cacheDir := filepath.Join(tempHome, ".crant_type_look")
@@ -100,14 +103,8 @@ func TestReadLastStateURL(t *testing.T) {
 	})
 
 	t.Run("handles newlines and tabs", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
 
 		// Create the cache directory and file
 		cacheDir := filepath.Join(tempHome, ".crant_type_look")
@@ -131,12 +128,8 @@ func TestReadLastStateURL(t *testing.T) {
 
 func TestWriteLastStateURL(t *testing.T) {
 	t.Run("returns error when HOME cannot be determined", func(t *testing.T) {
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-
-		// Unset HOME to simulate error
-		os.Unsetenv("HOME")
+		cleanup := unsetHome(t)
+		defer cleanup()
 
 		err := writeLastStateURL("https://example.com/test")
 		if err == nil {
@@ -148,14 +141,8 @@ func TestWriteLastStateURL(t *testing.T) {
 	})
 
 	t.Run("creates directory with correct permissions", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
 
 		testURL := "https://example.com/neuroglancer/#!{}"
 		err := writeLastStateURL(testURL)
@@ -180,14 +167,8 @@ func TestWriteLastStateURL(t *testing.T) {
 	})
 
 	t.Run("writes file with correct permissions", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
 
 		testURL := "https://example.com/neuroglancer/#!{}"
 		err := writeLastStateURL(testURL)
@@ -212,14 +193,8 @@ func TestWriteLastStateURL(t *testing.T) {
 	})
 
 	t.Run("trims whitespace and adds newline", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
 
 		testURL := "https://example.com/neuroglancer/#!{}"
 		inputURL := "  " + testURL + "  \n\t"
@@ -242,14 +217,10 @@ func TestWriteLastStateURL(t *testing.T) {
 	})
 
 	t.Run("overwrites existing file", func(t *testing.T) {
-		// Create temp directory for HOME
-		tempHome := t.TempDir()
-		
-		// Save original HOME
-		originalHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", originalHome)
-		
-		os.Setenv("HOME", tempHome)
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		_ = tempHome // Used via environment variable
 
 		// Write first URL
 		firstURL := "https://example.com/first"
@@ -274,14 +245,10 @@ func TestWriteLastStateURL(t *testing.T) {
 }
 
 func TestWriteReadRoundTrip(t *testing.T) {
-	// Create temp directory for HOME
-	tempHome := t.TempDir()
-	
-	// Save original HOME
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	
-	os.Setenv("HOME", tempHome)
+	tempHome, cleanup := setupTestHome(t)
+	defer cleanup()
+
+	_ = tempHome // Used via environment variable
 
 	tests := []struct {
 		name string
