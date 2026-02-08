@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"crant_type_look/internal/browser"
 	"crant_type_look/internal/nglstate"
 	"crant_type_look/internal/seatable"
 
@@ -20,7 +21,8 @@ their root IDs into a Neuroglancer state.
 Smart input resolution (when no --state is given):
   1. Check stdin for piped JSON
   2. Check clipboard for a Neuroglancer URL
-  3. Fall back to the default CRANT scene template
+  3. Check last state URL produced by this tool
+  4. Fall back to the default CRANT scene template
 
 Examples:
   # Smart: checks clipboard for Neuroglancer URL, injects, copies back
@@ -31,6 +33,9 @@ Examples:
 
   # Generate fresh state
   crant_type_look add --cell-class kenyon_cell --generate
+
+  # Open updated state in browser
+  crant_type_look add --cell-type ER --open
 
   # Just get root IDs (no state manipulation)
   crant_type_look add --cell-class kenyon_cell --root-ids-only`,
@@ -54,6 +59,7 @@ var (
 	addColor       string
 	addReplace     bool
 	addRootIDsOnly bool
+	addOpen        bool
 )
 
 func init() {
@@ -66,12 +72,13 @@ func init() {
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
-	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard")
+	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard/session state")
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color (e.g. #ff0000)")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
+	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 
 	rootCmd.AddCommand(addCmd)
 }
@@ -141,5 +148,25 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	nglstate.SetSegmentColor(layer, rootIDs, addColor)
 
 	// Output
-	return nglstate.WriteState(result, addOutput)
+	if err := nglstate.WriteState(result, addOutput); err != nil {
+		return err
+	}
+
+	if addOpen {
+		nglURL := result.OutputURL
+		if nglURL == "" {
+			var err error
+			nglURL, err = nglstate.EncodeURL(result.State, "")
+			if err != nil {
+				return fmt.Errorf("encoding URL for --open: %w", err)
+			}
+		}
+
+		if err := browser.OpenURL(nglURL); err != nil {
+			return fmt.Errorf("opening browser: %w", err)
+		}
+		fmt.Fprintln(os.Stderr, "Opened Neuroglancer URL in browser")
+	}
+
+	return nil
 }

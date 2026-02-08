@@ -30,8 +30,9 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 	// Strip leading '!' if present
 	fragment = strings.TrimPrefix(fragment, "!")
 
-	// URL-decode the fragment
-	decoded, err := url.QueryUnescape(fragment)
+	// URL-decode the fragment.
+	// Use PathUnescape so '+' is preserved (QueryUnescape converts '+' to space).
+	decoded, err := url.PathUnescape(fragment)
 	if err != nil {
 		// Try using the raw fragment
 		decoded = fragment
@@ -41,6 +42,7 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 	if err := json.Unmarshal([]byte(decoded), &state); err != nil {
 		return nil, fmt.Errorf("decoding state JSON from URL fragment: %w", err)
 	}
+	repairLegacyMiddleauthSource(state)
 
 	return state, nil
 }
@@ -57,4 +59,32 @@ func EncodeURL(state map[string]interface{}, viewer string) (string, error) {
 	}
 
 	return viewer + "/#!" + string(data), nil
+}
+
+// repairLegacyMiddleauthSource fixes old state URLs that were decoded with '+'
+// converted to spaces in graphene source URLs.
+func repairLegacyMiddleauthSource(state map[string]interface{}) {
+	layersRaw, ok := state["layers"]
+	if !ok {
+		return
+	}
+
+	layers, ok := layersRaw.([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, l := range layers {
+		layer, ok := l.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		src, ok := layer["source"].(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(src, "graphene://middleauth https://") {
+			layer["source"] = strings.ReplaceAll(src, "graphene://middleauth https://", "graphene://middleauth+https://")
+		}
+	}
 }

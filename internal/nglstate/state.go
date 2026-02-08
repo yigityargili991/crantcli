@@ -18,6 +18,7 @@ const (
 	SourceFile      StateSource = "file"
 	SourceStdin     StateSource = "stdin"
 	SourceClipboard StateSource = "clipboard"
+	SourceSession   StateSource = "session"
 	SourceTemplate  StateSource = "template"
 )
 
@@ -27,6 +28,8 @@ type LoadResult struct {
 	Source StateSource
 	// OriginalURL is set when the state was decoded from a URL.
 	OriginalURL string
+	// OutputURL is set when state output is written as a Neuroglancer URL.
+	OutputURL string
 }
 
 // LoadState loads a Neuroglancer state using smart resolution:
@@ -34,7 +37,8 @@ type LoadResult struct {
 // 2. If stateArg is a file path, read it
 // 3. If stateArg is empty, try stdin (if not a terminal)
 // 4. If stdin is empty, try clipboard for a Neuroglancer URL
-// 5. If generate is true or nothing found, use default template
+// 5. If clipboard has no URL, try the last URL produced by this tool
+// 6. If generate is true or nothing found, use default template
 func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	// Explicit --state argument
 	if stateArg != "" {
@@ -84,6 +88,17 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		}
 	}
 
+	// Try remembered session URL
+	if !generate {
+		last := readLastStateURL()
+		if IsNeuroglancerURL(last) {
+			state, err := DecodeURL(last)
+			if err == nil {
+				return &LoadResult{State: state, Source: SourceSession, OriginalURL: last}, nil
+			}
+		}
+	}
+
 	// Fallback: generate from template
 	state, err := parseJSON(DefaultScene)
 	if err != nil {
@@ -102,20 +117,22 @@ func WriteState(result *LoadResult, outputFile string) error {
 	}
 
 	switch result.Source {
-	case SourceClipboard, SourceURL, SourceTemplate:
+	case SourceClipboard, SourceURL, SourceSession, SourceTemplate:
 		nglURL, err := EncodeURL(result.State, "")
 		if err != nil {
 			return err
 		}
+		result.OutputURL = nglURL
+		if err := writeLastStateURL(nglURL); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not persist session state: %v\n", err)
+		}
 		if err := clipboard.Write(nglURL); err != nil {
-			// Fallback to stdout if clipboard fails
 			fmt.Println(nglURL)
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "Neuroglancer URL copied to clipboard\n")
 		return nil
 	default:
-		// Stdin or file without -o: write JSON to stdout
 		return writeToStdout(result.State)
 	}
 }
@@ -133,7 +150,7 @@ func writeToFile(state map[string]interface{}, path string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("writing file %q: %w", path, err)
 	}
 	fmt.Fprintf(os.Stderr, "Wrote state to %s\n", path)

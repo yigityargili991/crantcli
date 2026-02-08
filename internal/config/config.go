@@ -34,7 +34,7 @@ func credentialFilePath() string {
 }
 
 // ReadStoredToken reads the base64-encoded token from ~/.crant_type_look/credentials.
-// Returns empty string if the file doesn't exist or can't be read.
+// Returns empty string if the file doesn't exist or can't be read. TODO: add a log here
 func ReadStoredToken() string {
 	path := credentialFilePath()
 	if path == "" {
@@ -51,30 +51,48 @@ func ReadStoredToken() string {
 	return string(decoded)
 }
 
-// StoreToken base64-encodes the token and writes it to ~/.crant_type_look/credentials.
 func StoreToken(token string) error {
 	path := credentialFilePath()
 	if path == "" {
 		return fmt.Errorf("could not determine home directory")
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(token))
-	if err := os.WriteFile(path, []byte(encoded+"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(encoded+"\n"), 0o600); err != nil {
 		return fmt.Errorf("writing credentials file: %w", err)
 	}
 	return nil
 }
 
-// GetAPIToken returns the SeaTable API token, checking the stored credential file
-// first, then falling back to the CRANTTABLE_TOKEN environment variable.
+func readTokenFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// GetAPIToken retrieves the SeaTable API token from one of several sources.
+// It checks sources in the following precedence order:
+//  1. Stored credentials from ~/.crant_type_look/credentials (via ReadStoredToken)
+//  2. CRANTTABLE_TOKEN environment variable
+//  3. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
+//
+// Returns an empty string if no token is found from any source.
 func GetAPIToken() string {
 	if token := ReadStoredToken(); token != "" {
 		return token
 	}
-	return os.Getenv("CRANTTABLE_TOKEN")
+	if token := os.Getenv("CRANTTABLE_TOKEN"); token != "" {
+		return token
+	}
+	if path := os.Getenv("CRANTTABLE_TOKEN_FILE"); path != "" {
+		return readTokenFile(path)
+	}
+	return ""
 }
 
 // RunSetupPrompt interactively prompts the user for their SeaTable token and stores it.
