@@ -50,6 +50,7 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 			return &LoadResult{State: state, Source: SourceURL, OriginalURL: stateArg}, nil
 		}
 
+		// Try as file path
 		data, err := os.ReadFile(stateArg)
 		if err != nil {
 			return nil, fmt.Errorf("reading state file %q: %w", stateArg, err)
@@ -61,6 +62,7 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		return &LoadResult{State: state, Source: SourceFile}, nil
 	}
 
+	// Try stdin if it's not a terminal
 	if !isTerminal(os.Stdin) {
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -75,6 +77,7 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		}
 	}
 
+	// Try clipboard
 	if !generate {
 		clip, err := clipboard.Read()
 		if err == nil && IsNeuroglancerURL(clip) {
@@ -85,6 +88,7 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		}
 	}
 
+	// Try remembered session URL
 	if !generate {
 		last := readLastStateURL()
 		if IsNeuroglancerURL(last) {
@@ -95,6 +99,7 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		}
 	}
 
+	// Fallback: generate from template
 	state, err := parseJSON(DefaultScene)
 	if err != nil {
 		return nil, fmt.Errorf("parsing default template: %w", err)
