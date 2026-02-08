@@ -120,4 +120,4 @@ go test ./...
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+License information for this project is not yet specified in a LICENSE file.
