@@ -75,6 +75,13 @@ func readTokenFile(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
+// GetAPIToken retrieves the SeaTable API token from one of several sources.
+// It checks sources in the following precedence order:
+//  1. Stored credentials from ~/.crant_type_look/credentials (via ReadStoredToken)
+//  2. CRANTTABLE_TOKEN environment variable
+//  3. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
+//
+// Returns an empty string if no token is found from any source.
 func GetAPIToken() string {
 	if token := ReadStoredToken(); token != "" {
 		return token
