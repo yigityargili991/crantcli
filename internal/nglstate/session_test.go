@@ -58,10 +58,8 @@ func TestLastStateFilePath(t *testing.T) {
 
 func TestReadLastStateURL(t *testing.T) {
 	t.Run("returns empty string when file does not exist", func(t *testing.T) {
-		tempHome, cleanup := setupTestHome(t)
+		_, cleanup := setupTestHome(t)
 		defer cleanup()
-
-		_ = tempHome // Used via environment variable
 
 		url := readLastStateURL()
 		if url != "" {
@@ -217,10 +215,8 @@ func TestWriteLastStateURL(t *testing.T) {
 	})
 
 	t.Run("overwrites existing file", func(t *testing.T) {
-		tempHome, cleanup := setupTestHome(t)
+		_, cleanup := setupTestHome(t)
 		defer cleanup()
-
-		_ = tempHome // Used via environment variable
 
 		// Write first URL
 		firstURL := "https://example.com/first"
@@ -245,10 +241,8 @@ func TestWriteLastStateURL(t *testing.T) {
 }
 
 func TestWriteReadRoundTrip(t *testing.T) {
-	tempHome, cleanup := setupTestHome(t)
+	_, cleanup := setupTestHome(t)
 	defer cleanup()
-
-	_ = tempHome // Used via environment variable
 
 	tests := []struct {
 		name string
