@@ -1,2 +1,4 @@
 crant_type_look
 dist/
+.DS_Store
+**/.DS_Store

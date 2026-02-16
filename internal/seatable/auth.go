@@ -45,7 +45,7 @@ func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, string, error
 	req.Header.Set("Authorization", "Bearer "+apiToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, 0, "", fmt.Errorf("auth request failed: %w", err)
 	}
