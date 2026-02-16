@@ -1,29 +1,164 @@
 {
     "dimensions": {
-        "x": [4e-9, "m"],
-        "y": [4e-9, "m"],
-        "z": [4e-9, "m"]
+        "x": [
+            8e-9,
+            "m"
+        ],
+        "y": [
+            8e-9,
+            "m"
+        ],
+        "z": [
+            4.2e-8,
+            "m"
+        ]
     },
-    "position": [132352, 167296, 6400],
-    "crossSectionScale": 4,
-    "projectionScale": 300000,
+    "position": [
+        25408.880859375,
+        13038.8349609375,
+        2114.51123046875
+    ],
+    "crossSectionScale": 0.9225878296609514,
+    "projectionOrientation": [
+        -0.6154062151908875,
+        0.033783186227083206,
+        -0.04651277884840965,
+        0.7861109375953674
+    ],
+    "projectionScale": 39082.98015468553,
+    "projectionDepth": 541651.3969244945,
     "layers": [
         {
             "type": "image",
             "source": "precomputed://gs://dkronauer-ant-001-alignment-final/aligned",
+            "tab": "source",
             "name": "aligned"
         },
         {
             "type": "segmentation",
-            "source": "graphene://middleauth+https://data.proofreading.zetta.ai/segmentation/table/kronauer_ant_x1",
-            "name": "proofreadable seg",
-            "segments": []
+            "source": {
+                "url": "graphene://middleauth+https://data.proofreading.zetta.ai/segmentation/table/kronauer_ant_x1",
+                "state": {
+                    "multicut": {
+                        "sinks": [],
+                        "sources": []
+                    },
+                    "merge": {
+                        "merges": []
+                    },
+                    "findPath": {}
+                }
+            },
+            "tab": "rendering",
+            "selectedAlpha": 0.4,
+            "meshRenderScale": 0.25,
+            "crossSectionRenderScale": 0.0625,
+            "segments": [],
+            "colorSeed": 1212430833,
+            "name": "proofreadable seg"
         },
         {
-            "type": "mesh",
+            "type": "segmentation",
             "source": "precomputed://gs://dkronauer-ant-001-alignment-final/tissue_mesh/mesh#type=mesh",
-            "name": "brain mesh"
+            "tab": "rendering",
+            "objectAlpha": 0.13,
+            "hoverHighlight": false,
+            "segments": [
+                "1"
+            ],
+            "segmentQuery": "1",
+            "segmentDefaultColor": "#ffffff",
+            "segmentColors": {
+                "1": "#ffffff"
+            },
+            "name": "brain mesh",
+            "visible": false
+        },
+        {
+            "type": "segmentation",
+            "source": "precomputed://gs://dkronauer-ant-001-segmentations-prod/ng/seg/240904-finetune-v3.2-0.21-size-1x",
+            "tab": "rendering",
+            "meshRenderScale": 0.31183193310826596,
+            "segments": [
+                "!72692494089485347",
+                "!72551687881555330",
+                "!72622056222935722",
+                "!72902912522699668",
+                "!72480975405555411",
+                "!72832544315934934",
+                "!73677794080795133"
+            ],
+            "colorSeed": 2474154087,
+            "name": "merge-biased seg",
+            "visible": false
+        },
+        {
+            "type": "segmentation",
+            "source": "precomputed://gs://dkronauer-ant-001-segmentations-prod/nucleus/240910-nucleus",
+            "tab": "source",
+            "segments": [],
+            "name": "nuclei",
+            "visible": false
+        },
+        {
+            "type": "segmentation",
+            "source": {
+                "url": "https://raw.githubusercontent.com/yigityargili991/haberkernlab_mesh_repo/54d7b1daaa53f23acc14ff34d6c2e728ad6e9254/mesh/|neuroglancer-precomputed:",
+                "transform": {
+                    "matrix": [
+                        [
+                            1,
+                            0,
+                            0,
+                            -5400
+                        ],
+                        [
+                            0,
+                            1,
+                            0,
+                            -5400
+                        ],
+                        [
+                            0,
+                            0,
+                            1,
+                            -60
+                        ]
+                    ],
+                    "outputDimensions": {
+                        "x": [
+                            8e-9,
+                            "m"
+                        ],
+                        "y": [
+                            8e-9,
+                            "m"
+                        ],
+                        "z": [
+                            4.2e-8,
+                            "m"
+                        ]
+                    }
+                }
+            },
+            "tab": "segments",
+            "objectAlpha": 0.54,
+            "segments": [
+                "9",
+                "10",
+                "11"
+            ],
+            "segmentQuery": "9 10 11",
+            "name": "neuropil-meshes"
         }
     ],
-    "layout": "4panel"
+    "showSlices": false,
+    "selectedLayer": {
+        "visible": true,
+        "layer": "mesh"
+    },
+    "layout": {
+        "type": "xy-3d",
+        "orthographicProjection": true
+    }
 }

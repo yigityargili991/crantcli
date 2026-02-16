@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bufio"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -106,11 +105,12 @@ func RunSetupPrompt() error {
 	fmt.Println("Please copy your SeaTable token here to use crant TypeLook:")
 	fmt.Print("> ")
 
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return fmt.Errorf("failed to read input")
+	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
 	}
-	token := strings.TrimSpace(scanner.Text())
+	token := strings.TrimSpace(string(tokenBytes))
 
 	if token == "" {
 		return fmt.Errorf("token cannot be empty")

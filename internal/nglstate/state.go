@@ -42,6 +42,14 @@ type LoadResult struct {
 func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	// Explicit --state argument
 	if stateArg != "" {
+		// Prefer existing files, even if the filename contains URL-like substrings
+		// such as "neuroglancer".
+		if state, err := loadStateFileIfExists(stateArg); err != nil {
+			return nil, err
+		} else if state != nil {
+			return &LoadResult{State: state, Source: SourceFile}, nil
+		}
+
 		if IsNeuroglancerURL(stateArg) {
 			state, err := DecodeURL(stateArg)
 			if err != nil {
@@ -50,7 +58,7 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 			return &LoadResult{State: state, Source: SourceURL, OriginalURL: stateArg}, nil
 		}
 
-		// Try as file path
+		// Try as file path and return the concrete read/parse error.
 		data, err := os.ReadFile(stateArg)
 		if err != nil {
 			return nil, fmt.Errorf("reading state file %q: %w", stateArg, err)
@@ -105,6 +113,29 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		return nil, fmt.Errorf("parsing default template: %w", err)
 	}
 	return &LoadResult{State: state, Source: SourceTemplate}, nil
+}
+
+func loadStateFileIfExists(path string) (map[string]interface{}, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading state file %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("state path %q is a directory", path)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading state file %q: %w", path, err)
+	}
+	state, err := parseJSON(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing state file %q: %w", path, err)
+	}
+	return state, nil
 }
 
 // WriteState outputs the state to the appropriate destination.

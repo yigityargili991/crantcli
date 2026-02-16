@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"crant_type_look/internal/nglstate"
@@ -47,7 +48,7 @@ Examples:
 
 			name, _ := layer["name"].(string)
 			layerType, _ := layer["type"].(string)
-			source, _ := layer["source"].(string)
+			source := formatLayerSource(layer["source"])
 
 			fmt.Printf("  [%d] %s (%s)\n", i, name, layerType)
 			if source != "" {
@@ -85,4 +86,19 @@ func countSegments(layer map[string]interface{}) int {
 		return 0
 	}
 	return len(segs)
+}
+
+func formatLayerSource(source interface{}) string {
+	switch v := source.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(data)
+	}
 }
