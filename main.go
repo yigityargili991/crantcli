@@ -1,6 +1,6 @@
 package main
 
-import "crant_type_look/cmd"
+import "crantinject/cmd"
 
 func main() {
 	cmd.Execute()

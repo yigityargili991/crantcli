@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"crant_type_look/internal/seatable"
+	"crantinject/internal/seatable"
 
 	"github.com/spf13/cobra"
 )
@@ -16,9 +16,9 @@ var listCmd = &cobra.Command{
 Valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread
 
 Examples:
-  crant_type_look list super_class --count
-  crant_type_look list cell_class --super-class sensory --count
-  crant_type_look list cell_type --cell-class kenyon_cell`,
+  crantinject list super_class --count
+  crantinject list cell_class --super-class sensory --count
+  crantinject list cell_type --cell-class kenyon_cell`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

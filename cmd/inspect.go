@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"crant_type_look/internal/nglstate"
+	"crantinject/internal/nglstate"
 
 	"github.com/spf13/cobra"
 )
@@ -17,8 +17,8 @@ var inspectCmd = &cobra.Command{
 Uses smart input: reads from --state flag, stdin, clipboard, or default template.
 
 Examples:
-  crant_type_look inspect              # reads from clipboard
-  crant_type_look inspect -s state.json`,
+  crantinject inspect              # reads from clipboard
+  crantinject inspect -s state.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := nglstate.LoadState(inspectState, false)
 		if err != nil {

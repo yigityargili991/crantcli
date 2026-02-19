@@ -23,8 +23,8 @@ type AuthResponse struct {
 
 // SQLResponse is the response from the SQL query endpoint.
 type SQLResponse struct {
-	Metadata []ColumnMeta               `json:"metadata"`
-	Results  []map[string]interface{}   `json:"results"`
+	Metadata []ColumnMeta             `json:"metadata"`
+	Results  []map[string]interface{} `json:"results"`
 }
 
 // ColumnMeta describes a column in the SQL response.

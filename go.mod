@@ -1,4 +1,4 @@
-module crant_type_look
+module crantinject
 
 go 1.25.5
 

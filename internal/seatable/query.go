@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"crant_type_look/internal/config"
+	"crantinject/internal/config"
 )
 
 // Filters holds optional WHERE clause filters for neuron queries.

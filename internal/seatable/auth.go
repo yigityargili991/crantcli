@@ -7,7 +7,7 @@ import (
 	"net/http"
 	neturl "net/url"
 
-	"crant_type_look/internal/config"
+	"crantinject/internal/config"
 )
 
 // ExchangeToken exchanges an API token for a base access token.

@@ -13,7 +13,7 @@ func setupTestHome(t *testing.T) (tempHome string, cleanup func()) {
 	tempHome = t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempHome)
-	
+
 	cleanup = func() {
 		os.Setenv("HOME", originalHome)
 	}
@@ -26,7 +26,7 @@ func unsetHome(t *testing.T) (cleanup func()) {
 	t.Helper()
 	originalHome := os.Getenv("HOME")
 	os.Unsetenv("HOME")
-	
+
 	cleanup = func() {
 		os.Setenv("HOME", originalHome)
 	}
@@ -49,7 +49,7 @@ func TestLastStateFilePath(t *testing.T) {
 		defer cleanup()
 
 		path := lastStateFilePath()
-		expected := filepath.Join(tempHome, ".crant_type_look", "last_state_url")
+		expected := filepath.Join(tempHome, ".crantinject", "last_state_url")
 		if path != expected {
 			t.Errorf("expected %q, got %q", expected, path)
 		}
@@ -82,7 +82,7 @@ func TestReadLastStateURL(t *testing.T) {
 		defer cleanup()
 
 		// Create the cache directory and file
-		cacheDir := filepath.Join(tempHome, ".crant_type_look")
+		cacheDir := filepath.Join(tempHome, ".crantinject")
 		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func TestReadLastStateURL(t *testing.T) {
 		defer cleanup()
 
 		// Create the cache directory and file
-		cacheDir := filepath.Join(tempHome, ".crant_type_look")
+		cacheDir := filepath.Join(tempHome, ".crantinject")
 		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -120,6 +120,55 @@ func TestReadLastStateURL(t *testing.T) {
 		url := readLastStateURL()
 		if url != testURL {
 			t.Errorf("expected %q, got %q", testURL, url)
+		}
+	})
+
+	t.Run("falls back to legacy cache path", func(t *testing.T) {
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		legacyDir := filepath.Join(tempHome, ".crant_type_look")
+		if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		testURL := "https://example.com/legacy"
+		legacyFile := filepath.Join(legacyDir, "last_state_url")
+		if err := os.WriteFile(legacyFile, []byte(testURL+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		url := readLastStateURL()
+		if url != testURL {
+			t.Errorf("expected legacy URL %q, got %q", testURL, url)
+		}
+	})
+
+	t.Run("prefers new cache path over legacy path", func(t *testing.T) {
+		tempHome, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		newDir := filepath.Join(tempHome, ".crantinject")
+		if err := os.MkdirAll(newDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		newURL := "https://example.com/new"
+		if err := os.WriteFile(filepath.Join(newDir, "last_state_url"), []byte(newURL+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		legacyDir := filepath.Join(tempHome, ".crant_type_look")
+		if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		legacyURL := "https://example.com/legacy"
+		if err := os.WriteFile(filepath.Join(legacyDir, "last_state_url"), []byte(legacyURL+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		url := readLastStateURL()
+		if url != newURL {
+			t.Errorf("expected new URL %q, got %q", newURL, url)
 		}
 	})
 }
@@ -149,7 +198,7 @@ func TestWriteLastStateURL(t *testing.T) {
 		}
 
 		// Check that directory was created with correct permissions
-		cacheDir := filepath.Join(tempHome, ".crant_type_look")
+		cacheDir := filepath.Join(tempHome, ".crantinject")
 		info, err := os.Stat(cacheDir)
 		if err != nil {
 			t.Fatalf("directory not created: %v", err)
@@ -175,7 +224,7 @@ func TestWriteLastStateURL(t *testing.T) {
 		}
 
 		// Check that file was created with correct permissions
-		filePath := filepath.Join(tempHome, ".crant_type_look", "last_state_url")
+		filePath := filepath.Join(tempHome, ".crantinject", "last_state_url")
 		info, err := os.Stat(filePath)
 		if err != nil {
 			t.Fatalf("file not created: %v", err)
@@ -202,7 +251,7 @@ func TestWriteLastStateURL(t *testing.T) {
 		}
 
 		// Read back and verify
-		filePath := filepath.Join(tempHome, ".crant_type_look", "last_state_url")
+		filePath := filepath.Join(tempHome, ".crantinject", "last_state_url")
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			t.Fatalf("failed to read file: %v", err)

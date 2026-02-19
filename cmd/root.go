@@ -4,19 +4,19 @@ import (
 	"fmt"
 	"os"
 
-	"crant_type_look/internal/config"
+	"crantinject/internal/config"
 
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "crant_type_look",
+	Use:   "crantinject",
 	Short: "Query CRANT ant connectome neurons and inject into Neuroglancer states",
-	Long: `crant_type_look queries the CRANT ant connectome dataset for neuron root IDs
+	Long: `crantinject queries the CRANT ant connectome dataset for neuron root IDs
 by classification (super_class, cell_class, cell_type, cell_subtype) and
 injects them into a Neuroglancer state JSON.
 
-Run 'crant_type_look setup' to configure your SeaTable API token.`,
+Run 'crantinject setup' to configure your SeaTable API token.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Annotations["requiresToken"] != "true" {
 			return nil

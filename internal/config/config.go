@@ -22,20 +22,28 @@ const (
 	SegmentationSource = "graphene://middleauth+https://data.proofreading.zetta.ai/segmentation/table/kronauer_ant_x1"
 	ImageSource        = "precomputed://gs://dkronauer-ant-001-alignment-final/aligned"
 	MeshSource         = "precomputed://gs://dkronauer-ant-001-alignment-final/tissue_mesh/mesh#type=mesh"
+
+	appConfigDir       = ".crantinject"
+	legacyAppConfigDir = ".crant_type_look"
 )
 
-func credentialFilePath() string {
+func credentialFilePathForDir(configDir string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".crant_type_look", "credentials")
+	return filepath.Join(home, configDir, "credentials")
 }
 
-// ReadStoredToken reads the base64-encoded token from ~/.crant_type_look/credentials.
-// Returns empty string if the file doesn't exist or can't be read. TODO: add a log here
-func ReadStoredToken() string {
-	path := credentialFilePath()
+func credentialFilePath() string {
+	return credentialFilePathForDir(appConfigDir)
+}
+
+func legacyCredentialFilePath() string {
+	return credentialFilePathForDir(legacyAppConfigDir)
+}
+
+func readStoredTokenAtPath(path string) string {
 	if path == "" {
 		return ""
 	}
@@ -48,6 +56,15 @@ func ReadStoredToken() string {
 		return ""
 	}
 	return string(decoded)
+}
+
+// ReadStoredToken reads a base64-encoded token from ~/.crantinject/credentials.
+// For migration compatibility, it falls back to ~/.crant_type_look/credentials.
+func ReadStoredToken() string {
+	if token := readStoredTokenAtPath(credentialFilePath()); token != "" {
+		return token
+	}
+	return readStoredTokenAtPath(legacyCredentialFilePath())
 }
 
 func StoreToken(token string) error {
@@ -76,7 +93,7 @@ func readTokenFile(path string) string {
 
 // GetAPIToken retrieves the SeaTable API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. Stored credentials from ~/.crant_type_look/credentials (via ReadStoredToken)
+//  1. Stored credentials from ~/.crantinject/credentials (fallback ~/.crant_type_look/credentials)
 //  2. CRANTTABLE_TOKEN environment variable
 //  3. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
 //
@@ -98,11 +115,11 @@ func GetAPIToken() string {
 // Returns an error if stdin is not a terminal.
 func RunSetupPrompt() error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("no SeaTable token configured and stdin is not a terminal; set CRANTTABLE_TOKEN or run 'crant_type_look setup'")
+		return fmt.Errorf("no SeaTable token configured and stdin is not a terminal; set CRANTTABLE_TOKEN or run 'crantinject setup'")
 	}
 
 	fmt.Println("Let's get set up yeah?")
-	fmt.Println("Please copy your SeaTable token here to use crant TypeLook:")
+	fmt.Println("Please copy your SeaTable token here to use crantinject:")
 	fmt.Print("> ")
 
 	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))

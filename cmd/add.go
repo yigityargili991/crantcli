@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"crant_type_look/internal/browser"
-	"crant_type_look/internal/nglstate"
-	"crant_type_look/internal/seatable"
+	"crantinject/internal/browser"
+	"crantinject/internal/nglstate"
+	"crantinject/internal/seatable"
 
 	"github.com/spf13/cobra"
 )
@@ -26,22 +26,22 @@ Smart input resolution (when no --state is given):
 
 Examples:
   # Smart: checks clipboard for Neuroglancer URL, injects, copies back
-  crant_type_look add --cell-class kenyon_cell
+  crantinject add --cell-class kenyon_cell
 
   # Explicit file I/O
-  crant_type_look add --cell-class kenyon_cell -s state.json -o modified.json
+  crantinject add --cell-class kenyon_cell -s state.json -o modified.json
 
   # Generate fresh state
-  crant_type_look add --cell-class kenyon_cell --generate
+  crantinject add --cell-class kenyon_cell --generate
 
   # Open updated state in browser
-  crant_type_look add --cell-type ER --open
+  crantinject add --cell-type ER --open
 
   # Force clipboard overwrite output mode
-  crant_type_look add --cell-class kenyon_cell --pile
+  crantinject add --cell-class kenyon_cell --pile
 
   # Just get root IDs (no state manipulation)
-  crant_type_look add --cell-class kenyon_cell --root-ids-only`,
+  crantinject add --cell-class kenyon_cell --root-ids-only`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	RunE:        runAdd,
 }
