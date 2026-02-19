@@ -56,13 +56,16 @@ crant_type_look add --super-class sensory --side left --color "#ff0000"
 # Replace segments instead of appending
 crant_type_look add --cell-type ER --replace
 
+# Force clipboard overwrite output mode
+crant_type_look add --cell-class kenyon_cell --pile
+
 # Just get root IDs, no state manipulation
 crant_type_look add --cell-class kenyon_cell --root-ids-only
 ```
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--tract`, `--proofread`
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (hex color), `--replace`, `--open`
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (hex color), `--replace`, `--pile` (force clipboard overwrite mode), `--open`
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"crant_type_look/internal/browser"
+	"crant_type_look/internal/clipboard"
 	"crant_type_look/internal/nglstate"
 	"crant_type_look/internal/seatable"
 
@@ -37,6 +38,9 @@ Examples:
   # Open updated state in browser
   crant_type_look add --cell-type ER --open
 
+  # Force clipboard overwrite output mode
+  crant_type_look add --cell-class kenyon_cell --pile
+
   # Just get root IDs (no state manipulation)
   crant_type_look add --cell-class kenyon_cell --root-ids-only`,
 	Annotations: map[string]string{"requiresToken": "true"},
@@ -60,6 +64,7 @@ var (
 	addReplace     bool
 	addRootIDsOnly bool
 	addOpen        bool
+	addPile        bool
 )
 
 func init() {
@@ -77,6 +82,7 @@ func init() {
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color (e.g. #ff0000)")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
+	addCmd.Flags().BoolVar(&addPile, "pile", false, "Force clipboard mode: overwrite clipboard with updated Neuroglancer URL")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 
@@ -97,6 +103,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	if !filters.HasAny() {
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class)")
+	}
+	if addPile && addOutput != "" {
+		return fmt.Errorf("--pile cannot be used with --output")
+	}
+	if addPile && addRootIDsOnly {
+		return fmt.Errorf("--pile cannot be used with --root-ids-only")
 	}
 
 	// Query SeaTable
@@ -146,6 +158,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	nglstate.AddSegments(layer, rootIDs, addReplace)
 	nglstate.SetSegmentColor(layer, rootIDs, addColor)
+
+	if addPile {
+		result.Source = nglstate.SourceClipboard
+		if err := clipboard.Clear(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not clear clipboard before --pile write: %v\n", err)
+		}
+	}
 
 	// Output
 	if err := nglstate.WriteState(result, addOutput); err != nil {

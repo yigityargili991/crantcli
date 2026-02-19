@@ -46,3 +46,7 @@ func Write(content string) error {
 	}
 	return nil
 }
+
+func Clear() error {
+	return Write("")
+}
