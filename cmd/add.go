@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"crant_type_look/internal/browser"
-	"crant_type_look/internal/clipboard"
 	"crant_type_look/internal/nglstate"
 	"crant_type_look/internal/seatable"
 
@@ -161,9 +160,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	if addPile {
 		result.Source = nglstate.SourceClipboard
-		if err := clipboard.Clear(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not clear clipboard before --pile write: %v\n", err)
-		}
 	}
 
 	// Output
