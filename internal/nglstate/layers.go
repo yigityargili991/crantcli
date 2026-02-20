@@ -46,13 +46,7 @@ func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[
 }
 
 // AddSegments adds root IDs to a segmentation layer, deduplicating.
-// If replace is true, existing segments are replaced rather than appended.
-func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
-	if replace {
-		layer["segments"] = toInterfaceSlice(rootIDs)
-		return
-	}
-
+func AddSegments(layer map[string]interface{}, rootIDs []string) {
 	existing := make(map[string]bool)
 	var segments []string
 

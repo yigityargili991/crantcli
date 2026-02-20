@@ -41,7 +41,7 @@ Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are available on 
 The main command. Queries the CRANT dataset and injects matching root IDs into a Neuroglancer state.
 
 ```bash
-# Smart mode: reads state from clipboard, injects, copies back
+# Default mode: reads state from clipboard, injects, copies back
 crantinject add --cell-class kenyon_cell
 
 # Explicit file I/O
@@ -53,11 +53,8 @@ crantinject add --cell-class kenyon_cell --generate
 # Combine filters
 crantinject add --super-class sensory --side left --color "#ff0000"
 
-# Replace segments instead of appending
-crantinject add --cell-type ER --replace
-
-# Force clipboard overwrite output mode
-crantinject add --cell-class kenyon_cell --pile
+# Reset to a clean template, then add selected neurons
+crantinject add --cell-type ER --unpile
 
 # Just get root IDs, no state manipulation
 crantinject add --cell-class kenyon_cell --root-ids-only
@@ -65,13 +62,12 @@ crantinject add --cell-class kenyon_cell --root-ids-only
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--tract`, `--proofread`
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (hex color), `--replace`, `--pile` (force clipboard overwrite mode), `--open`
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (hex color), `--unpile` (reset to clean template before adding), `--open`
 
-**Smart input resolution** (when no `--state` is given):
-1. stdin (piped JSON)
-2. Clipboard (Neuroglancer URL)
-3. Last state URL from a previous session
-4. Default CRANT scene template
+**Default input behavior** (when no `--state`, `--generate`, or `--unpile` is given):
+1. Clipboard (must contain a Neuroglancer URL)
+
+If clipboard does not contain a valid Neuroglancer URL, `add` returns an error. Use `--unpile` to start clean or `--state`/`--generate` for explicit input.
 
 ### `list` -- Explore the dataset
 

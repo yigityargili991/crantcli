@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"crantinject/internal/browser"
+	"crantinject/internal/clipboard"
 	"crantinject/internal/nglstate"
 	"crantinject/internal/seatable"
 
@@ -18,14 +19,14 @@ var addCmd = &cobra.Command{
 	Long: `Query the CRANT dataset for neurons matching the given filters and inject
 their root IDs into a Neuroglancer state.
 
-Smart input resolution (when no --state is given):
-  1. Check stdin for piped JSON
-  2. Check clipboard for a Neuroglancer URL
-  3. Check last state URL produced by this tool
-  4. Fall back to the default CRANT scene template
+Input modes:
+  - Default: read Neuroglancer URL from clipboard and append selected neurons
+  - --state: use explicit state URL/file
+  - --generate: start from default CRANT scene template
+  - --unpile: reset to default template, then add selected neurons
 
 Examples:
-  # Smart: checks clipboard for Neuroglancer URL, injects, copies back
+  # Default: append to Neuroglancer URL currently in clipboard
   crantinject add --cell-class kenyon_cell
 
   # Explicit file I/O
@@ -34,11 +35,11 @@ Examples:
   # Generate fresh state
   crantinject add --cell-class kenyon_cell --generate
 
+  # Reset from clean template, then add
+  crantinject add --cell-class kenyon_cell --unpile
+
   # Open updated state in browser
   crantinject add --cell-type ER --open
-
-  # Force clipboard overwrite output mode
-  crantinject add --cell-class kenyon_cell --pile
 
   # Just get root IDs (no state manipulation)
   crantinject add --cell-class kenyon_cell --root-ids-only`,
@@ -60,10 +61,9 @@ var (
 	addOutput      string
 	addLayer       string
 	addColor       string
-	addReplace     bool
 	addRootIDsOnly bool
 	addOpen        bool
-	addPile        bool
+	addUnpile      bool
 )
 
 func init() {
@@ -76,12 +76,11 @@ func init() {
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
-	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard/session state")
+	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard state")
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color (e.g. #ff0000)")
-	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
-	addCmd.Flags().BoolVar(&addPile, "pile", false, "Force clipboard mode: overwrite clipboard with updated Neuroglancer URL")
+	addCmd.Flags().BoolVar(&addUnpile, "unpile", false, "Reset to default template before adding selected neurons")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 
@@ -103,11 +102,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if !filters.HasAny() {
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class)")
 	}
-	if addPile && addOutput != "" {
-		return fmt.Errorf("--pile cannot be used with --output")
-	}
-	if addPile && addRootIDsOnly {
-		return fmt.Errorf("--pile cannot be used with --root-ids-only")
+	if err := validateAddModeFlags(addUnpile, addState, addGenerate, addOutput, addRootIDsOnly); err != nil {
+		return err
 	}
 
 	// Query SeaTable
@@ -142,7 +138,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load state
-	result, err := nglstate.LoadState(addState, addGenerate)
+	result, err := resolveAddState(addState, addGenerate, addUnpile, addStateResolverDeps{
+		loadState:     nglstate.LoadState,
+		readClipboard: clipboard.Read,
+		decodeURL:     nglstate.DecodeURL,
+	})
 	if err != nil {
 		return err
 	}
@@ -155,12 +155,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	nglstate.AddSegments(layer, rootIDs, addReplace)
+	nglstate.AddSegments(layer, rootIDs)
 	nglstate.SetSegmentColor(layer, rootIDs, addColor)
-
-	if addPile {
-		result.Source = nglstate.SourceClipboard
-	}
 
 	// Output
 	if err := nglstate.WriteState(result, addOutput); err != nil {
@@ -184,4 +180,60 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func validateAddModeFlags(unpile bool, state string, generate bool, output string, rootIDsOnly bool) error {
+	if !unpile {
+		return nil
+	}
+	if state != "" {
+		return fmt.Errorf("--unpile cannot be used with --state")
+	}
+	if generate {
+		return fmt.Errorf("--unpile cannot be used with --generate")
+	}
+	if output != "" {
+		return fmt.Errorf("--unpile cannot be used with --output")
+	}
+	if rootIDsOnly {
+		return fmt.Errorf("--unpile cannot be used with --root-ids-only")
+	}
+	return nil
+}
+
+type addStateResolverDeps struct {
+	loadState     func(stateArg string, generate bool) (*nglstate.LoadResult, error)
+	readClipboard func() (string, error)
+	decodeURL     func(url string) (map[string]interface{}, error)
+}
+
+func resolveAddState(stateArg string, generate bool, unpile bool, deps addStateResolverDeps) (*nglstate.LoadResult, error) {
+	if unpile {
+		return deps.loadState("", true)
+	}
+	if stateArg != "" {
+		return deps.loadState(stateArg, false)
+	}
+	if generate {
+		return deps.loadState("", true)
+	}
+
+	clip, err := deps.readClipboard()
+	if err != nil {
+		return nil, fmt.Errorf("reading clipboard: %w", err)
+	}
+	clip = strings.TrimSpace(clip)
+	if !nglstate.IsNeuroglancerURL(clip) {
+		return nil, fmt.Errorf("clipboard does not contain a valid Neuroglancer URL; use --unpile to start clean or --state to provide input")
+	}
+
+	state, err := deps.decodeURL(clip)
+	if err != nil {
+		return nil, fmt.Errorf("decoding Neuroglancer URL from clipboard: %w", err)
+	}
+	return &nglstate.LoadResult{
+		State:       state,
+		Source:      nglstate.SourceClipboard,
+		OriginalURL: clip,
+	}, nil
 }

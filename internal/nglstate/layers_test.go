@@ -10,7 +10,6 @@ func TestAddSegments(t *testing.T) {
 		name     string
 		layer    map[string]interface{}
 		rootIDs  []string
-		replace  bool
 		expected []interface{}
 	}{
 		{
@@ -32,13 +31,6 @@ func TestAddSegments(t *testing.T) {
 			expected: []interface{}{"123", "456"},
 		},
 		{
-			name:     "replace mode",
-			layer:    map[string]interface{}{"segments": []interface{}{"old1", "old2"}},
-			rootIDs:  []string{"new1", "new2"},
-			replace:  true,
-			expected: []interface{}{"new1", "new2"},
-		},
-		{
 			name:     "no existing segments",
 			layer:    map[string]interface{}{},
 			rootIDs:  []string{"123"},
@@ -48,7 +40,7 @@ func TestAddSegments(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			AddSegments(tt.layer, tt.rootIDs, tt.replace)
+			AddSegments(tt.layer, tt.rootIDs)
 			got := tt.layer["segments"]
 			if !reflect.DeepEqual(got, tt.expected) {
 				t.Errorf("got %v, want %v", got, tt.expected)
