@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"crantinject/internal/browser"
+	"crantinject/internal/clipboard"
 	"crantinject/internal/nglstate"
 	"crantinject/internal/seatable"
 
@@ -137,7 +138,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	// Root IDs only mode
 	if addRootIDsOnly {
-		fmt.Println(strings.Join(rootIDs, "\n"))
+		joined := strings.Join(rootIDs, "\n")
+		fmt.Println(joined)
+		if err := clipboard.Write(joined); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not copy to clipboard: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "Root IDs copied to clipboard\n")
+		}
 		return nil
 	}
 
