@@ -94,6 +94,20 @@ func TestSetSegmentColor(t *testing.T) {
 			color:    "#ff0000",
 			expected: map[string]interface{}{"existing": "#00ff00", "123": "#ff0000"},
 		},
+		{
+			name:     "named color blue resolves to first tone",
+			layer:    map[string]interface{}{},
+			rootIDs:  []string{"123"},
+			color:    "blue",
+			expected: map[string]interface{}{"123": "#1565c0"},
+		},
+		{
+			name:     "named color blue cycles to second tone",
+			layer:    map[string]interface{}{"segmentColors": map[string]interface{}{"existing": "#1565c0"}},
+			rootIDs:  []string{"456"},
+			color:    "blue",
+			expected: map[string]interface{}{"existing": "#1565c0", "456": "#1e88e5"},
+		},
 	}
 
 	for _, tt := range tests {

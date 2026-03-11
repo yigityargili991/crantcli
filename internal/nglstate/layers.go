@@ -2,7 +2,6 @@ package nglstate
 
 import (
 	"fmt"
-	"strings"
 )
 
 // FindSegmentationLayer finds the first segmentation layer in the state, or
@@ -79,12 +78,15 @@ func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
 }
 
 // SetSegmentColor sets the segment colors in a segmentation layer. otherwise ui wont set it to the seed
-// Color format: "#rrggbb"
+// Color format: "#rrggbb", named color (blue, red, green, turquoise), or "colored" for random.
 func SetSegmentColor(layer map[string]interface{}, rootIDs []string, color string) {
 	if color == "" {
 		return
 	}
-	// Neuroglancer uses segmentColors map: { "rootID": "color" }
+
+	// Resolve named color or "colored" before modifying segmentColors
+	resolved := ResolveColor(layer, color)
+
 	colorsRaw, ok := layer["segmentColors"]
 	var colors map[string]interface{}
 	if ok {
@@ -94,13 +96,8 @@ func SetSegmentColor(layer map[string]interface{}, rootIDs []string, color strin
 		colors = make(map[string]interface{})
 	}
 
-	// Ensure color starts with #
-	if !strings.HasPrefix(color, "#") {
-		color = "#" + color
-	}
-
 	for _, id := range rootIDs {
-		colors[id] = color
+		colors[id] = resolved
 	}
 
 	layer["segmentColors"] = colors
