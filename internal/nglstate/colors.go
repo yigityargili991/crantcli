@@ -100,6 +100,64 @@ func countPaletteTones(layer map[string]interface{}, palette []string) int {
 	return len(seen)
 }
 
+// paletteNames is the ordered list of palettes for automatic per-type assignment.
+var paletteNames = []string{"blue", "red", "green", "turquoise"}
+
+// SetSegmentColorByGroups assigns colors to multiple groups of segments.
+// Each group represents a cell type. With "colored", each group gets a distinct
+// palette and neurons within cycle through its tones. With a named color, all
+// groups share that palette with tones continuing across groups.
+func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, colorInput string) {
+	if colorInput == "" {
+		return
+	}
+
+	colorsRaw, ok := layer["segmentColors"]
+	var colors map[string]interface{}
+	if ok {
+		colors, _ = colorsRaw.(map[string]interface{})
+	}
+	if colors == nil {
+		colors = make(map[string]interface{})
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(colorInput))
+
+	switch {
+	case normalized == "colored":
+		// Each group gets a different palette, neurons cycle through tones
+		for i, group := range groups {
+			palette := colorPalettes[paletteNames[i%len(paletteNames)]]
+			for j, id := range group {
+				colors[id] = palette[j%len(palette)]
+			}
+		}
+	case colorPalettes[normalized] != nil:
+		// Named color: all groups share the palette, tones continue across groups
+		palette := colorPalettes[normalized]
+		toneIdx := 0
+		for _, group := range groups {
+			for _, id := range group {
+				colors[id] = palette[toneIdx%len(palette)]
+				toneIdx++
+			}
+		}
+	default:
+		// Hex color: all neurons get the same color
+		hex := colorInput
+		if !strings.HasPrefix(hex, "#") {
+			hex = "#" + hex
+		}
+		for _, group := range groups {
+			for _, id := range group {
+				colors[id] = hex
+			}
+		}
+	}
+
+	layer["segmentColors"] = colors
+}
+
 // randomColor generates a random hex color string.
 func randomColor() string {
 	return fmt.Sprintf("#%06x", rand.Intn(0xFFFFFF+1))
