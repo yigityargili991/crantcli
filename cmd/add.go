@@ -42,7 +42,10 @@ Examples:
   crantinject add --cell-class kenyon_cell --pile
 
   # Just get root IDs (no state manipulation)
-  crantinject add --cell-class kenyon_cell --root-ids-only`,
+  crantinject add --cell-class kenyon_cell --root-ids-only
+
+  # Add multiple cell types with per-type coloring
+  crantinject add --cell-type ER --cell-type EPG/PEG --color colored`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	RunE:        runAdd,
 }
@@ -50,7 +53,7 @@ Examples:
 var (
 	addSuperClass  string
 	addCellClass   string
-	addCellType    string
+	addCellTypes   []string
 	addCellSubtype string
 	addSide        string
 	addRegion      string
@@ -70,7 +73,7 @@ var (
 func init() {
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
 	addCmd.Flags().StringVar(&addCellClass, "cell-class", "", "Filter by cell_class")
-	addCmd.Flags().StringVar(&addCellType, "cell-type", "", "Filter by cell_type")
+	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
 	addCmd.Flags().StringVar(&addCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
 	addCmd.Flags().StringVar(&addSide, "side", "", "Filter by side")
 	addCmd.Flags().StringVar(&addRegion, "region", "", "Filter by region")
@@ -90,10 +93,9 @@ func init() {
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
-	filters := &seatable.Filters{
+	baseFilters := &seatable.Filters{
 		SuperClass:  addSuperClass,
 		CellClass:   addCellClass,
-		CellType:    addCellType,
 		CellSubtype: addCellSubtype,
 		Side:        addSide,
 		Region:      addRegion,
@@ -101,8 +103,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Proofread:   addProofread,
 	}
 
-	if !filters.HasAny() {
-		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class)")
+	if !baseFilters.HasAny() && len(addCellTypes) == 0 {
+		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
 	}
 	if addPile && addOutput != "" {
 		return fmt.Errorf("--pile cannot be used with --output")
@@ -117,28 +119,46 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	rows, err := seatable.QueryNeurons(client, filters)
-	if err != nil {
-		return err
+	// Query per cell type to track groups, or once if no cell types given.
+	var groups [][]string
+	var allRootIDs []string
+	var totalRows int
+
+	if len(addCellTypes) == 0 {
+		rows, err := seatable.QueryNeurons(client, baseFilters)
+		if err != nil {
+			return err
+		}
+		ids := extractRootIDs(rows)
+		groups = append(groups, ids)
+		allRootIDs = ids
+		totalRows = len(rows)
+	} else {
+		for _, ct := range addCellTypes {
+			f := *baseFilters
+			f.CellType = ct
+			rows, err := seatable.QueryNeurons(client, &f)
+			if err != nil {
+				return err
+			}
+			ids := extractRootIDs(rows)
+			groups = append(groups, ids)
+			allRootIDs = append(allRootIDs, ids...)
+			totalRows += len(rows)
+			fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", ct, len(rows), len(ids))
+		}
 	}
 
-	if len(rows) == 0 {
+	fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
+
+	if len(allRootIDs) == 0 {
 		fmt.Fprintln(os.Stderr, "No neurons found matching filters")
 		return nil
 	}
 
-	rootIDs := make([]string, 0, len(rows))
-	for _, r := range rows {
-		if r.RootID != "" {
-			rootIDs = append(rootIDs, r.RootID)
-		}
-	}
-
-	fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", len(rows), len(rootIDs))
-
 	// Root IDs only mode
 	if addRootIDsOnly {
-		joined := strings.Join(rootIDs, "\n")
+		joined := strings.Join(allRootIDs, "\n")
 		fmt.Println(joined)
 		if err := clipboard.Write(joined); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not copy to clipboard: %v\n", err)
@@ -162,8 +182,14 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	nglstate.AddSegments(layer, rootIDs, addReplace)
-	nglstate.SetSegmentColor(layer, rootIDs, addColor)
+	nglstate.AddSegments(layer, allRootIDs, addReplace)
+
+	// Color assignment: per-group palette toning for multi-type, single resolve otherwise
+	if len(addCellTypes) > 1 && addColor != "" {
+		nglstate.SetSegmentColorByGroups(layer, groups, addColor)
+	} else {
+		nglstate.SetSegmentColor(layer, allRootIDs, addColor)
+	}
 
 	if addPile {
 		result.Source = nglstate.SourceClipboard
@@ -191,4 +217,14 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func extractRootIDs(rows []seatable.NeuronRow) []string {
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.RootID != "" {
+			ids = append(ids, r.RootID)
+		}
+	}
+	return ids
 }
