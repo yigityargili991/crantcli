@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"crantinject/internal/nglstate"
@@ -16,10 +17,11 @@ var changeDefStateCmd = &cobra.Command{
 	Long: `Set or update the default Neuroglancer JSON state used when no other state
 source is available (no --state, no clipboard, no session cache).
 
-Pass the full JSON state as an argument.
+Pass the full JSON state as an argument, or pass a path to a JSON file.
 
 Examples:
   crantinject change-def-state '{"dimensions":...}'
+  crantinject change-def-state /path/to/state.json
   crantinject change-def-state --show
   crantinject change-def-state --reset`,
 	Args: cobra.MaximumNArgs(1),
@@ -69,6 +71,15 @@ func runChangeDefState(cmd *cobra.Command, args []string) error {
 	}
 
 	raw := strings.TrimSpace(args[0])
+
+	// If the argument is not JSON, treat it as a file path
+	if !strings.HasPrefix(raw, "{") {
+		data, err := os.ReadFile(raw)
+		if err != nil {
+			return fmt.Errorf("reading file %s: %w", raw, err)
+		}
+		raw = strings.TrimSpace(string(data))
+	}
 
 	// Validate it's valid JSON
 	var state map[string]interface{}

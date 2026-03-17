@@ -71,6 +71,88 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 	return &result, nil
 }
 
+// MetadataResponse is the response from the metadata endpoint.
+type MetadataResponse struct {
+	Metadata struct {
+		Tables []TableMeta `json:"tables"`
+	} `json:"metadata"`
+}
+
+// TableMeta describes a table in the metadata response.
+type TableMeta struct {
+	Name    string       `json:"name"`
+	Columns []ColumnDef  `json:"columns"`
+}
+
+// ColumnDef describes a column definition including its options.
+type ColumnDef struct {
+	Key  string     `json:"key"`
+	Name string     `json:"name"`
+	Type string     `json:"type"`
+	Data *ColumnData `json:"data"`
+}
+
+// ColumnData holds column-type-specific configuration.
+type ColumnData struct {
+	Options []SelectOption `json:"options"`
+}
+
+// SelectOption represents a single/multiple select option.
+type SelectOption struct {
+	ID   interface{} `json:"id"`
+	Name string      `json:"name"`
+}
+
+// FetchMetadata retrieves the base metadata including table and column definitions.
+func (c *Client) FetchMetadata() (*MetadataResponse, error) {
+	url := fmt.Sprintf("%s/api-gateway/api/v2/dtables/%s/metadata/", config.SeaTableServer, c.dtableUUID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating metadata request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("metadata request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("metadata request failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result MetadataResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding metadata response: %w", err)
+	}
+	return &result, nil
+}
+
+// SelectOptionMap returns a map from option ID (as string) to option name
+// for a given column in the configured table.
+func SelectOptionMap(meta *MetadataResponse, columnName string) map[string]string {
+	m := make(map[string]string)
+	for _, table := range meta.Metadata.Tables {
+		if table.Name != config.SeaTableTable {
+			continue
+		}
+		for _, col := range table.Columns {
+			if col.Name != columnName || col.Data == nil {
+				continue
+			}
+			for _, opt := range col.Data.Options {
+				idStr := fmt.Sprintf("%v", opt.ID)
+				m[idStr] = opt.Name
+			}
+		}
+	}
+	return m
+}
+
 // normalizeResultKeys ensures each row can be read by both SeaTable column key
 // (e.g. "0000") and column name (e.g. "root_id").
 func normalizeResultKeys(resp *SQLResponse) {
