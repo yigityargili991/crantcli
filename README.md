@@ -94,6 +94,20 @@ crantinject inspect                # reads from clipboard
 crantinject inspect -s state.json
 ```
 
+### `lookup-column` -- Find the closest EPG/PEG column
+
+Finds the closest EPG/PEG neuron to a given root ID (or position) by 3D Euclidean distance and prints its `region` value.
+
+```bash
+# Look up by root ID
+crantinject lookup-column 720575940610453042
+
+# Provide position directly
+crantinject lookup-column --pos 31870.5,26635.5,1502.5
+```
+
+**Flags:** `--pos` (comma-separated `x,y,z` coordinates; skips the root ID lookup)
+
 ### `generate` -- Output default template
 
 Print the built-in CRANT scene template to stdout.
@@ -101,6 +115,26 @@ Print the built-in CRANT scene template to stdout.
 ```bash
 crantinject generate > my_scene.json
 ```
+
+### `change-def-state` -- Set the default Neuroglancer state
+
+Set or update the default Neuroglancer JSON state used when no other state source is available.
+
+```bash
+# Set from a JSON file
+crantinject change-def-state /path/to/state.json
+
+# Set from inline JSON
+crantinject change-def-state '{"dimensions":...}'
+
+# Show the current default state
+crantinject change-def-state --show
+
+# Reset to the built-in default
+crantinject change-def-state --reset
+```
+
+**Flags:** `--show` (display current default state), `--reset` (reset to built-in template)
 
 ### `setup` -- Configure credentials
 

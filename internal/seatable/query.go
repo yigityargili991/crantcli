@@ -2,6 +2,7 @@ package seatable
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"crantinject/internal/config"
@@ -112,6 +113,131 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 	return client.ExecuteSQL(sql)
 }
 
+// QueryNeuronPosition queries a single neuron's position by root ID.
+func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]string) (*NeuronPositionRow, error) {
+	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `position` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
+		config.SeaTableTable, escapeSQL(rootID))
+
+	resp, err := client.ExecuteSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Results) == 0 {
+		return nil, nil
+	}
+
+	r := resp.Results[0]
+	x, y, z := parsePositionValue(r["position"])
+	return &NeuronPositionRow{
+		RootID:   toString(r["root_id"]),
+		Region:   resolveSelectValue(r["region"], regionOpts),
+		CellType: toString(r["cell_type"]),
+		X:        x,
+		Y:        y,
+		Z:        z,
+	}, nil
+}
+
+// QueryNeuronsWithPosition queries all EPG/PEG neurons with their positions.
+func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]NeuronPositionRow, error) {
+	f := &Filters{CellType: "EPG/PEG"}
+	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `position` FROM `%s`%s LIMIT 10000",
+		config.SeaTableTable, buildWhere(f))
+
+	resp, err := client.ExecuteSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]NeuronPositionRow, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		x, y, z := parsePositionValue(r["position"])
+		rows = append(rows, NeuronPositionRow{
+			RootID:   toString(r["root_id"]),
+			Region:   resolveSelectValue(r["region"], regionOpts),
+			CellType: toString(r["cell_type"]),
+			X:        x,
+			Y:        y,
+			Z:        z,
+		})
+	}
+	return rows, nil
+}
+
+// resolveSelectValue converts a single- or multiple-select value (which may be
+// a scalar ID or an array of option IDs) into option name(s).
+func resolveSelectValue(v interface{}, opts map[string]string) string {
+	if opts == nil || v == nil {
+		return toString(v)
+	}
+	arr, ok := v.([]interface{})
+	if !ok {
+		// Scalar value — try to resolve as a single-select ID.
+		idStr := resolveOptionID(v)
+		if name, found := opts[idStr]; found {
+			return name
+		}
+		return toString(v)
+	}
+	names := make([]string, 0, len(arr))
+	for _, elem := range arr {
+		idStr := resolveOptionID(elem)
+		if name, found := opts[idStr]; found {
+			names = append(names, name)
+		} else {
+			names = append(names, idStr)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// resolveOptionID converts a value to a string suitable for option map lookup.
+func resolveOptionID(v interface{}) string {
+	if f, ok := v.(float64); ok {
+		return fmt.Sprintf("%d", int64(f))
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// parsePositionValue extracts x, y, z from a position value, which may be
+// a comma-separated string ("30400, 19771, 2964") or a JSON array [30400, 19771, 2964].
+func parsePositionValue(v interface{}) (float64, float64, float64) {
+	switch val := v.(type) {
+	case string:
+		parts := strings.Split(val, ",")
+		if len(parts) != 3 {
+			return 0, 0, 0
+		}
+		x, _ := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		y, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		z, _ := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+		return x, y, z
+	case []interface{}:
+		if len(val) != 3 {
+			return 0, 0, 0
+		}
+		return toFloat64(val[0]), toFloat64(val[1]), toFloat64(val[2])
+	default:
+		return 0, 0, 0
+	}
+}
+
+func toFloat64(v interface{}) float64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
 func toString(v interface{}) string {
 	if v == nil {
 		return ""
@@ -124,6 +250,15 @@ func toString(v interface{}) string {
 			return fmt.Sprintf("%d", int64(val))
 		}
 		return fmt.Sprintf("%g", val)
+	case []interface{}:
+		parts := make([]string, 0, len(val))
+		for _, elem := range val {
+			s := toString(elem)
+			if s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, ", ")
 	default:
 		return fmt.Sprintf("%v", v)
 	}
