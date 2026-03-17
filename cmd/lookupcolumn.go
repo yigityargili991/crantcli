@@ -31,6 +31,9 @@ func runLookupColumn(cmd *cobra.Command, args []string) error {
 	var x, y, z float64
 	hasPos := lookupColumnPos != ""
 
+	if hasPos && len(args) > 0 {
+		return fmt.Errorf("cannot combine root_id argument with --pos flag")
+	}
 	if !hasPos && len(args) == 0 {
 		return fmt.Errorf("provide a root_id argument or use --pos x,y,z")
 	}

@@ -165,23 +165,24 @@ func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]N
 	return rows, nil
 }
 
-// resolveSelectValue converts a multiple-select value (which may be an array
-// of option IDs) into a comma-separated string of option names.
+// resolveSelectValue converts a single- or multiple-select value (which may be
+// a scalar ID or an array of option IDs) into option name(s).
 func resolveSelectValue(v interface{}, opts map[string]string) string {
 	if opts == nil || v == nil {
 		return toString(v)
 	}
 	arr, ok := v.([]interface{})
 	if !ok {
+		// Scalar value — try to resolve as a single-select ID.
+		idStr := resolveOptionID(v)
+		if name, found := opts[idStr]; found {
+			return name
+		}
 		return toString(v)
 	}
 	names := make([]string, 0, len(arr))
 	for _, elem := range arr {
-		idStr := fmt.Sprintf("%v", elem)
-		// Remove trailing ".0" etc from float64 formatting
-		if f, fOk := elem.(float64); fOk {
-			idStr = fmt.Sprintf("%d", int64(f))
-		}
+		idStr := resolveOptionID(elem)
 		if name, found := opts[idStr]; found {
 			names = append(names, name)
 		} else {
@@ -189,6 +190,14 @@ func resolveSelectValue(v interface{}, opts map[string]string) string {
 		}
 	}
 	return strings.Join(names, ", ")
+}
+
+// resolveOptionID converts a value to a string suitable for option map lookup.
+func resolveOptionID(v interface{}) string {
+	if f, ok := v.(float64); ok {
+		return fmt.Sprintf("%d", int64(f))
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // parsePositionValue extracts x, y, z from a position value, which may be
