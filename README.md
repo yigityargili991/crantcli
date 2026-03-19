@@ -157,4 +157,4 @@ go test ./...
 
 ## License
 
-License information for this project is not yet specified in a LICENSE file.
+This project is licensed under the [MIT License](LICENSE).
