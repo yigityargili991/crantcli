@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Version = "0.5.1"
+var Version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:     "crantinject",
