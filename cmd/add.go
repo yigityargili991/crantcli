@@ -44,15 +44,18 @@ Examples:
   # Just get root IDs (no state manipulation)
   crantinject add --cell-class kenyon_cell --root-ids-only
 
-  # Add multiple cell types with per-type coloring
-  crantinject add --cell-type ER --cell-type EPG/PEG --color colored`,
+  # Add multiple cell types with per-group coloring
+  crantinject add --cell-type ER --cell-type EPG/PEG --color colored
+
+  # Mix cell classes and types as independent groups
+  crantinject add --cell-class kenyon_cell --cell-type ER --color colored`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	RunE:        runAdd,
 }
 
 var (
 	addSuperClass  string
-	addCellClass   string
+	addCellClasses []string
 	addCellTypes   []string
 	addCellSubtype string
 	addSide        string
@@ -72,7 +75,7 @@ var (
 
 func init() {
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
-	addCmd.Flags().StringVar(&addCellClass, "cell-class", "", "Filter by cell_class")
+	addCmd.Flags().StringArrayVar(&addCellClasses, "cell-class", nil, "Filter by cell_class (repeatable for multiple classes)")
 	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
 	addCmd.Flags().StringVar(&addCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
 	addCmd.Flags().StringVar(&addSide, "side", "", "Filter by side")
@@ -95,7 +98,6 @@ func init() {
 func runAdd(cmd *cobra.Command, args []string) error {
 	baseFilters := &seatable.Filters{
 		SuperClass:  addSuperClass,
-		CellClass:   addCellClass,
 		CellSubtype: addCellSubtype,
 		Side:        addSide,
 		Region:      addRegion,
@@ -103,7 +105,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Proofread:   addProofread,
 	}
 
-	if !baseFilters.HasAny() && len(addCellTypes) == 0 {
+	hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0
+	if !baseFilters.HasAny() && !hasGroupFlags {
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
 	}
 	if addPile && addOutput != "" {
@@ -119,33 +122,45 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Query per cell type to track groups, or once if no cell types given.
+	// Build independent query groups: each --cell-class and --cell-type
+	// is its own group so they can be freely mixed.
+	type querySpec struct {
+		label   string
+		filters seatable.Filters
+	}
+	var specs []querySpec
+
+	for _, cc := range addCellClasses {
+		f := *baseFilters
+		f.CellClass = cc
+		specs = append(specs, querySpec{label: cc, filters: f})
+	}
+	for _, ct := range addCellTypes {
+		f := *baseFilters
+		f.CellType = ct
+		specs = append(specs, querySpec{label: ct, filters: f})
+	}
+
+	// If no class/type flags were given, run a single query with base filters.
+	if len(specs) == 0 {
+		specs = append(specs, querySpec{label: "", filters: *baseFilters})
+	}
+
 	var groups [][]string
 	var allRootIDs []string
 	var totalRows int
 
-	if len(addCellTypes) == 0 {
-		rows, err := seatable.QueryNeurons(client, baseFilters)
+	for _, s := range specs {
+		rows, err := seatable.QueryNeurons(client, &s.filters)
 		if err != nil {
 			return err
 		}
 		ids := extractRootIDs(rows)
 		groups = append(groups, ids)
-		allRootIDs = ids
-		totalRows = len(rows)
-	} else {
-		for _, ct := range addCellTypes {
-			f := *baseFilters
-			f.CellType = ct
-			rows, err := seatable.QueryNeurons(client, &f)
-			if err != nil {
-				return err
-			}
-			ids := extractRootIDs(rows)
-			groups = append(groups, ids)
-			allRootIDs = append(allRootIDs, ids...)
-			totalRows += len(rows)
-			fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", ct, len(rows), len(ids))
+		allRootIDs = append(allRootIDs, ids...)
+		totalRows += len(rows)
+		if s.label != "" {
+			fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
 		}
 	}
 
@@ -184,8 +199,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	nglstate.AddSegments(layer, allRootIDs, addReplace)
 
-	// Color assignment: per-group palette toning for multi-type, single resolve otherwise
-	if len(addCellTypes) > 1 && addColor != "" {
+	// Color assignment: per-group palette toning for multi-group, single resolve otherwise
+	if len(groups) > 1 && addColor != "" {
 		nglstate.SetSegmentColorByGroups(layer, groups, addColor)
 	} else {
 		nglstate.SetSegmentColor(layer, allRootIDs, addColor)

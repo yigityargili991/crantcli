@@ -9,9 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "crantinject",
-	Short: "Query CRANT ant connectome neurons and inject into Neuroglancer states",
+	Use:     "crantinject",
+	Short:   "Query CRANT ant connectome neurons and inject into Neuroglancer states",
+	Version: Version,
 	Long: `crantinject queries the CRANT ant connectome dataset for neuron root IDs
 by classification (super_class, cell_class, cell_type, cell_subtype) and
 injects them into a Neuroglancer state JSON.
