@@ -2,11 +2,14 @@ package seatable
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	"crantinject/internal/config"
 )
+
+const queryPageSize = 1000
 
 // Filters holds optional WHERE clause filters for neuron queries.
 type Filters struct {
@@ -34,7 +37,8 @@ func escapeSQL(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-// buildWhere constructs a WHERE clause from the given filters.
+// buildWhere constructs a WHERE clause from scalar filters.
+// Region is filtered in Go because SeaTable returns it as a multi-select array.
 func buildWhere(f *Filters) string {
 	var conditions []string
 
@@ -49,7 +53,6 @@ func buildWhere(f *Filters) string {
 	add("cell_type", f.CellType)
 	add("cell_subtype", f.CellSubtype)
 	add("side", f.Side)
-	add("region", f.Region)
 	add("tract", f.Tract)
 	add("nerve", f.Nerve)
 	add("hemilineage", f.Hemilineage)
@@ -63,16 +66,29 @@ func buildWhere(f *Filters) string {
 
 // QueryNeurons queries root IDs matching the given filters.
 func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
-	sql := fmt.Sprintf("SELECT `root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread` FROM `%s`%s LIMIT 10000",
-		config.SeaTableTable, buildWhere(f))
-
-	resp, err := client.ExecuteSQL(sql)
+	regionOpts, regionNameToID, err := loadRegionOptions(client)
+	if err != nil {
+		return nil, err
+	}
+	regionFilterID, err := resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
 	if err != nil {
 		return nil, err
 	}
 
-	rows := make([]NeuronRow, 0, len(resp.Results))
-	for _, r := range resp.Results {
+	rowsRaw, err := executePagedSelect(client,
+		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
+		buildWhere(f),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]NeuronRow, 0, len(rowsRaw))
+	for _, r := range rowsRaw {
+		if regionFilterID != "" && !selectValueContains(r["region"], regionFilterID) {
+			continue
+		}
+
 		rows = append(rows, NeuronRow{
 			RootID:      toString(r["root_id"]),
 			SuperClass:  toString(r["super_class"]),
@@ -80,7 +96,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			CellType:    toString(r["cell_type"]),
 			CellSubtype: toString(r["cell_subtype"]),
 			Side:        toString(r["side"]),
-			Region:      toString(r["region"]),
+			Region:      resolveSelectValue(r["region"], regionOpts),
 			Tract:       toString(r["tract"]),
 			Nerve:       toString(r["nerve"]),
 			Hemilineage: toString(r["hemilineage"]),
@@ -99,6 +115,10 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 	}
 	if !validColumns[column] {
 		return nil, fmt.Errorf("invalid column %q; valid columns: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread", column)
+	}
+
+	if column == "region" || f.Region != "" {
+		return queryDistinctWithRegion(client, column, f, withCount)
 	}
 
 	var sql string
@@ -142,16 +162,13 @@ func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]st
 // QueryNeuronsWithPosition queries all EPG/PEG neurons with their positions.
 func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]NeuronPositionRow, error) {
 	f := &Filters{CellType: "EPG/PEG"}
-	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `position` FROM `%s`%s LIMIT 10000",
-		config.SeaTableTable, buildWhere(f))
-
-	resp, err := client.ExecuteSQL(sql)
+	rowsRaw, err := executePagedSelect(client, "`root_id`, `region`, `cell_type`, `position`", buildWhere(f))
 	if err != nil {
 		return nil, err
 	}
 
-	rows := make([]NeuronPositionRow, 0, len(resp.Results))
-	for _, r := range resp.Results {
+	rows := make([]NeuronPositionRow, 0, len(rowsRaw))
+	for _, r := range rowsRaw {
 		x, y, z := parsePositionValue(r["position"])
 		rows = append(rows, NeuronPositionRow{
 			RootID:   toString(r["root_id"]),
@@ -165,21 +182,175 @@ func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]N
 	return rows, nil
 }
 
+func queryDistinctWithRegion(client *Client, column string, f *Filters, withCount bool) (*SQLResponse, error) {
+	regionOpts, regionNameToID, err := loadRegionOptions(client)
+	if err != nil {
+		return nil, err
+	}
+	regionFilterID, err := resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
+	if err != nil {
+		return nil, err
+	}
+
+	selectColumns := fmt.Sprintf("`%s`, `region`", column)
+	if column == "region" {
+		selectColumns = "`region`"
+	}
+
+	rowsRaw, err := executePagedSelect(client, selectColumns, buildWhere(f))
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make(map[string]int)
+	for _, row := range rowsRaw {
+		if regionFilterID != "" && !selectValueContains(row["region"], regionFilterID) {
+			continue
+		}
+
+		if column == "region" {
+			names := uniqueStrings(resolveSelectValues(row["region"], regionOpts))
+			for _, name := range names {
+				if name == "" {
+					continue
+				}
+				counts[name]++
+			}
+			continue
+		}
+
+		value := toString(row[column])
+		if value == "" {
+			continue
+		}
+		counts[value]++
+	}
+
+	return buildDistinctResponse(column, counts, withCount), nil
+}
+
+func buildDistinctResponse(column string, counts map[string]int, withCount bool) *SQLResponse {
+	type entry struct {
+		value string
+		count int
+	}
+
+	items := make([]entry, 0, len(counts))
+	for value, count := range counts {
+		items = append(items, entry{value: value, count: count})
+	}
+
+	if withCount {
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].count != items[j].count {
+				return items[i].count > items[j].count
+			}
+			return items[i].value < items[j].value
+		})
+	} else {
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].value < items[j].value
+		})
+	}
+
+	results := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		row := map[string]interface{}{column: item.value}
+		if withCount {
+			row["count"] = item.count
+		}
+		results = append(results, row)
+	}
+
+	return &SQLResponse{Results: results}
+}
+
+func executePagedSelect(client *Client, columns string, where string) ([]map[string]interface{}, error) {
+	var rows []map[string]interface{}
+
+	for offset := 0; ; offset += queryPageSize {
+		sql := fmt.Sprintf("SELECT %s FROM `%s`%s LIMIT %d OFFSET %d",
+			columns, config.SeaTableTable, where, queryPageSize, offset)
+		resp, err := client.ExecuteSQL(sql)
+		if err != nil {
+			return nil, err
+		}
+
+		rows = append(rows, resp.Results...)
+		if len(resp.Results) < queryPageSize {
+			break
+		}
+	}
+
+	return rows, nil
+}
+
+func loadRegionOptions(client *Client) (map[string]string, map[string]string, error) {
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	return SelectOptionMap(meta, "region"), SelectOptionNameMap(meta, "region"), nil
+}
+
+func resolveSelectFilterID(input string, idToName map[string]string, nameToID map[string]string, field string) (string, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", nil
+	}
+	if _, ok := idToName[trimmed]; ok {
+		return trimmed, nil
+	}
+
+	lower := strings.ToLower(trimmed)
+	if id, ok := nameToID[lower]; ok {
+		return id, nil
+	}
+
+	return "", fmt.Errorf("unknown %s %q", field, input)
+}
+
+func selectValueContains(v interface{}, targetID string) bool {
+	if targetID == "" || v == nil {
+		return false
+	}
+
+	arr, ok := v.([]interface{})
+	if !ok {
+		return resolveOptionID(v) == targetID
+	}
+
+	for _, elem := range arr {
+		if resolveOptionID(elem) == targetID {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveSelectValue converts a single- or multiple-select value (which may be
 // a scalar ID or an array of option IDs) into option name(s).
 func resolveSelectValue(v interface{}, opts map[string]string) string {
-	if opts == nil || v == nil {
-		return toString(v)
+	return strings.Join(resolveSelectValues(v, opts), ", ")
+}
+
+func resolveSelectValues(v interface{}, opts map[string]string) []string {
+	if v == nil {
+		return nil
 	}
+	if opts == nil {
+		return []string{toString(v)}
+	}
+
 	arr, ok := v.([]interface{})
 	if !ok {
-		// Scalar value — try to resolve as a single-select ID.
 		idStr := resolveOptionID(v)
 		if name, found := opts[idStr]; found {
-			return name
+			return []string{name}
 		}
-		return toString(v)
+		return []string{toString(v)}
 	}
+
 	names := make([]string, 0, len(arr))
 	for _, elem := range arr {
 		idStr := resolveOptionID(elem)
@@ -189,7 +360,7 @@ func resolveSelectValue(v interface{}, opts map[string]string) string {
 			names = append(names, idStr)
 		}
 	}
-	return strings.Join(names, ", ")
+	return names
 }
 
 // resolveOptionID converts a value to a string suitable for option map lookup.
@@ -262,4 +433,21 @@ func toString(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }

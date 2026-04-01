@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"crantinject/internal/seatable"
 
@@ -44,20 +45,7 @@ Examples:
 			return err
 		}
 
-		for _, row := range resp.Results {
-			val := row[field]
-			if val == nil || val == "" {
-				continue
-			}
-			if listCount {
-				count := row["count"]
-				fmt.Printf("%-40s %v\n", val, count)
-			} else {
-				fmt.Println(val)
-			}
-		}
-
-		return nil
+		return writeDistinctResults(cmd.OutOrStdout(), field, resp, listCount)
 	},
 }
 
@@ -83,4 +71,23 @@ func init() {
 	listCmd.Flags().StringVar(&listTract, "tract", "", "Filter by tract")
 
 	rootCmd.AddCommand(listCmd)
+}
+
+func writeDistinctResults(w io.Writer, field string, resp *seatable.SQLResponse, withCount bool) error {
+	for _, row := range resp.Results {
+		val := row[field]
+		if val == nil || val == "" {
+			continue
+		}
+		if withCount {
+			if _, err := fmt.Fprintf(w, "%-40s %v\n", val, row["count"]); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintln(w, val); err != nil {
+			return err
+		}
+	}
+	return nil
 }

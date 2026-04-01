@@ -45,11 +45,10 @@ var colorPalettes = map[string][]string{
 //   - Raw hex → returned as-is with '#' prefix ensured
 //   - Empty → empty
 func ResolveColor(layer map[string]interface{}, colorInput string) string {
-	if colorInput == "" {
+	normalized, err := NormalizeColorInput(colorInput)
+	if err != nil || normalized == "" {
 		return ""
 	}
-
-	normalized := strings.ToLower(strings.TrimSpace(colorInput))
 
 	if normalized == "colored" {
 		return randomColor()
@@ -63,10 +62,7 @@ func ResolveColor(layer map[string]interface{}, colorInput string) string {
 	}
 
 	// Raw hex — ensure # prefix
-	if !strings.HasPrefix(colorInput, "#") {
-		return "#" + colorInput
-	}
-	return colorInput
+	return normalized
 }
 
 // countPaletteTones counts how many distinct tones from the given palette
@@ -108,7 +104,8 @@ var paletteNames = []string{"blue", "red", "green", "turquoise"}
 // palette and neurons within cycle through its tones. With a named color, all
 // groups share that palette with tones continuing across groups.
 func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, colorInput string) {
-	if colorInput == "" {
+	normalized, err := NormalizeColorInput(colorInput)
+	if err != nil || normalized == "" {
 		return
 	}
 
@@ -120,8 +117,6 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 	if colors == nil {
 		colors = make(map[string]interface{})
 	}
-
-	normalized := strings.ToLower(strings.TrimSpace(colorInput))
 
 	switch {
 	case normalized == "colored":
@@ -144,13 +139,9 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 		}
 	default:
 		// Hex color: all neurons get the same color
-		hex := colorInput
-		if !strings.HasPrefix(hex, "#") {
-			hex = "#" + hex
-		}
 		for _, group := range groups {
 			for _, id := range group {
-				colors[id] = hex
+				colors[id] = normalized
 			}
 		}
 	}
@@ -160,5 +151,50 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 
 // randomColor generates a random hex color string.
 func randomColor() string {
-	return fmt.Sprintf("#%06x", rand.Intn(0xFFFFFF+1))
+	for {
+		n := rand.Intn(0xFFFFFF + 1)
+		if n == 0 {
+			continue
+		}
+		return fmt.Sprintf("#%06x", n)
+	}
+}
+
+// NormalizeColorInput validates and normalizes a color input.
+func NormalizeColorInput(colorInput string) (string, error) {
+	trimmed := strings.TrimSpace(colorInput)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	normalized := strings.ToLower(trimmed)
+	if normalized == "colored" {
+		return normalized, nil
+	}
+	if _, ok := colorPalettes[normalized]; ok {
+		return normalized, nil
+	}
+
+	hex := trimmed
+	if strings.HasPrefix(hex, "#") {
+		hex = hex[1:]
+	}
+	if len(hex) != 6 || !isHexString(hex) {
+		return "", fmt.Errorf("invalid color %q: use a named palette, 'colored', or a 6-digit hex value like #ff0000", colorInput)
+	}
+
+	return "#" + strings.ToLower(hex), nil
+}
+
+func isHexString(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }

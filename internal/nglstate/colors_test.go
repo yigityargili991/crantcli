@@ -89,6 +89,9 @@ func TestResolveColor_Colored(t *testing.T) {
 	if !strings.HasPrefix(got, "#") || len(got) != 7 {
 		t.Errorf("ResolveColor(_, \"colored\") = %q, want #RRGGBB format", got)
 	}
+	if got == "#000000" {
+		t.Errorf("ResolveColor(_, \"colored\") = %q, want non-black random color", got)
+	}
 
 	// "Colored" (capitalized) should also work
 	got2 := ResolveColor(layer, "Colored")
@@ -134,5 +137,35 @@ func TestCountPaletteTones(t *testing.T) {
 	emptyLayer := map[string]interface{}{}
 	if got := countPaletteTones(emptyLayer, palette); got != 0 {
 		t.Errorf("expected 0 for empty layer, got %d", got)
+	}
+}
+
+func TestNormalizeColorInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "named palette", input: " Blue ", want: "blue"},
+		{name: "colored", input: "Colored", want: "colored"},
+		{name: "hex with hash", input: "#ABCDEF", want: "#abcdef"},
+		{name: "hex without hash", input: "ABCDEF", want: "#abcdef"},
+		{name: "invalid short hex", input: "#fff", wantErr: true},
+		{name: "invalid text", input: "black", wantErr: true},
+		{name: "invalid hex chars", input: "#gg0000", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeColorInput(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NormalizeColorInput(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("NormalizeColorInput(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }

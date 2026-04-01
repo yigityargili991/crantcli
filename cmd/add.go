@@ -47,6 +47,9 @@ Examples:
   # Add multiple cell types with per-group coloring
   crantinject add --cell-type ER --cell-type EPG/PEG --color colored
 
+  # Add all neurons annotated to bundle/region LX
+  crantinject add --bundle LX
+
   # Mix cell classes and types as independent groups
   crantinject add --cell-class kenyon_cell --cell-type ER --color colored`,
 	Annotations: map[string]string{"requiresToken": "true"},
@@ -60,6 +63,7 @@ var (
 	addCellSubtype string
 	addSide        string
 	addRegion      string
+	addBundle      string
 	addTract       string
 	addProofread   string
 	addState       string
@@ -80,6 +84,7 @@ func init() {
 	addCmd.Flags().StringVar(&addCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
 	addCmd.Flags().StringVar(&addSide, "side", "", "Filter by side")
 	addCmd.Flags().StringVar(&addRegion, "region", "", "Filter by region")
+	addCmd.Flags().StringVar(&addBundle, "bundle", "", "Filter by bundle region annotation (alias of --region, e.g. LX)")
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
@@ -96,24 +101,27 @@ func init() {
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
+	effectiveRegion, err := resolveAddRegionFilter(addRegion, addBundle)
+	if err != nil {
+		return err
+	}
+	normalizedColor, err := nglstate.NormalizeColorInput(addColor)
+	if err != nil {
+		return err
+	}
+
 	baseFilters := &seatable.Filters{
 		SuperClass:  addSuperClass,
 		CellSubtype: addCellSubtype,
 		Side:        addSide,
-		Region:      addRegion,
+		Region:      effectiveRegion,
 		Tract:       addTract,
 		Proofread:   addProofread,
 	}
 
 	hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0
-	if !baseFilters.HasAny() && !hasGroupFlags {
-		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
-	}
-	if addPile && addOutput != "" {
-		return fmt.Errorf("--pile cannot be used with --output")
-	}
-	if addPile && addRootIDsOnly {
-		return fmt.Errorf("--pile cannot be used with --root-ids-only")
+	if err := validateAddInputs(baseFilters, hasGroupFlags, addPile, addOutput, addRootIDsOnly); err != nil {
+		return err
 	}
 
 	// Query SeaTable
@@ -200,10 +208,10 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	nglstate.AddSegments(layer, allRootIDs, addReplace)
 
 	// Color assignment: per-group palette toning for multi-group, single resolve otherwise
-	if len(groups) > 1 && addColor != "" {
-		nglstate.SetSegmentColorByGroups(layer, groups, addColor)
+	if len(groups) > 1 && normalizedColor != "" {
+		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
 	} else {
-		nglstate.SetSegmentColor(layer, allRootIDs, addColor)
+		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
 	}
 
 	if addPile {
@@ -242,4 +250,27 @@ func extractRootIDs(rows []seatable.NeuronRow) []string {
 		}
 	}
 	return ids
+}
+
+func resolveAddRegionFilter(region string, bundle string) (string, error) {
+	if strings.TrimSpace(region) != "" && strings.TrimSpace(bundle) != "" {
+		return "", fmt.Errorf("--region and --bundle cannot be used together")
+	}
+	if strings.TrimSpace(bundle) != "" {
+		return strings.TrimSpace(bundle), nil
+	}
+	return strings.TrimSpace(region), nil
+}
+
+func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool, pile bool, output string, rootIDsOnly bool) error {
+	if !baseFilters.HasAny() && !hasGroupFlags {
+		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
+	}
+	if pile && output != "" {
+		return fmt.Errorf("--pile cannot be used with --output")
+	}
+	if pile && rootIDsOnly {
+		return fmt.Errorf("--pile cannot be used with --root-ids-only")
+	}
+	return nil
 }

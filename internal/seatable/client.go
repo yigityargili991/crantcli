@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"crantinject/internal/config"
 )
 
 // Client holds authenticated SeaTable connection details.
 type Client struct {
-	accessToken string
-	dtableUUID  string
+	accessToken       string
+	dtableUUID        string
+	metadata          *MetadataResponse
+	executeSQLFunc    func(string) (*SQLResponse, error)
+	fetchMetadataFunc func() (*MetadataResponse, error)
 }
 
 // NewClient creates a new authenticated SeaTable client.
@@ -36,6 +40,10 @@ func NewClient() (*Client, error) {
 
 // ExecuteSQL runs a SQL query against the SeaTable base and returns results.
 func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
+	if c.executeSQLFunc != nil {
+		return c.executeSQLFunc(sql)
+	}
+
 	url := fmt.Sprintf("%s/api-gateway/api/v2/dtables/%s/sql/", config.SeaTableServer, c.dtableUUID)
 
 	payload, err := json.Marshal(map[string]string{"sql": sql})
@@ -80,15 +88,15 @@ type MetadataResponse struct {
 
 // TableMeta describes a table in the metadata response.
 type TableMeta struct {
-	Name    string       `json:"name"`
-	Columns []ColumnDef  `json:"columns"`
+	Name    string      `json:"name"`
+	Columns []ColumnDef `json:"columns"`
 }
 
 // ColumnDef describes a column definition including its options.
 type ColumnDef struct {
-	Key  string     `json:"key"`
-	Name string     `json:"name"`
-	Type string     `json:"type"`
+	Key  string      `json:"key"`
+	Name string      `json:"name"`
+	Type string      `json:"type"`
 	Data *ColumnData `json:"data"`
 }
 
@@ -105,6 +113,18 @@ type SelectOption struct {
 
 // FetchMetadata retrieves the base metadata including table and column definitions.
 func (c *Client) FetchMetadata() (*MetadataResponse, error) {
+	if c.metadata != nil {
+		return c.metadata, nil
+	}
+	if c.fetchMetadataFunc != nil {
+		meta, err := c.fetchMetadataFunc()
+		if err != nil {
+			return nil, err
+		}
+		c.metadata = meta
+		return meta, nil
+	}
+
 	url := fmt.Sprintf("%s/api-gateway/api/v2/dtables/%s/metadata/", config.SeaTableServer, c.dtableUUID)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -129,7 +149,8 @@ func (c *Client) FetchMetadata() (*MetadataResponse, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding metadata response: %w", err)
 	}
-	return &result, nil
+	c.metadata = &result
+	return c.metadata, nil
 }
 
 // SelectOptionMap returns a map from option ID (as string) to option name
@@ -147,6 +168,26 @@ func SelectOptionMap(meta *MetadataResponse, columnName string) map[string]strin
 			for _, opt := range col.Data.Options {
 				idStr := fmt.Sprintf("%v", opt.ID)
 				m[idStr] = opt.Name
+			}
+		}
+	}
+	return m
+}
+
+// SelectOptionNameMap returns a map from lowercased option name to option ID.
+func SelectOptionNameMap(meta *MetadataResponse, columnName string) map[string]string {
+	m := make(map[string]string)
+	for _, table := range meta.Metadata.Tables {
+		if table.Name != config.SeaTableTable {
+			continue
+		}
+		for _, col := range table.Columns {
+			if col.Name != columnName || col.Data == nil {
+				continue
+			}
+			for _, opt := range col.Data.Options {
+				idStr := fmt.Sprintf("%v", opt.ID)
+				m[strings.ToLower(strings.TrimSpace(opt.Name))] = idStr
 			}
 		}
 	}

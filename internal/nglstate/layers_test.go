@@ -188,3 +188,38 @@ func TestFindSegmentationLayer(t *testing.T) {
 		}
 	})
 }
+
+func TestSetSegmentColorByGroups(t *testing.T) {
+	t.Run("colored assigns palette per group", func(t *testing.T) {
+		layer := map[string]interface{}{}
+		groups := [][]string{
+			{"a1", "a2"},
+			{"b1", "b2"},
+		}
+
+		SetSegmentColorByGroups(layer, groups, "colored")
+
+		got, ok := layer["segmentColors"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+		}
+
+		want := map[string]interface{}{
+			"a1": colorPalettes["blue"][0],
+			"a2": colorPalettes["blue"][1],
+			"b1": colorPalettes["red"][0],
+			"b2": colorPalettes["red"][1],
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("invalid color is ignored", func(t *testing.T) {
+		layer := map[string]interface{}{}
+		SetSegmentColorByGroups(layer, [][]string{{"a1"}}, "not-a-color")
+		if _, ok := layer["segmentColors"]; ok {
+			t.Fatalf("expected invalid color input to leave segmentColors unset")
+		}
+	})
+}
