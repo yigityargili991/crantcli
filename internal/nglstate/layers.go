@@ -77,8 +77,9 @@ func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
 	layer["segments"] = toInterfaceSlice(segments)
 }
 
-// SetSegmentColor sets the segment colors in a segmentation layer. otherwise ui wont set it to the seed
-// Color format: "#rrggbb", named color (blue, red, green, turquoise), or "colored" for random.
+// SetSegmentColor sets the segment colors in a segmentation layer.
+// color must already be normalized via NormalizeColorInput (lowercase, trimmed,
+// hex prefixed with '#'). Otherwise the UI won't set it to the seed.
 func SetSegmentColor(layer map[string]interface{}, rootIDs []string, color string) {
 	if color == "" {
 		return

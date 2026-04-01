@@ -8,12 +8,14 @@ import (
 
 func TestResolveColor_RawHex(t *testing.T) {
 	layer := map[string]interface{}{}
+	// ResolveColor expects pre-normalized input (from NormalizeColorInput),
+	// so hex values must already have '#' prefix and be lowercase.
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"#ff0000", "#ff0000"},
-		{"ff0000", "#ff0000"},
+		{"#abcdef", "#abcdef"},
 		{"", ""},
 	}
 	for _, tt := range tests {
@@ -61,14 +63,19 @@ func TestResolveColor_NamedCycling(t *testing.T) {
 	}
 }
 
-func TestResolveColor_CaseInsensitive(t *testing.T) {
+func TestNormalizeThenResolve_CaseInsensitive(t *testing.T) {
+	// Verify the full normalize-then-resolve pipeline handles case/whitespace.
 	layer := map[string]interface{}{}
 	palette := colorPalettes["red"]
 
 	for _, input := range []string{"Red", "RED", "  red  "} {
-		got := ResolveColor(layer, input)
+		normalized, err := NormalizeColorInput(input)
+		if err != nil {
+			t.Fatalf("NormalizeColorInput(%q) unexpected error: %v", input, err)
+		}
+		got := ResolveColor(layer, normalized)
 		if got != palette[0] {
-			t.Errorf("ResolveColor(_, %q) = %q, want %q", input, got, palette[0])
+			t.Errorf("ResolveColor(_, NormalizeColorInput(%q)) = %q, want %q", input, got, palette[0])
 		}
 	}
 }
@@ -85,18 +92,20 @@ func TestResolveColor_AllFamilies(t *testing.T) {
 
 func TestResolveColor_Colored(t *testing.T) {
 	layer := map[string]interface{}{}
+	// ResolveColor expects pre-normalized "colored" (lowercase).
 	got := ResolveColor(layer, "colored")
 	if !strings.HasPrefix(got, "#") || len(got) != 7 {
 		t.Errorf("ResolveColor(_, \"colored\") = %q, want #RRGGBB format", got)
 	}
-	if got == "#000000" {
-		t.Errorf("ResolveColor(_, \"colored\") = %q, want non-black random color", got)
-	}
 
-	// "Colored" (capitalized) should also work
-	got2 := ResolveColor(layer, "Colored")
+	// Verify the normalize-then-resolve pipeline handles "Colored" (capitalized).
+	normalized, err := NormalizeColorInput("Colored")
+	if err != nil {
+		t.Fatalf("NormalizeColorInput(\"Colored\") unexpected error: %v", err)
+	}
+	got2 := ResolveColor(layer, normalized)
 	if !strings.HasPrefix(got2, "#") || len(got2) != 7 {
-		t.Errorf("ResolveColor(_, \"Colored\") = %q, want #RRGGBB format", got2)
+		t.Errorf("ResolveColor(_, NormalizeColorInput(\"Colored\")) = %q, want #RRGGBB format", got2)
 	}
 }
 

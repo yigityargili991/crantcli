@@ -22,7 +22,30 @@ Examples:
   crantinject list cell_type --cell-class kenyon_cell`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+}
+
+func init() {
+	var (
+		listCount       bool
+		listSuperClass  string
+		listCellClass   string
+		listCellType    string
+		listCellSubtype string
+		listSide        string
+		listRegion      string
+		listTract       string
+	)
+
+	listCmd.Flags().BoolVar(&listCount, "count", false, "Show count of neurons for each value")
+	listCmd.Flags().StringVar(&listSuperClass, "super-class", "", "Filter by super_class")
+	listCmd.Flags().StringVar(&listCellClass, "cell-class", "", "Filter by cell_class")
+	listCmd.Flags().StringVar(&listCellType, "cell-type", "", "Filter by cell_type")
+	listCmd.Flags().StringVar(&listCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
+	listCmd.Flags().StringVar(&listSide, "side", "", "Filter by side")
+	listCmd.Flags().StringVar(&listRegion, "region", "", "Filter by region")
+	listCmd.Flags().StringVar(&listTract, "tract", "", "Filter by tract")
+
+	listCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		field := args[0]
 
 		client, err := seatable.NewClient()
@@ -46,29 +69,7 @@ Examples:
 		}
 
 		return writeDistinctResults(cmd.OutOrStdout(), field, resp, listCount)
-	},
-}
-
-var (
-	listCount       bool
-	listSuperClass  string
-	listCellClass   string
-	listCellType    string
-	listCellSubtype string
-	listSide        string
-	listRegion      string
-	listTract       string
-)
-
-func init() {
-	listCmd.Flags().BoolVar(&listCount, "count", false, "Show count of neurons for each value")
-	listCmd.Flags().StringVar(&listSuperClass, "super-class", "", "Filter by super_class")
-	listCmd.Flags().StringVar(&listCellClass, "cell-class", "", "Filter by cell_class")
-	listCmd.Flags().StringVar(&listCellType, "cell-type", "", "Filter by cell_type")
-	listCmd.Flags().StringVar(&listCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
-	listCmd.Flags().StringVar(&listSide, "side", "", "Filter by side")
-	listCmd.Flags().StringVar(&listRegion, "region", "", "Filter by region")
-	listCmd.Flags().StringVar(&listTract, "tract", "", "Filter by tract")
+	}
 
 	rootCmd.AddCommand(listCmd)
 }

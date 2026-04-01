@@ -2,6 +2,7 @@ package seatable
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,9 +33,18 @@ func (f *Filters) HasAny() bool {
 		f.Tract != "" || f.Nerve != "" || f.Hemilineage != "" || f.Proofread != ""
 }
 
-// escapeSQL escapes single quotes in a string for safe SQL interpolation.
+// sanitizeIdentifier strips backtick characters from SQL identifiers (table
+// and column names) to prevent SQL injection through backtick-quoted names.
+func sanitizeIdentifier(name string) string {
+	return strings.ReplaceAll(name, "`", "")
+}
+
+// escapeSQL escapes single quotes and backslashes in a string for safe SQL
+// value interpolation (MySQL-style escaping used by SeaTable).
 func escapeSQL(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "'", "''")
+	return s
 }
 
 // buildWhere constructs a WHERE clause from scalar filters.
@@ -121,13 +131,16 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 		return queryDistinctWithRegion(client, column, f, withCount)
 	}
 
+	safeCol := sanitizeIdentifier(column)
+	safeTable := sanitizeIdentifier(config.SeaTableTable)
+
 	var sql string
 	if withCount {
 		sql = fmt.Sprintf("SELECT `%s`, COUNT(*) as count FROM `%s`%s GROUP BY `%s` ORDER BY count DESC LIMIT 10000",
-			column, config.SeaTableTable, buildWhere(f), column)
+			safeCol, safeTable, buildWhere(f), safeCol)
 	} else {
 		sql = fmt.Sprintf("SELECT DISTINCT `%s` FROM `%s`%s ORDER BY `%s` LIMIT 10000",
-			column, config.SeaTableTable, buildWhere(f), column)
+			safeCol, safeTable, buildWhere(f), safeCol)
 	}
 
 	return client.ExecuteSQL(sql)
@@ -136,7 +149,7 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 // QueryNeuronPosition queries a single neuron's position by root ID.
 func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]string) (*NeuronPositionRow, error) {
 	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `position` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
-		config.SeaTableTable, escapeSQL(rootID))
+		sanitizeIdentifier(config.SeaTableTable), escapeSQL(rootID))
 
 	resp, err := client.ExecuteSQL(sql)
 	if err != nil {
@@ -148,15 +161,21 @@ func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]st
 	}
 
 	r := resp.Results[0]
-	x, y, z := parsePositionValue(r["position"])
-	return &NeuronPositionRow{
+	x, y, z, err := parsePositionValue(r["position"])
+	row := &NeuronPositionRow{
 		RootID:   toString(r["root_id"]),
 		Region:   resolveSelectValue(r["region"], regionOpts),
 		CellType: toString(r["cell_type"]),
-		X:        x,
-		Y:        y,
-		Z:        z,
-	}, nil
+	}
+	if err != nil {
+		log.Printf("warning: skipping neuron %s: %v", toString(r["root_id"]), err)
+		return row, nil
+	}
+	row.X = x
+	row.Y = y
+	row.Z = z
+	row.PositionSet = true
+	return row, nil
 }
 
 // QueryNeuronsWithPosition queries all EPG/PEG neurons with their positions.
@@ -169,14 +188,19 @@ func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]N
 
 	rows := make([]NeuronPositionRow, 0, len(rowsRaw))
 	for _, r := range rowsRaw {
-		x, y, z := parsePositionValue(r["position"])
+		x, y, z, err := parsePositionValue(r["position"])
+		if err != nil {
+			log.Printf("warning: skipping neuron %s: %v", toString(r["root_id"]), err)
+			continue
+		}
 		rows = append(rows, NeuronPositionRow{
-			RootID:   toString(r["root_id"]),
-			Region:   resolveSelectValue(r["region"], regionOpts),
-			CellType: toString(r["cell_type"]),
-			X:        x,
-			Y:        y,
-			Z:        z,
+			RootID:      toString(r["root_id"]),
+			Region:      resolveSelectValue(r["region"], regionOpts),
+			CellType:    toString(r["cell_type"]),
+			X:           x,
+			Y:           y,
+			Z:           z,
+			PositionSet: true,
 		})
 	}
 	return rows, nil
@@ -269,8 +293,8 @@ func executePagedSelect(client *Client, columns string, where string) ([]map[str
 	var rows []map[string]interface{}
 
 	for offset := 0; ; offset += queryPageSize {
-		sql := fmt.Sprintf("SELECT %s FROM `%s`%s LIMIT %d OFFSET %d",
-			columns, config.SeaTableTable, where, queryPageSize, offset)
+		sql := fmt.Sprintf("SELECT %s FROM `%s`%s ORDER BY _id LIMIT %d OFFSET %d",
+			columns, sanitizeIdentifier(config.SeaTableTable), where, queryPageSize, offset)
 		resp, err := client.ExecuteSQL(sql)
 		if err != nil {
 			return nil, err
@@ -373,24 +397,69 @@ func resolveOptionID(v interface{}) string {
 
 // parsePositionValue extracts x, y, z from a position value, which may be
 // a comma-separated string ("30400, 19771, 2964") or a JSON array [30400, 19771, 2964].
-func parsePositionValue(v interface{}) (float64, float64, float64) {
+func parsePositionValue(v interface{}) (float64, float64, float64, error) {
 	switch val := v.(type) {
 	case string:
 		parts := strings.Split(val, ",")
 		if len(parts) != 3 {
-			return 0, 0, 0
+			return 0, 0, 0, fmt.Errorf("position string has %d components, want 3: %q", len(parts), val)
 		}
-		x, _ := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
-		y, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-		z, _ := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
-		return x, y, z
+		x, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("parsing x component %q: %w", strings.TrimSpace(parts[0]), err)
+		}
+		y, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("parsing y component %q: %w", strings.TrimSpace(parts[1]), err)
+		}
+		z, err := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("parsing z component %q: %w", strings.TrimSpace(parts[2]), err)
+		}
+		return x, y, z, nil
 	case []interface{}:
 		if len(val) != 3 {
-			return 0, 0, 0
+			return 0, 0, 0, fmt.Errorf("position array has %d elements, want 3", len(val))
 		}
-		return toFloat64(val[0]), toFloat64(val[1]), toFloat64(val[2])
+		x, err := parsePositionComponent(val[0])
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("parsing x component: %w", err)
+		}
+		y, err := parsePositionComponent(val[1])
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("parsing y component: %w", err)
+		}
+		z, err := parsePositionComponent(val[2])
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("parsing z component: %w", err)
+		}
+		return x, y, z, nil
 	default:
-		return 0, 0, 0
+		if v == nil {
+			return 0, 0, 0, fmt.Errorf("position value is nil")
+		}
+		return 0, 0, 0, fmt.Errorf("unrecognized position type %T", v)
+	}
+}
+
+func parsePositionComponent(v interface{}) (float64, error) {
+	switch val := v.(type) {
+	case nil:
+		return 0, fmt.Errorf("component is nil")
+	case float64:
+		return val, nil
+	case string:
+		trimmed := strings.TrimSpace(val)
+		if trimmed == "" {
+			return 0, fmt.Errorf("component is empty")
+		}
+		f, err := strconv.ParseFloat(trimmed, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid numeric value %q: %w", trimmed, err)
+		}
+		return f, nil
+	default:
+		return 0, fmt.Errorf("unsupported component type %T", v)
 	}
 }
 

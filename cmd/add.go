@@ -53,31 +53,30 @@ Examples:
   # Mix cell classes and types as independent groups
   crantinject add --cell-class kenyon_cell --cell-type ER --color colored`,
 	Annotations: map[string]string{"requiresToken": "true"},
-	RunE:        runAdd,
 }
 
-var (
-	addSuperClass  string
-	addCellClasses []string
-	addCellTypes   []string
-	addCellSubtype string
-	addSide        string
-	addRegion      string
-	addBundle      string
-	addTract       string
-	addProofread   string
-	addState       string
-	addGenerate    bool
-	addOutput      string
-	addLayer       string
-	addColor       string
-	addReplace     bool
-	addRootIDsOnly bool
-	addOpen        bool
-	addPile        bool
-)
-
 func init() {
+	var (
+		addSuperClass  string
+		addCellClasses []string
+		addCellTypes   []string
+		addCellSubtype string
+		addSide        string
+		addRegion      string
+		addBundle      string
+		addTract       string
+		addProofread   string
+		addState       string
+		addGenerate    bool
+		addOutput      string
+		addLayer       string
+		addColor       string
+		addReplace     bool
+		addRootIDsOnly bool
+		addOpen        bool
+		addPile        bool
+	)
+
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
 	addCmd.Flags().StringArrayVar(&addCellClasses, "cell-class", nil, "Filter by cell_class (repeatable for multiple classes)")
 	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
@@ -97,149 +96,149 @@ func init() {
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 
-	rootCmd.AddCommand(addCmd)
-}
-
-func runAdd(cmd *cobra.Command, args []string) error {
-	effectiveRegion, err := resolveAddRegionFilter(addRegion, addBundle)
-	if err != nil {
-		return err
-	}
-	normalizedColor, err := nglstate.NormalizeColorInput(addColor)
-	if err != nil {
-		return err
-	}
-
-	baseFilters := &seatable.Filters{
-		SuperClass:  addSuperClass,
-		CellSubtype: addCellSubtype,
-		Side:        addSide,
-		Region:      effectiveRegion,
-		Tract:       addTract,
-		Proofread:   addProofread,
-	}
-
-	hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0
-	if err := validateAddInputs(baseFilters, hasGroupFlags, addPile, addOutput, addRootIDsOnly); err != nil {
-		return err
-	}
-
-	// Query SeaTable
-	client, err := seatable.NewClient()
-	if err != nil {
-		return err
-	}
-
-	// Build independent query groups: each --cell-class and --cell-type
-	// is its own group so they can be freely mixed.
-	type querySpec struct {
-		label   string
-		filters seatable.Filters
-	}
-	var specs []querySpec
-
-	for _, cc := range addCellClasses {
-		f := *baseFilters
-		f.CellClass = cc
-		specs = append(specs, querySpec{label: cc, filters: f})
-	}
-	for _, ct := range addCellTypes {
-		f := *baseFilters
-		f.CellType = ct
-		specs = append(specs, querySpec{label: ct, filters: f})
-	}
-
-	// If no class/type flags were given, run a single query with base filters.
-	if len(specs) == 0 {
-		specs = append(specs, querySpec{label: "", filters: *baseFilters})
-	}
-
-	var groups [][]string
-	var allRootIDs []string
-	var totalRows int
-
-	for _, s := range specs {
-		rows, err := seatable.QueryNeurons(client, &s.filters)
+	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		effectiveRegion, err := resolveAddRegionFilter(addRegion, addBundle)
 		if err != nil {
 			return err
 		}
-		ids := extractRootIDs(rows)
-		groups = append(groups, ids)
-		allRootIDs = append(allRootIDs, ids...)
-		totalRows += len(rows)
-		if s.label != "" {
-			fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
+		normalizedColor, err := nglstate.NormalizeColorInput(addColor)
+		if err != nil {
+			return err
 		}
-	}
 
-	fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
-
-	if len(allRootIDs) == 0 {
-		fmt.Fprintln(os.Stderr, "No neurons found matching filters")
-		return nil
-	}
-
-	// Root IDs only mode
-	if addRootIDsOnly {
-		joined := strings.Join(allRootIDs, "\n")
-		fmt.Println(joined)
-		if err := clipboard.Write(joined); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not copy to clipboard: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "Root IDs copied to clipboard\n")
+		baseFilters := &seatable.Filters{
+			SuperClass:  addSuperClass,
+			CellSubtype: addCellSubtype,
+			Side:        addSide,
+			Region:      effectiveRegion,
+			Tract:       addTract,
+			Proofread:   addProofread,
 		}
-		return nil
-	}
 
-	// Load state
-	result, err := nglstate.LoadState(addState, addGenerate)
-	if err != nil {
-		return err
-	}
+		hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0
+		if err := validateAddInputs(baseFilters, hasGroupFlags, addPile, addOutput, addRootIDsOnly); err != nil {
+			return err
+		}
 
-	fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.Source)
+		// Query SeaTable
+		client, err := seatable.NewClient()
+		if err != nil {
+			return err
+		}
 
-	// Find segmentation layer and inject
-	layer, _, err := nglstate.FindSegmentationLayer(result.State, addLayer)
-	if err != nil {
-		return err
-	}
+		// Build independent query groups: each --cell-class and --cell-type
+		// is its own group so they can be freely mixed.
+		type querySpec struct {
+			label   string
+			filters seatable.Filters
+		}
+		var specs []querySpec
 
-	nglstate.AddSegments(layer, allRootIDs, addReplace)
+		for _, cc := range addCellClasses {
+			f := *baseFilters
+			f.CellClass = cc
+			specs = append(specs, querySpec{label: cc, filters: f})
+		}
+		for _, ct := range addCellTypes {
+			f := *baseFilters
+			f.CellType = ct
+			specs = append(specs, querySpec{label: ct, filters: f})
+		}
 
-	// Color assignment: per-group palette toning for multi-group, single resolve otherwise
-	if len(groups) > 1 && normalizedColor != "" {
-		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
-	} else {
-		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
-	}
+		// If no class/type flags were given, run a single query with base filters.
+		if len(specs) == 0 {
+			specs = append(specs, querySpec{label: "", filters: *baseFilters})
+		}
 
-	if addPile {
-		result.Source = nglstate.SourceClipboard
-	}
+		var groups [][]string
+		var allRootIDs []string
+		var totalRows int
 
-	// Output
-	if err := nglstate.WriteState(result, addOutput); err != nil {
-		return err
-	}
-
-	if addOpen {
-		nglURL := result.OutputURL
-		if nglURL == "" {
-			var err error
-			nglURL, err = nglstate.EncodeURL(result.State, "")
+		for _, s := range specs {
+			rows, err := seatable.QueryNeurons(client, &s.filters)
 			if err != nil {
-				return fmt.Errorf("encoding URL for --open: %w", err)
+				return err
+			}
+			ids := extractRootIDs(rows)
+			groups = append(groups, ids)
+			allRootIDs = append(allRootIDs, ids...)
+			totalRows += len(rows)
+			if s.label != "" {
+				fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
 			}
 		}
 
-		if err := browser.OpenURL(nglURL); err != nil {
-			return fmt.Errorf("opening browser: %w", err)
+		fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
+
+		if len(allRootIDs) == 0 {
+			fmt.Fprintln(os.Stderr, "No neurons found matching filters")
+			return nil
 		}
-		fmt.Fprintln(os.Stderr, "Opened Neuroglancer URL in browser")
+
+		// Root IDs only mode
+		if addRootIDsOnly {
+			joined := strings.Join(allRootIDs, "\n")
+			fmt.Println(joined)
+			if err := clipboard.Write(joined); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not copy to clipboard: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Root IDs copied to clipboard\n")
+			}
+			return nil
+		}
+
+		// Load state
+		result, err := nglstate.LoadState(addState, addGenerate)
+		if err != nil {
+			return err
+		}
+
+		fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.Source)
+
+		// Find segmentation layer and inject
+		layer, _, err := nglstate.FindSegmentationLayer(result.State, addLayer)
+		if err != nil {
+			return err
+		}
+
+		nglstate.AddSegments(layer, allRootIDs, addReplace)
+
+		// Color assignment: per-group palette toning for multi-group, single resolve otherwise
+		if len(groups) > 1 && normalizedColor != "" {
+			nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
+		} else {
+			nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
+		}
+
+		if addPile {
+			result.Source = nglstate.SourceClipboard
+		}
+
+		// Output
+		if err := nglstate.WriteState(result, addOutput); err != nil {
+			return err
+		}
+
+		if addOpen {
+			nglURL := result.OutputURL
+			if nglURL == "" {
+				var err error
+				nglURL, err = nglstate.EncodeURL(result.State, "")
+				if err != nil {
+					return fmt.Errorf("encoding URL for --open: %w", err)
+				}
+			}
+
+			if err := browser.OpenURL(nglURL); err != nil {
+				return fmt.Errorf("opening browser: %w", err)
+			}
+			fmt.Fprintln(os.Stderr, "Opened Neuroglancer URL in browser")
+		}
+
+		return nil
 	}
 
-	return nil
+	rootCmd.AddCommand(addCmd)
 }
 
 func extractRootIDs(rows []seatable.NeuronRow) []string {
@@ -252,14 +251,16 @@ func extractRootIDs(rows []seatable.NeuronRow) []string {
 	return ids
 }
 
-func resolveAddRegionFilter(region string, bundle string) (string, error) {
-	if strings.TrimSpace(region) != "" && strings.TrimSpace(bundle) != "" {
+func resolveAddRegionFilter(region, bundle string) (string, error) {
+	region = strings.TrimSpace(region)
+	bundle = strings.TrimSpace(bundle)
+	if region != "" && bundle != "" {
 		return "", fmt.Errorf("--region and --bundle cannot be used together")
 	}
-	if strings.TrimSpace(bundle) != "" {
-		return strings.TrimSpace(bundle), nil
+	if bundle != "" {
+		return bundle, nil
 	}
-	return strings.TrimSpace(region), nil
+	return region, nil
 }
 
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool, pile bool, output string, rootIDsOnly bool) error {

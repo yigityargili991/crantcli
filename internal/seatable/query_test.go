@@ -89,6 +89,59 @@ func TestQueryDistinctRegionCountsResolvedNames(t *testing.T) {
 	}
 }
 
+func TestQueryNeuronPositionReturnsRowWhenPositionIsMalformed(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{
+						"root_id":   "root-malformed",
+						"region":    []interface{}{"452098"},
+						"cell_type": "EPG/PEG",
+						"position":  nil,
+					},
+				},
+			}, nil
+		},
+	}
+
+	row, err := QueryNeuronPosition(client, "root-malformed", map[string]string{"452098": "LX"})
+	if err != nil {
+		t.Fatalf("QueryNeuronPosition returned error: %v", err)
+	}
+	if row == nil {
+		t.Fatalf("QueryNeuronPosition returned nil row for an existing neuron with malformed position")
+	}
+	if row.RootID != "root-malformed" {
+		t.Fatalf("QueryNeuronPosition returned root_id %q, want %q", row.RootID, "root-malformed")
+	}
+	if row.HasPosition() {
+		t.Fatalf("QueryNeuronPosition returned HasPosition()=true for malformed position")
+	}
+}
+
+func TestParsePositionValueRejectsMalformedArrays(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  []interface{}
+	}{
+		{name: "nil elements", pos: []interface{}{nil, nil, nil}},
+		{name: "empty strings", pos: []interface{}{"", "", ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			x, y, z, err := parsePositionValue(tt.pos)
+			if err == nil {
+				t.Fatalf("parsePositionValue(%v) returned nil error for malformed array", tt.pos)
+			}
+			if x != 0 || y != 0 || z != 0 {
+				t.Fatalf("parsePositionValue(%v) = (%v, %v, %v), want zeros for rejected input", tt.pos, x, y, z)
+			}
+		})
+	}
+}
+
 func TestResolveSelectFilterIDSupportsNamesAndIDs(t *testing.T) {
 	idToName := map[string]string{"452098": "LX"}
 	nameToID := map[string]string{"lx": "452098"}

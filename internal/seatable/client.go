@@ -2,6 +2,7 @@ package seatable
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,7 +52,7 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 		return nil, fmt.Errorf("marshaling SQL payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("creating SQL request: %w", err)
 	}
@@ -127,7 +128,7 @@ func (c *Client) FetchMetadata() (*MetadataResponse, error) {
 
 	url := fmt.Sprintf("%s/api-gateway/api/v2/dtables/%s/metadata/", config.SeaTableServer, c.dtableUUID)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating metadata request: %w", err)
 	}
@@ -153,23 +154,28 @@ func (c *Client) FetchMetadata() (*MetadataResponse, error) {
 	return c.metadata, nil
 }
 
-// SelectOptionMap returns a map from option ID (as string) to option name
-// for a given column in the configured table.
-func SelectOptionMap(meta *MetadataResponse, columnName string) map[string]string {
-	m := make(map[string]string)
+// columnOptions returns the select options for the given column name
+// in the configured table, or nil if not found.
+func columnOptions(meta *MetadataResponse, columnName string) []SelectOption {
 	for _, table := range meta.Metadata.Tables {
 		if table.Name != config.SeaTableTable {
 			continue
 		}
 		for _, col := range table.Columns {
-			if col.Name != columnName || col.Data == nil {
-				continue
-			}
-			for _, opt := range col.Data.Options {
-				idStr := fmt.Sprintf("%v", opt.ID)
-				m[idStr] = opt.Name
+			if col.Name == columnName && col.Data != nil {
+				return col.Data.Options
 			}
 		}
+	}
+	return nil
+}
+
+// SelectOptionMap returns a map from option ID (as string) to option name
+// for a given column in the configured table.
+func SelectOptionMap(meta *MetadataResponse, columnName string) map[string]string {
+	m := make(map[string]string)
+	for _, opt := range columnOptions(meta, columnName) {
+		m[fmt.Sprintf("%v", opt.ID)] = opt.Name
 	}
 	return m
 }
@@ -177,19 +183,8 @@ func SelectOptionMap(meta *MetadataResponse, columnName string) map[string]strin
 // SelectOptionNameMap returns a map from lowercased option name to option ID.
 func SelectOptionNameMap(meta *MetadataResponse, columnName string) map[string]string {
 	m := make(map[string]string)
-	for _, table := range meta.Metadata.Tables {
-		if table.Name != config.SeaTableTable {
-			continue
-		}
-		for _, col := range table.Columns {
-			if col.Name != columnName || col.Data == nil {
-				continue
-			}
-			for _, opt := range col.Data.Options {
-				idStr := fmt.Sprintf("%v", opt.ID)
-				m[strings.ToLower(strings.TrimSpace(opt.Name))] = idStr
-			}
-		}
+	for _, opt := range columnOptions(meta, columnName) {
+		m[strings.ToLower(strings.TrimSpace(opt.Name))] = fmt.Sprintf("%v", opt.ID)
 	}
 	return m
 }
