@@ -11,6 +11,7 @@ import (
 )
 
 const queryPageSize = 1000
+const maxPagedRows = 10000
 
 // Filters holds optional WHERE clause filters for neuron queries.
 type Filters struct {
@@ -301,6 +302,9 @@ func executePagedSelect(client *Client, columns string, where string) ([]map[str
 		}
 
 		rows = append(rows, resp.Results...)
+		if len(rows) > maxPagedRows {
+			return nil, fmt.Errorf("query exceeded %d row safety limit; add filters to narrow results", maxPagedRows)
+		}
 		if len(resp.Results) < queryPageSize {
 			break
 		}

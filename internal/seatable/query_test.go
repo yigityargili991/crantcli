@@ -1,6 +1,7 @@
 package seatable
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -86,6 +87,56 @@ func TestQueryDistinctRegionCountsResolvedNames(t *testing.T) {
 	}
 	if got := resp.Results[0]["count"]; got != 2 {
 		t.Fatalf("first count = %v, want 2", got)
+	}
+}
+
+func TestExecutePagedSelectAllowsExactSafetyLimit(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			offset := parseOffset(t, sql)
+			switch {
+			case offset < maxPagedRows:
+				return &SQLResponse{Results: pagedSelectRows(queryPageSize)}, nil
+			case offset == maxPagedRows:
+				return &SQLResponse{Results: nil}, nil
+			default:
+				t.Fatalf("unexpected SQL: %s", sql)
+				return nil, nil
+			}
+		},
+	}
+
+	rows, err := executePagedSelect(client, "`root_id`", "")
+	if err != nil {
+		t.Fatalf("executePagedSelect returned error at safety limit: %v", err)
+	}
+	if got, want := len(rows), maxPagedRows; got != want {
+		t.Fatalf("len(rows) = %d, want %d", got, want)
+	}
+}
+
+func TestExecutePagedSelectErrorsWhenResultSetExceedsSafetyLimit(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			offset := parseOffset(t, sql)
+			switch {
+			case offset < maxPagedRows:
+				return &SQLResponse{Results: pagedSelectRows(queryPageSize)}, nil
+			case offset == maxPagedRows:
+				return &SQLResponse{Results: pagedSelectRows(1)}, nil
+			default:
+				t.Fatalf("unexpected SQL: %s", sql)
+				return nil, nil
+			}
+		},
+	}
+
+	rows, err := executePagedSelect(client, "`root_id`", "")
+	if err == nil {
+		t.Fatalf("executePagedSelect returned nil error for oversized result set; got %d rows", len(rows))
+	}
+	if !strings.Contains(err.Error(), "query exceeded 10000 row safety limit") {
+		t.Fatalf("executePagedSelect error = %q, want safety limit message", err.Error())
 	}
 }
 
@@ -177,6 +228,29 @@ func neuronSQLRow(rootID string, region []interface{}) map[string]interface{} {
 		"hemilineage":  "hemi",
 		"proofread":    "true",
 	}
+}
+
+func pagedSelectRows(n int) []map[string]interface{} {
+	rows := make([]map[string]interface{}, n)
+	for i := range rows {
+		rows[i] = map[string]interface{}{"root_id": "root-" + strconv.Itoa(i)}
+	}
+	return rows
+}
+
+func parseOffset(t *testing.T, sql string) int {
+	t.Helper()
+
+	idx := strings.LastIndex(sql, "OFFSET ")
+	if idx == -1 {
+		t.Fatalf("SQL missing OFFSET clause: %s", sql)
+	}
+
+	offset, err := strconv.Atoi(strings.TrimSpace(sql[idx+len("OFFSET "):]))
+	if err != nil {
+		t.Fatalf("parsing OFFSET from %q: %v", sql, err)
+	}
+	return offset
 }
 
 func regionMetadata() *MetadataResponse {
