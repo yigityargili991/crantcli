@@ -1,6 +1,7 @@
 package seatable
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -135,7 +136,7 @@ func TestExecutePagedSelectErrorsWhenResultSetExceedsSafetyLimit(t *testing.T) {
 	if err == nil {
 		t.Fatalf("executePagedSelect returned nil error for oversized result set; got %d rows", len(rows))
 	}
-	if !strings.Contains(err.Error(), "query exceeded 10000 row safety limit") {
+	if !strings.Contains(err.Error(), fmt.Sprintf("query exceeded %d row safety limit", maxPagedRows)) {
 		t.Fatalf("executePagedSelect error = %q, want safety limit message", err.Error())
 	}
 }

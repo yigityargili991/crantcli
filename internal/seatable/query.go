@@ -301,10 +301,10 @@ func executePagedSelect(client *Client, columns string, where string) ([]map[str
 			return nil, err
 		}
 
-		rows = append(rows, resp.Results...)
-		if len(rows) > maxPagedRows {
+		if len(rows)+len(resp.Results) > maxPagedRows {
 			return nil, fmt.Errorf("query exceeded %d row safety limit; add filters to narrow results", maxPagedRows)
 		}
+		rows = append(rows, resp.Results...)
 		if len(resp.Results) < queryPageSize {
 			break
 		}

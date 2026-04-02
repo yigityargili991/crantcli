@@ -3,3 +3,4 @@ crantinject
 dist/
 .DS_Store
 **/.DS_Store
+/.claude
