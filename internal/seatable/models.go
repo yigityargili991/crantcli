@@ -17,15 +17,16 @@ type NeuronRow struct {
 
 // NeuronPositionRow represents a row with position coordinates from the CRANTb_meta table.
 type NeuronPositionRow struct {
-	RootID   string
-	Region   string
-	CellType string
-	X, Y, Z  float64
+	RootID      string
+	Region      string
+	CellType    string
+	X, Y, Z     float64
+	PositionSet bool
 }
 
-// HasPosition returns true if any coordinate is non-zero.
+// HasPosition returns true if position data was successfully parsed.
 func (n *NeuronPositionRow) HasPosition() bool {
-	return n.X != 0 || n.Y != 0 || n.Z != 0
+	return n.PositionSet
 }
 
 // AuthResponse is returned by the SeaTable app-access-token endpoint.

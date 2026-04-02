@@ -53,6 +53,9 @@ crantinject add --cell-class kenyon_cell --generate
 # Combine filters
 crantinject add --super-class sensory --side left --color "#ff0000"
 
+# Query by bundle/region annotation
+crantinject add --bundle LX
+
 # Replace segments instead of appending
 crantinject add --cell-type ER --replace
 
@@ -63,9 +66,9 @@ crantinject add --cell-class kenyon_cell --pile
 crantinject add --cell-class kenyon_cell --root-ids-only
 ```
 
-**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--tract`, `--proofread`
+**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (hex color), `--replace`, `--pile` (force clipboard overwrite mode), `--open`
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (named palette, `colored`, or 6-digit hex), `--replace`, `--pile` (force clipboard overwrite mode), `--open`
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)
@@ -75,7 +78,7 @@ crantinject add --cell-class kenyon_cell --root-ids-only
 
 ### `list` -- Explore the dataset
 
-List distinct values for any classification field, optionally with neuron counts.
+List distinct values for any classification field, optionally with neuron counts. `region` values are printed as resolved region names rather than raw SeaTable option IDs.
 
 ```bash
 crantinject list super_class --count
@@ -96,7 +99,7 @@ crantinject inspect -s state.json
 
 ### `lookup-column` -- Find the closest EPG/PEG column
 
-Finds the closest EPG/PEG neuron to a given root ID (or position) by 3D Euclidean distance and prints its `region` value.
+Finds the closest EPG/PEG neuron to a given root ID (or position) by 3D Euclidean distance and prints its resolved `region` value plus the nearest EPG/PEG root ID.
 
 ```bash
 # Look up by root ID
@@ -104,6 +107,12 @@ crantinject lookup-column 720575940610453042
 
 # Provide position directly
 crantinject lookup-column --pos 31870.5,26635.5,1502.5
+```
+
+Example output:
+
+```text
+CX, LW	720575940610453042
 ```
 
 **Flags:** `--pos` (comma-separated `x,y,z` coordinates; skips the root ID lookup)

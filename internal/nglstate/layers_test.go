@@ -74,10 +74,10 @@ func TestSetSegmentColor(t *testing.T) {
 			expected: map[string]interface{}{"123": "#ff0000", "456": "#ff0000"},
 		},
 		{
-			name:     "set color without hash",
+			name:     "set pre-normalized hex color",
 			layer:    map[string]interface{}{},
 			rootIDs:  []string{"123"},
-			color:    "ff0000",
+			color:    "#ff0000",
 			expected: map[string]interface{}{"123": "#ff0000"},
 		},
 		{
@@ -185,6 +185,42 @@ func TestFindSegmentationLayer(t *testing.T) {
 		_, _, err := FindSegmentationLayer(state, "")
 		if err == nil {
 			t.Error("expected error")
+		}
+	})
+}
+
+func TestSetSegmentColorByGroups(t *testing.T) {
+	t.Run("colored assigns palette per group", func(t *testing.T) {
+		layer := map[string]interface{}{}
+		groups := [][]string{
+			{"a1", "a2"},
+			{"b1", "b2"},
+		}
+
+		SetSegmentColorByGroups(layer, groups, "colored")
+
+		got, ok := layer["segmentColors"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+		}
+
+		want := map[string]interface{}{
+			"a1": colorPalettes["blue"][0],
+			"a2": colorPalettes["blue"][1],
+			"b1": colorPalettes["red"][0],
+			"b2": colorPalettes["red"][1],
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("invalid color is rejected by NormalizeColorInput", func(t *testing.T) {
+		// Invalid colors are now caught by NormalizeColorInput before reaching
+		// SetSegmentColorByGroups, so we test the normalization layer instead.
+		_, err := NormalizeColorInput("not-a-color")
+		if err == nil {
+			t.Fatalf("expected NormalizeColorInput(\"not-a-color\") to return error")
 		}
 	})
 }

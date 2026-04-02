@@ -3,6 +3,8 @@ package cmd
 import (
 	"math"
 	"testing"
+
+	"crantinject/internal/seatable"
 )
 
 func TestParsePos(t *testing.T) {
@@ -44,7 +46,7 @@ func TestParsePos(t *testing.T) {
 
 func TestEuclideanDistance(t *testing.T) {
 	tests := []struct {
-		name string
+		name       string
 		x1, y1, z1 float64
 		x2, y2, z2 float64
 		want       float64
@@ -66,5 +68,18 @@ func TestEuclideanDistance(t *testing.T) {
 					tt.x1, tt.y1, tt.z1, tt.x2, tt.y2, tt.z2, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFormatLookupColumnOutput(t *testing.T) {
+	neuron := &seatable.NeuronPositionRow{
+		RootID: "720575940610453042",
+		Region: "CX, LW",
+	}
+
+	got := formatLookupColumnOutput(neuron)
+	want := "CX, LW\t720575940610453042"
+	if got != want {
+		t.Fatalf("formatLookupColumnOutput() = %q, want %q", got, want)
 	}
 }
