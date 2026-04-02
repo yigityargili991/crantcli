@@ -81,7 +81,7 @@ func writeDistinctResults(w io.Writer, field string, resp *seatable.SQLResponse,
 			continue
 		}
 		if withCount {
-			if _, err := fmt.Fprintf(w, "%-40s %v\n", val, row["count"]); err != nil {
+			if _, err := fmt.Fprintf(w, "%-40v %v\n", val, row["count"]); err != nil {
 				return err
 			}
 			continue
