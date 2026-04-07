@@ -233,12 +233,9 @@ func QueryNeuronSupervoxel(client *Client, rootID string) (*NeuronCaveCheckRow, 
 func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow, error) {
 	columns := fmt.Sprintf("`root_id`, `%s`", sanitizeIdentifier(config.SupervoxelIDColumn))
 
-	if f.Region != "" {
-		columns += ", `region`"
-	}
-
 	regionFilterID := ""
 	if f.Region != "" {
+		columns += ", `region`"
 		regionOpts, regionNameToID, err := loadRegionOptions(client)
 		if err != nil {
 			return nil, err
@@ -527,20 +524,6 @@ func parsePositionComponent(v interface{}) (float64, error) {
 	}
 }
 
-func toFloat64(v interface{}) float64 {
-	if v == nil {
-		return 0
-	}
-	switch val := v.(type) {
-	case float64:
-		return val
-	case string:
-		f, _ := strconv.ParseFloat(val, 64)
-		return f
-	default:
-		return 0
-	}
-}
 
 func toString(v interface{}) string {
 	if v == nil {

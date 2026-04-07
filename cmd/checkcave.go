@@ -14,9 +14,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// errStaleFound is returned when --quiet mode detects stale root IDs.
-// root.go handles this by exiting with code 1 without printing the error.
 var errStaleFound = errors.New("stale root IDs found")
+
+const (
+	statusOK           = "ok"
+	statusStale        = "STALE"
+	statusNoSupervoxel = "no_supervoxel"
+	statusError        = "error"
+)
 
 var checkCaveCmd = &cobra.Command{
 	Use:   "check-cave [root_id...]",
@@ -157,12 +162,11 @@ type checkResult struct {
 	RootID       string
 	SupervoxelID string
 	CaveRootID   string
-	Status       string // "ok", "STALE", "no_supervoxel", "error"
+	Status       string
 	Err          error
 }
 
 func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow) ([]checkResult, error) {
-	// Separate neurons with and without supervoxel IDs.
 	type indexed struct {
 		idx    int
 		svID   uint64
@@ -178,22 +182,21 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 		}
 		if n.SupervoxelID == "" {
 			results[i].CaveRootID = "-"
-			results[i].Status = "no_supervoxel"
+			results[i].Status = statusNoSupervoxel
 			continue
 		}
 		svID, err := strconv.ParseUint(n.SupervoxelID, 10, 64)
 		if err != nil {
 			results[i].CaveRootID = "-"
-			results[i].Status = "error"
+			results[i].Status = statusError
 			results[i].Err = fmt.Errorf("invalid supervoxel_id %q: %w", n.SupervoxelID, err)
 			continue
 		}
-		// Parse root_id as uint64 for numeric comparison to avoid
-		// string formatting differences (leading zeros, whitespace).
+		// Parse as uint64 to compare numerically (avoids leading-zero/whitespace mismatches).
 		rootID, err := strconv.ParseUint(strings.TrimSpace(n.RootID), 10, 64)
 		if err != nil {
 			results[i].CaveRootID = "-"
-			results[i].Status = "error"
+			results[i].Status = statusError
 			results[i].Err = fmt.Errorf("invalid root_id %q: %w", n.RootID, err)
 			continue
 		}
@@ -204,25 +207,27 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 		return results, nil
 	}
 
+	setResult := func(idx int, caveRoot, storedRoot uint64) {
+		results[idx].CaveRootID = strconv.FormatUint(caveRoot, 10)
+		if storedRoot == caveRoot {
+			results[idx].Status = statusOK
+		} else {
+			results[idx].Status = statusStale
+		}
+	}
+
 	if len(withSV) <= batchThreshold {
-		// Individual lookups.
 		for _, item := range withSV {
 			caveRoot, err := caveClient.GetRootID(item.svID)
 			if err != nil {
 				results[item.idx].CaveRootID = "-"
-				results[item.idx].Status = "error"
+				results[item.idx].Status = statusError
 				results[item.idx].Err = err
 				continue
 			}
-			results[item.idx].CaveRootID = strconv.FormatUint(caveRoot, 10)
-			if item.rootID == caveRoot {
-				results[item.idx].Status = "ok"
-			} else {
-				results[item.idx].Status = "STALE"
-			}
+			setResult(item.idx, caveRoot, item.rootID)
 		}
 	} else {
-		// Batch lookup.
 		svIDs := make([]uint64, len(withSV))
 		for i, item := range withSV {
 			svIDs[i] = item.svID
@@ -235,12 +240,7 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 			return nil, fmt.Errorf("CAVE returned %d root IDs for %d supervoxels", len(caveRoots), len(svIDs))
 		}
 		for i, item := range withSV {
-			results[item.idx].CaveRootID = strconv.FormatUint(caveRoots[i], 10)
-			if item.rootID == caveRoots[i] {
-				results[item.idx].Status = "ok"
-			} else {
-				results[item.idx].Status = "STALE"
-			}
+			setResult(item.idx, caveRoots[i], item.rootID)
 		}
 	}
 
@@ -250,18 +250,25 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 func printResults(results []checkResult, quiet bool) int {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
-	staleCount := 0
+	var staleCount, okCount, noSVCount, errCount int
 	headerPrinted := false
 
 	for _, r := range results {
-		if r.Status == "STALE" {
+		switch r.Status {
+		case statusOK:
+			okCount++
+		case statusStale:
 			staleCount++
+		case statusNoSupervoxel:
+			noSVCount++
+		case statusError:
+			errCount++
 		}
-		// Always print errors to stderr, even in quiet mode.
+
 		if r.Err != nil {
 			fmt.Fprintf(os.Stderr, "  error for %s: %v\n", r.RootID, r.Err)
 		}
-		if quiet && r.Status != "STALE" {
+		if quiet && r.Status != statusStale {
 			continue
 		}
 		if !headerPrinted {
@@ -273,25 +280,10 @@ func printResults(results []checkResult, quiet bool) int {
 		if svDisplay == "" {
 			svDisplay = "(none)"
 		}
-
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.RootID, svDisplay, r.CaveRootID, r.Status)
 	}
 
 	w.Flush()
-
-	okCount := 0
-	noSVCount := 0
-	errCount := 0
-	for _, r := range results {
-		switch r.Status {
-		case "ok":
-			okCount++
-		case "no_supervoxel":
-			noSVCount++
-		case "error":
-			errCount++
-		}
-	}
 
 	parts := []string{fmt.Sprintf("%d checked", len(results))}
 	if okCount > 0 {

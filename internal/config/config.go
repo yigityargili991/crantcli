@@ -71,20 +71,19 @@ func ReadStoredToken() string {
 	return readStoredTokenAtPath(legacyCredentialFilePath())
 }
 
-func StoreToken(token string) error {
-	path := credentialFilePath()
+func storeEncodedToken(path, token string) error {
 	if path == "" {
 		return fmt.Errorf("could not determine home directory")
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(token))
-	if err := os.WriteFile(path, []byte(encoded+"\n"), 0o600); err != nil {
-		return fmt.Errorf("writing credentials file: %w", err)
-	}
-	return nil
+	return os.WriteFile(path, []byte(encoded+"\n"), 0o600)
+}
+
+func StoreToken(token string) error {
+	return storeEncodedToken(credentialFilePath(), token)
 }
 
 func readTokenFile(path string) string {
@@ -130,19 +129,7 @@ func ReadStoredCAVEToken() string {
 
 // StoreCAVEToken stores a CAVE token as base64 in ~/.crantinject/cave_credentials.
 func StoreCAVEToken(token string) error {
-	path := caveCredentialFilePath()
-	if path == "" {
-		return fmt.Errorf("could not determine home directory")
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(token))
-	if err := os.WriteFile(path, []byte(encoded+"\n"), 0o600); err != nil {
-		return fmt.Errorf("writing CAVE credentials file: %w", err)
-	}
-	return nil
+	return storeEncodedToken(caveCredentialFilePath(), token)
 }
 
 // GetCAVEToken retrieves the CAVE API token from one of several sources.
