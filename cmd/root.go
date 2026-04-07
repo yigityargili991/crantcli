@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"crantinject/internal/config"
+	"crantcli/internal/config"
 
 	"github.com/spf13/cobra"
 )

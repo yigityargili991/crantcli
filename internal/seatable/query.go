@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"crantinject/internal/config"
+	"crantcli/internal/config"
 )
 
 const queryPageSize = 1000

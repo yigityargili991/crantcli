@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"crantinject/internal/config"
+	"crantcli/internal/config"
 )
 
 // Client communicates with the CAVE chunkedgraph API to look up current root IDs.

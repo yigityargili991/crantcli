@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"crantinject/internal/seatable"
+	"crantcli/internal/seatable"
 )
 
 func TestWriteDistinctResults(t *testing.T) {

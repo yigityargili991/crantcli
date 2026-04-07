@@ -8,8 +8,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"crantinject/internal/cave"
-	"crantinject/internal/seatable"
+	"crantcli/internal/cave"
+	"crantcli/internal/seatable"
 
 	"github.com/spf13/cobra"
 )

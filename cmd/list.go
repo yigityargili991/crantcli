@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"crantinject/internal/seatable"
+	"crantcli/internal/seatable"
 
 	"github.com/spf13/cobra"
 )

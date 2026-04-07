@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"crantinject/internal/seatable"
+	"crantcli/internal/seatable"
 )
 
 func TestResolveAddRegionFilter(t *testing.T) {

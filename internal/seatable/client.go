@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"crantinject/internal/config"
+	"crantcli/internal/config"
 )
 
 // Client holds authenticated SeaTable connection details.

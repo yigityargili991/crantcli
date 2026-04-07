@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"crantinject/internal/seatable"
+	"crantcli/internal/seatable"
 )
 
 func TestParsePos(t *testing.T) {

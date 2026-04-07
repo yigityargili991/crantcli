@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"crantinject/internal/clipboard"
+	"crantcli/internal/clipboard"
 )
 
 // StateSource describes where the state was loaded from.

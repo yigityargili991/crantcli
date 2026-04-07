@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"crantinject/internal/nglstate"
+	"crantcli/internal/nglstate"
 
 	"github.com/spf13/cobra"
 )

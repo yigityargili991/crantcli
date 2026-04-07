@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"crantinject/internal/config"
+	"crantcli/internal/config"
 
 	"github.com/spf13/cobra"
 )

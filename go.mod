@@ -1,4 +1,4 @@
-module crantinject
+module crantcli
 
 go 1.25.5
 

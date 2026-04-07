@@ -5,10 +5,10 @@ import (
 	"os"
 	"strings"
 
-	"crantinject/internal/browser"
-	"crantinject/internal/clipboard"
-	"crantinject/internal/nglstate"
-	"crantinject/internal/seatable"
+	"crantcli/internal/browser"
+	"crantcli/internal/clipboard"
+	"crantcli/internal/nglstate"
+	"crantcli/internal/seatable"
 
 	"github.com/spf13/cobra"
 )

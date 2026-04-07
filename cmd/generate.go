@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"crantinject/internal/nglstate"
+	"crantcli/internal/nglstate"
 
 	"github.com/spf13/cobra"
 )

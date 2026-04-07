@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"crantinject/internal/cave"
-	"crantinject/internal/seatable"
+	"crantcli/internal/cave"
+	"crantcli/internal/seatable"
 )
 
 func TestCheckNeurons_SingleOK(t *testing.T) {

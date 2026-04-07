@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"crantinject/internal/seatable"
+	"crantcli/internal/seatable"
 
 	"github.com/spf13/cobra"
 )
