@@ -69,7 +69,7 @@ func init() {
 	)
 
 	checkCaveCmd.Flags().BoolVar(&checkAll, "all", false, "Check all neurons (or filtered subset)")
-	checkCaveCmd.Flags().BoolVarP(&checkQuiet, "quiet", "q", false, "Only print stale entries; exit code 1 if any found")
+	checkCaveCmd.Flags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress progress/summary; only output stale entries; exit code 1 if any found")
 	checkCaveCmd.Flags().StringVar(&checkSuperClass, "super-class", "", "Filter by super_class")
 	checkCaveCmd.Flags().StringVar(&checkCellClass, "cell-class", "", "Filter by cell_class")
 	checkCaveCmd.Flags().StringVar(&checkCellType, "cell-type", "", "Filter by cell_type")
@@ -136,18 +136,25 @@ func init() {
 		}
 
 		if len(neurons) == 0 {
-			fmt.Fprintln(os.Stderr, "No neurons found matching criteria")
+			if !checkQuiet {
+				fmt.Fprintln(os.Stderr, "No neurons found matching criteria")
+			}
 			return nil
 		}
 
-		fmt.Fprintf(os.Stderr, "Checking %d neurons against CAVE...\n", len(neurons))
+		if !checkQuiet {
+			fmt.Fprintf(os.Stderr, "Checking %d neurons against CAVE...\n", len(neurons))
+		}
 
 		results, err := checkNeurons(caveClient, neurons)
 		if err != nil {
 			return err
 		}
 
-		staleCount := printResults(results, checkQuiet)
+		staleCount, err := printResults(results, checkQuiet)
+		if err != nil {
+			return err
+		}
 
 		if checkQuiet && staleCount > 0 {
 			return errStaleFound
@@ -247,7 +254,7 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 	return results, nil
 }
 
-func printResults(results []checkResult, quiet bool) int {
+func printResults(results []checkResult, quiet bool) (int, error) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
 	var staleCount, okCount, noSVCount, errCount int
@@ -283,22 +290,26 @@ func printResults(results []checkResult, quiet bool) int {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.RootID, svDisplay, r.CaveRootID, r.Status)
 	}
 
-	w.Flush()
+	if err := w.Flush(); err != nil {
+		return 0, fmt.Errorf("writing output: %w", err)
+	}
 
-	parts := []string{fmt.Sprintf("%d checked", len(results))}
-	if okCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d ok", okCount))
+	if !quiet {
+		parts := []string{fmt.Sprintf("%d checked", len(results))}
+		if okCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d ok", okCount))
+		}
+		if staleCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d stale", staleCount))
+		}
+		if noSVCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d no supervoxel", noSVCount))
+		}
+		if errCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d errors", errCount))
+		}
+		fmt.Fprintf(os.Stderr, "%s\n", strings.Join(parts, ", "))
 	}
-	if staleCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d stale", staleCount))
-	}
-	if noSVCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d no supervoxel", noSVCount))
-	}
-	if errCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d errors", errCount))
-	}
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Join(parts, ", "))
 
-	return staleCount
+	return staleCount, nil
 }

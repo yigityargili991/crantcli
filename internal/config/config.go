@@ -88,7 +88,10 @@ func storeEncodedToken(path, token string) error {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(token))
-	return os.WriteFile(path, []byte(encoded+"\n"), 0o600)
+	if err := os.WriteFile(path, []byte(encoded+"\n"), 0o600); err != nil {
+		return fmt.Errorf("writing credentials file: %w", err)
+	}
+	return nil
 }
 
 func StoreToken(token string) error {
