@@ -20,10 +20,10 @@ source is available (no --state, no clipboard, no session cache).
 Pass the full JSON state as an argument, or pass a path to a JSON file.
 
 Examples:
-  crantinject change-def-state '{"dimensions":...}'
-  crantinject change-def-state /path/to/state.json
-  crantinject change-def-state --show
-  crantinject change-def-state --reset`,
+  crantcli change-def-state '{"dimensions":...}'
+  crantcli change-def-state /path/to/state.json
+  crantcli change-def-state --show
+  crantcli change-def-state --reset`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runChangeDefState,
 }

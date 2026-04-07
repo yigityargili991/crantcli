@@ -17,9 +17,9 @@ var listCmd = &cobra.Command{
 Valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread
 
 Examples:
-  crantinject list super_class --count
-  crantinject list cell_class --super-class sensory --count
-  crantinject list cell_type --cell-class kenyon_cell`,
+  crantcli list super_class --count
+  crantcli list cell_class --super-class sensory --count
+  crantcli list cell_type --cell-class kenyon_cell`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.ExactArgs(1),
 }

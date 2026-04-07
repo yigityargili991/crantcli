@@ -1,20 +1,23 @@
-# crantinject
+# crantcli
 
-A CLI tool for querying the [CRANT](https://github.com/flyconnectome/crant) (Connectome Reconstruction and Analysis of Neural Tissue) dataset and injecting neuron root IDs into [Neuroglancer](https://github.com/google/neuroglancer) visualization states.
+A CLI tool for the [CRANT](https://github.com/flyconnectome/crant) (Connectome Reconstruction and Analysis of Neural Tissue) ant connectome dataset. Query neurons by classification, inject root IDs into [Neuroglancer](https://github.com/google/neuroglancer) scenes, check root ID freshness against [CAVE](https://caveclient.readthedocs.io/), and open visualizations in your browser -- all from the terminal.
 
-Query neurons by classification, get their root IDs into a Neuroglancer scene, and open it in your browser -- all in one command.
+Built as a native Go companion to the R [crantr](https://github.com/flyconnectome/crantr) package.
 
 ## Quick Start
 
 ```bash
-# Configure your SeaTable API token
-crantinject setup
+# Configure your SeaTable and CAVE tokens
+crantcli setup
 
 # Query neurons and inject into a Neuroglancer state (reads/writes clipboard)
-crantinject add --cell-class kenyon_cell
+crantcli add --cell-class kenyon_cell
 
 # Open the result directly in your browser
-crantinject add --cell-type ER --open
+crantcli add --cell-type ER --open
+
+# Check if a root ID is still current in CAVE
+crantcli check-cave 720575940610453042
 ```
 
 ## Installation
@@ -26,7 +29,7 @@ Requires Go 1.25.5+.
 ```bash
 git clone https://github.com/yigityargili991/crantinject.git
 cd crantinject
-make build      # produces ./crantinject
+make build      # produces ./crantcli
 make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
 ```
 
@@ -42,33 +45,30 @@ The main command. Queries the CRANT dataset and injects matching root IDs into a
 
 ```bash
 # Smart mode: reads state from clipboard, injects, copies back
-crantinject add --cell-class kenyon_cell
+crantcli add --cell-class kenyon_cell
 
 # Explicit file I/O
-crantinject add --cell-class kenyon_cell -s state.json -o modified.json
+crantcli add --cell-class kenyon_cell -s state.json -o modified.json
 
 # Start from the default CRANT scene template
-crantinject add --cell-class kenyon_cell --generate
+crantcli add --cell-class kenyon_cell --generate
 
 # Combine filters
-crantinject add --super-class sensory --side left --color "#ff0000"
+crantcli add --super-class sensory --side left --color "#ff0000"
 
 # Query by bundle/region annotation
-crantinject add --bundle LX
+crantcli add --bundle LX
 
 # Replace segments instead of appending
-crantinject add --cell-type ER --replace
-
-# Force clipboard overwrite output mode
-crantinject add --cell-class kenyon_cell --pile
+crantcli add --cell-type ER --replace
 
 # Just get root IDs, no state manipulation
-crantinject add --cell-class kenyon_cell --root-ids-only
+crantcli add --cell-class kenyon_cell --root-ids-only
 ```
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (named palette, `colored`, or 6-digit hex), `--replace`, `--pile` (force clipboard overwrite mode), `--open`
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (named palette, `colored`, or 6-digit hex), `--replace`, `--open`
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)
@@ -76,14 +76,41 @@ crantinject add --cell-class kenyon_cell --root-ids-only
 3. Last state URL from a previous session
 4. Default CRANT scene template
 
+### `check-cave` -- Verify root ID freshness
+
+Check whether root IDs stored in SeaTable still match the current CAVE chunkedgraph. Supervoxel IDs are stable, but root IDs change when proofreading edits (merges/splits) happen. This command detects stale entries.
+
+```bash
+# Check a single root ID
+crantcli check-cave 720575940610453042
+
+# Check multiple root IDs
+crantcli check-cave 720575940610453042 720575940631928371
+
+# Check all neurons in the table
+crantcli check-cave --all
+
+# Check a filtered subset
+crantcli check-cave --all --cell-class kenyon_cell
+
+# Only print stale entries (exit code 1 if any found)
+crantcli check-cave --all --quiet
+```
+
+**Filter flags:** Same as `add` (`--super-class`, `--cell-class`, `--cell-type`, etc.)
+
+**Flags:** `--all` (check all neurons), `-q`/`--quiet` (only print stale entries)
+
+Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
+
 ### `list` -- Explore the dataset
 
 List distinct values for any classification field, optionally with neuron counts. `region` values are printed as resolved region names rather than raw SeaTable option IDs.
 
 ```bash
-crantinject list super_class --count
-crantinject list cell_type --cell-class kenyon_cell
-crantinject list cell_class --super-class sensory --count
+crantcli list super_class --count
+crantcli list cell_type --cell-class kenyon_cell
+crantcli list cell_class --super-class sensory --count
 ```
 
 Valid fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`
@@ -93,8 +120,8 @@ Valid fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, 
 Display layers, segment counts, and color assignments in a Neuroglancer state.
 
 ```bash
-crantinject inspect                # reads from clipboard
-crantinject inspect -s state.json
+crantcli inspect                # reads from clipboard
+crantcli inspect -s state.json
 ```
 
 ### `lookup-column` -- Find the closest EPG/PEG column
@@ -103,16 +130,10 @@ Finds the closest EPG/PEG neuron to a given root ID (or position) by 3D Euclidea
 
 ```bash
 # Look up by root ID
-crantinject lookup-column 720575940610453042
+crantcli lookup-column 720575940610453042
 
 # Provide position directly
-crantinject lookup-column --pos 31870.5,26635.5,1502.5
-```
-
-Example output:
-
-```text
-CX, LW	720575940610453042
+crantcli lookup-column --pos 31870.5,26635.5,1502.5
 ```
 
 **Flags:** `--pos` (comma-separated `x,y,z` coordinates; skips the root ID lookup)
@@ -122,7 +143,7 @@ CX, LW	720575940610453042
 Print the built-in CRANT scene template to stdout.
 
 ```bash
-crantinject generate > my_scene.json
+crantcli generate > my_scene.json
 ```
 
 ### `change-def-state` -- Set the default Neuroglancer state
@@ -130,31 +151,24 @@ crantinject generate > my_scene.json
 Set or update the default Neuroglancer JSON state used when no other state source is available.
 
 ```bash
-# Set from a JSON file
-crantinject change-def-state /path/to/state.json
-
-# Set from inline JSON
-crantinject change-def-state '{"dimensions":...}'
-
-# Show the current default state
-crantinject change-def-state --show
-
-# Reset to the built-in default
-crantinject change-def-state --reset
+crantcli change-def-state /path/to/state.json
+crantcli change-def-state --show
+crantcli change-def-state --reset
 ```
 
 **Flags:** `--show` (display current default state), `--reset` (reset to built-in template)
 
 ### `setup` -- Configure credentials
 
-Interactively set your SeaTable API token. Stored in `~/.crantinject/credentials`.
+Interactively set your SeaTable API token and optional CAVE token. Stored in `~/.crantcli/`.
 
 ```bash
-crantinject setup
+crantcli setup
 ```
 
-The token can also be provided via the `CRANTTABLE_TOKEN` environment variable or a file path in `CRANTTABLE_TOKEN_FILE`.
-
+Tokens can also be provided via environment variables:
+- **SeaTable:** `CRANTTABLE_TOKEN` or `CRANTTABLE_TOKEN_FILE`
+- **CAVE:** `CAVE_TOKEN` or `CAVE_TOKEN_FILE`
 
 ## Testing
 

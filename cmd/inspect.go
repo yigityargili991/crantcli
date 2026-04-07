@@ -17,8 +17,8 @@ var inspectCmd = &cobra.Command{
 Uses smart input: reads from --state flag, stdin, clipboard, or default template.
 
 Examples:
-  crantinject inspect              # reads from clipboard
-  crantinject inspect -s state.json`,
+  crantcli inspect              # reads from clipboard
+  crantcli inspect -s state.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := nglstate.LoadState(inspectState, false)
 		if err != nil {

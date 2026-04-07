@@ -29,6 +29,12 @@ func (n *NeuronPositionRow) HasPosition() bool {
 	return n.PositionSet
 }
 
+// NeuronCaveCheckRow holds the root ID and supervoxel ID for a CAVE freshness check.
+type NeuronCaveCheckRow struct {
+	RootID       string
+	SupervoxelID string
+}
+
 // AuthResponse is returned by the SeaTable app-access-token endpoint.
 type AuthResponse struct {
 	AccessToken string `json:"access_token"`

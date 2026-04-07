@@ -27,31 +27,28 @@ Smart input resolution (when no --state is given):
 
 Examples:
   # Smart: checks clipboard for Neuroglancer URL, injects, copies back
-  crantinject add --cell-class kenyon_cell
+  crantcli add --cell-class kenyon_cell
 
   # Explicit file I/O
-  crantinject add --cell-class kenyon_cell -s state.json -o modified.json
+  crantcli add --cell-class kenyon_cell -s state.json -o modified.json
 
   # Generate fresh state
-  crantinject add --cell-class kenyon_cell --generate
+  crantcli add --cell-class kenyon_cell --generate
 
   # Open updated state in browser
-  crantinject add --cell-type ER --open
-
-  # Force clipboard overwrite output mode
-  crantinject add --cell-class kenyon_cell --pile
+  crantcli add --cell-type ER --open
 
   # Just get root IDs (no state manipulation)
-  crantinject add --cell-class kenyon_cell --root-ids-only
+  crantcli add --cell-class kenyon_cell --root-ids-only
 
   # Add multiple cell types with per-group coloring
-  crantinject add --cell-type ER --cell-type EPG/PEG --color colored
+  crantcli add --cell-type ER --cell-type EPG/PEG --color colored
 
   # Add all neurons annotated to bundle/region LX
-  crantinject add --bundle LX
+  crantcli add --bundle LX
 
   # Mix cell classes and types as independent groups
-  crantinject add --cell-class kenyon_cell --cell-type ER --color colored`,
+  crantcli add --cell-class kenyon_cell --cell-type ER --color colored`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -74,7 +71,6 @@ func init() {
 		addReplace     bool
 		addRootIDsOnly bool
 		addOpen        bool
-		addPile        bool
 	)
 
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
@@ -92,7 +88,6 @@ func init() {
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise) with auto-toning, 'colored' for random, or hex (#ff0000)")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
-	addCmd.Flags().BoolVar(&addPile, "pile", false, "Force clipboard mode: overwrite clipboard with updated Neuroglancer URL")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 
@@ -116,7 +111,7 @@ func init() {
 		}
 
 		hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0
-		if err := validateAddInputs(baseFilters, hasGroupFlags, addPile, addOutput, addRootIDsOnly); err != nil {
+		if err := validateAddInputs(baseFilters, hasGroupFlags); err != nil {
 			return err
 		}
 
@@ -210,10 +205,6 @@ func init() {
 			nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
 		}
 
-		if addPile {
-			result.Source = nglstate.SourceClipboard
-		}
-
 		// Output
 		if err := nglstate.WriteState(result, addOutput); err != nil {
 			return err
@@ -263,15 +254,9 @@ func resolveAddRegionFilter(region, bundle string) (string, error) {
 	return region, nil
 }
 
-func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool, pile bool, output string, rootIDsOnly bool) error {
+func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
 	if !baseFilters.HasAny() && !hasGroupFlags {
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
-	}
-	if pile && output != "" {
-		return fmt.Errorf("--pile cannot be used with --output")
-	}
-	if pile && rootIDsOnly {
-		return fmt.Errorf("--pile cannot be used with --root-ids-only")
 	}
 	return nil
 }

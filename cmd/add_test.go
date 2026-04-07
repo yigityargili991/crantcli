@@ -26,12 +26,12 @@ func TestResolveAddRegionFilter(t *testing.T) {
 }
 
 func TestValidateAddInputs(t *testing.T) {
-	err := validateAddInputs(&seatable.Filters{Region: "LX"}, false, false, "", false)
+	err := validateAddInputs(&seatable.Filters{Region: "LX"}, false)
 	if err != nil {
 		t.Fatalf("validateAddInputs returned error: %v", err)
 	}
 
-	err = validateAddInputs(&seatable.Filters{}, false, false, "", false)
+	err = validateAddInputs(&seatable.Filters{}, false)
 	if err == nil {
 		t.Fatal("expected missing-filters error")
 	}

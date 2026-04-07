@@ -1,7 +1,7 @@
 version: 2
 
 builds:
-  - binary: crant_type_look
+  - binary: crantcli
     env:
       - CGO_ENABLED=0
     goos:

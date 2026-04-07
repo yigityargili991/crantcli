@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	appSessionDir       = ".crantinject"
-	legacyAppSessionDir = ".crant_type_look"
+	appSessionDir        = ".crantcli"
+	legacyAppSessionDir  = ".crantinject"
+	legacyAppSessionDir2 = ".crant_type_look"
 )
 
 // testCachePath allows tests to override the cache directory.
-// If set, it's used instead of $HOME/.crantinject
 var testCachePath string
 
 func lastStateFilePathForDir(cacheDir string) string {
@@ -31,9 +31,6 @@ func lastStateFilePath() string {
 	return lastStateFilePathForDir(appSessionDir)
 }
 
-func legacyLastStateFilePath() string {
-	return lastStateFilePathForDir(legacyAppSessionDir)
-}
 
 func readStateURLAtPath(path string) string {
 	if path == "" {
@@ -47,12 +44,8 @@ func readStateURLAtPath(path string) string {
 }
 
 func readLastStateURL() string {
-	paths := []string{lastStateFilePath()}
-	if legacy := legacyLastStateFilePath(); legacy != "" && legacy != paths[0] {
-		paths = append(paths, legacy)
-	}
-	for _, path := range paths {
-		if url := readStateURLAtPath(path); url != "" {
+	for _, dir := range []string{appSessionDir, legacyAppSessionDir, legacyAppSessionDir2} {
+		if url := readStateURLAtPath(lastStateFilePathForDir(dir)); url != "" {
 			return url
 		}
 	}

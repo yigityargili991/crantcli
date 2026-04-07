@@ -207,6 +207,63 @@ func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]N
 	return rows, nil
 }
 
+// QueryNeuronSupervoxel looks up the supervoxel_id for a single root ID.
+func QueryNeuronSupervoxel(client *Client, rootID string) (*NeuronCaveCheckRow, error) {
+	sql := fmt.Sprintf("SELECT `root_id`, `%s` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
+		sanitizeIdentifier(config.SupervoxelIDColumn),
+		sanitizeIdentifier(config.SeaTableTable),
+		escapeSQL(rootID))
+
+	resp, err := client.ExecuteSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Results) == 0 {
+		return nil, nil
+	}
+
+	r := resp.Results[0]
+	return &NeuronCaveCheckRow{
+		RootID:       toString(r["root_id"]),
+		SupervoxelID: toString(r[config.SupervoxelIDColumn]),
+	}, nil
+}
+
+// QueryNeuronsForCaveCheck returns root_id and supervoxel_id for neurons matching filters.
+func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow, error) {
+	columns := fmt.Sprintf("`root_id`, `%s`", sanitizeIdentifier(config.SupervoxelIDColumn))
+
+	regionFilterID := ""
+	if f.Region != "" {
+		columns += ", `region`"
+		regionOpts, regionNameToID, err := loadRegionOptions(client)
+		if err != nil {
+			return nil, err
+		}
+		regionFilterID, err = resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	rowsRaw, err := executePagedSelect(client, columns, buildWhere(f))
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]NeuronCaveCheckRow, 0, len(rowsRaw))
+	for _, r := range rowsRaw {
+		if regionFilterID != "" && !selectValueContains(r["region"], regionFilterID) {
+			continue
+		}
+		rows = append(rows, NeuronCaveCheckRow{
+			RootID:       toString(r["root_id"]),
+			SupervoxelID: toString(r[config.SupervoxelIDColumn]),
+		})
+	}
+	return rows, nil
+}
+
 func queryDistinctWithRegion(client *Client, column string, f *Filters, withCount bool) (*SQLResponse, error) {
 	regionOpts, regionNameToID, err := loadRegionOptions(client)
 	if err != nil {
@@ -467,20 +524,6 @@ func parsePositionComponent(v interface{}) (float64, error) {
 	}
 }
 
-func toFloat64(v interface{}) float64 {
-	if v == nil {
-		return 0
-	}
-	switch val := v.(type) {
-	case float64:
-		return val
-	case string:
-		f, _ := strconv.ParseFloat(val, 64)
-		return f
-	default:
-		return 0
-	}
-}
 
 func toString(v interface{}) string {
 	if v == nil {

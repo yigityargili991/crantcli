@@ -49,7 +49,7 @@ func TestLastStateFilePath(t *testing.T) {
 		defer cleanup()
 
 		path := lastStateFilePath()
-		expected := filepath.Join(tempHome, ".crantinject", "last_state_url")
+		expected := filepath.Join(tempHome, ".crantcli", "last_state_url")
 		if path != expected {
 			t.Errorf("expected %q, got %q", expected, path)
 		}
@@ -82,7 +82,7 @@ func TestReadLastStateURL(t *testing.T) {
 		defer cleanup()
 
 		// Create the cache directory and file
-		cacheDir := filepath.Join(tempHome, ".crantinject")
+		cacheDir := filepath.Join(tempHome, ".crantcli")
 		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func TestReadLastStateURL(t *testing.T) {
 		defer cleanup()
 
 		// Create the cache directory and file
-		cacheDir := filepath.Join(tempHome, ".crantinject")
+		cacheDir := filepath.Join(tempHome, ".crantcli")
 		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +148,7 @@ func TestReadLastStateURL(t *testing.T) {
 		tempHome, cleanup := setupTestHome(t)
 		defer cleanup()
 
-		newDir := filepath.Join(tempHome, ".crantinject")
+		newDir := filepath.Join(tempHome, ".crantcli")
 		if err := os.MkdirAll(newDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +198,7 @@ func TestWriteLastStateURL(t *testing.T) {
 		}
 
 		// Check that directory was created with correct permissions
-		cacheDir := filepath.Join(tempHome, ".crantinject")
+		cacheDir := filepath.Join(tempHome, ".crantcli")
 		info, err := os.Stat(cacheDir)
 		if err != nil {
 			t.Fatalf("directory not created: %v", err)
@@ -224,7 +224,7 @@ func TestWriteLastStateURL(t *testing.T) {
 		}
 
 		// Check that file was created with correct permissions
-		filePath := filepath.Join(tempHome, ".crantinject", "last_state_url")
+		filePath := filepath.Join(tempHome, ".crantcli", "last_state_url")
 		info, err := os.Stat(filePath)
 		if err != nil {
 			t.Fatalf("file not created: %v", err)
@@ -251,7 +251,7 @@ func TestWriteLastStateURL(t *testing.T) {
 		}
 
 		// Read back and verify
-		filePath := filepath.Join(tempHome, ".crantinject", "last_state_url")
+		filePath := filepath.Join(tempHome, ".crantcli", "last_state_url")
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			t.Fatalf("failed to read file: %v", err)
