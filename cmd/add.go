@@ -27,31 +27,31 @@ Smart input resolution (when no --state is given):
 
 Examples:
   # Smart: checks clipboard for Neuroglancer URL, injects, copies back
-  crantinject add --cell-class kenyon_cell
+  crantcli add --cell-class kenyon_cell
 
   # Explicit file I/O
-  crantinject add --cell-class kenyon_cell -s state.json -o modified.json
+  crantcli add --cell-class kenyon_cell -s state.json -o modified.json
 
   # Generate fresh state
-  crantinject add --cell-class kenyon_cell --generate
+  crantcli add --cell-class kenyon_cell --generate
 
   # Open updated state in browser
-  crantinject add --cell-type ER --open
+  crantcli add --cell-type ER --open
 
   # Force clipboard overwrite output mode
-  crantinject add --cell-class kenyon_cell --pile
+  crantcli add --cell-class kenyon_cell --pile
 
   # Just get root IDs (no state manipulation)
-  crantinject add --cell-class kenyon_cell --root-ids-only
+  crantcli add --cell-class kenyon_cell --root-ids-only
 
   # Add multiple cell types with per-group coloring
-  crantinject add --cell-type ER --cell-type EPG/PEG --color colored
+  crantcli add --cell-type ER --cell-type EPG/PEG --color colored
 
   # Add all neurons annotated to bundle/region LX
-  crantinject add --bundle LX
+  crantcli add --bundle LX
 
   # Mix cell classes and types as independent groups
-  crantinject add --cell-class kenyon_cell --cell-type ER --color colored`,
+  crantcli add --cell-class kenyon_cell --cell-type ER --color colored`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 

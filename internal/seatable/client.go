@@ -25,7 +25,7 @@ type Client struct {
 func NewClient() (*Client, error) {
 	apiToken := config.GetAPIToken()
 	if apiToken == "" {
-		return nil, fmt.Errorf("no SeaTable token configured; run 'crantinject setup' to set one")
+		return nil, fmt.Errorf("no SeaTable token configured; run 'crantcli setup' to set one")
 	}
 
 	auth, err := ExchangeToken(apiToken)

@@ -36,7 +36,7 @@ func NewTestClient(baseURL string, httpClient *http.Client) *Client {
 func NewClient() (*Client, error) {
 	token := config.GetCAVEToken()
 	if token == "" {
-		return nil, fmt.Errorf("no CAVE token configured; run 'crantinject setup' or set CAVE_TOKEN")
+		return nil, fmt.Errorf("no CAVE token configured; run 'crantcli setup' or set CAVE_TOKEN")
 	}
 	return &Client{
 		token:     token,

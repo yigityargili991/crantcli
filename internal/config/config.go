@@ -27,8 +27,9 @@ const (
 	CAVETable          = "kronauer_ant_x1"
 	SupervoxelIDColumn = "supervoxel_id"
 
-	appConfigDir       = ".crantinject"
-	legacyAppConfigDir = ".crant_type_look"
+	appConfigDir        = ".crantcli"
+	legacyAppConfigDir  = ".crantinject"
+	legacyAppConfigDir2 = ".crant_type_look"
 )
 
 func credentialFilePathForDir(configDir string) string {
@@ -43,8 +44,11 @@ func credentialFilePath() string {
 	return credentialFilePathForDir(appConfigDir)
 }
 
-func legacyCredentialFilePath() string {
-	return credentialFilePathForDir(legacyAppConfigDir)
+func legacyCredentialFilePaths() []string {
+	return []string{
+		credentialFilePathForDir(legacyAppConfigDir),
+		credentialFilePathForDir(legacyAppConfigDir2),
+	}
 }
 
 func readStoredTokenAtPath(path string) string {
@@ -62,13 +66,18 @@ func readStoredTokenAtPath(path string) string {
 	return string(decoded)
 }
 
-// ReadStoredToken reads a base64-encoded token from ~/.crantinject/credentials.
-// For migration compatibility, it falls back to ~/.crant_type_look/credentials.
+// ReadStoredToken reads a base64-encoded token from ~/.crantcli/credentials.
+// For migration compatibility, it falls back to ~/.crantinject/ and ~/.crant_type_look/.
 func ReadStoredToken() string {
 	if token := readStoredTokenAtPath(credentialFilePath()); token != "" {
 		return token
 	}
-	return readStoredTokenAtPath(legacyCredentialFilePath())
+	for _, path := range legacyCredentialFilePaths() {
+		if token := readStoredTokenAtPath(path); token != "" {
+			return token
+		}
+	}
+	return ""
 }
 
 func storeEncodedToken(path, token string) error {
@@ -96,7 +105,7 @@ func readTokenFile(path string) string {
 
 // GetAPIToken retrieves the SeaTable API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. Stored credentials from ~/.crantinject/credentials (fallback ~/.crant_type_look/credentials)
+//  1. Stored credentials from ~/.crantcli/credentials (fallback ~/.crantinject/ and ~/.crant_type_look/)
 //  2. CRANTTABLE_TOKEN environment variable
 //  3. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
 //
@@ -122,19 +131,19 @@ func caveCredentialFilePath() string {
 	return filepath.Join(home, appConfigDir, "cave_credentials")
 }
 
-// ReadStoredCAVEToken reads a base64-encoded CAVE token from ~/.crantinject/cave_credentials.
+// ReadStoredCAVEToken reads a base64-encoded CAVE token from ~/.crantcli/cave_credentials.
 func ReadStoredCAVEToken() string {
 	return readStoredTokenAtPath(caveCredentialFilePath())
 }
 
-// StoreCAVEToken stores a CAVE token as base64 in ~/.crantinject/cave_credentials.
+// StoreCAVEToken stores a CAVE token as base64 in ~/.crantcli/cave_credentials.
 func StoreCAVEToken(token string) error {
 	return storeEncodedToken(caveCredentialFilePath(), token)
 }
 
 // GetCAVEToken retrieves the CAVE API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. Stored credentials from ~/.crantinject/cave_credentials
+//  1. Stored credentials from ~/.crantcli/cave_credentials
 //  2. CAVE_TOKEN environment variable
 //  3. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
 func GetCAVEToken() string {
@@ -154,11 +163,11 @@ func GetCAVEToken() string {
 // Returns an error if stdin is not a terminal.
 func RunSetupPrompt() error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("no SeaTable token configured and stdin is not a terminal; set CRANTTABLE_TOKEN or run 'crantinject setup'")
+		return fmt.Errorf("no SeaTable token configured and stdin is not a terminal; set CRANTTABLE_TOKEN or run 'crantcli setup'")
 	}
 
 	fmt.Println("Let's get set up yeah?")
-	fmt.Println("Please copy your SeaTable token here to use crantinject:")
+	fmt.Println("Please copy your SeaTable token here to use crantcli:")
 	fmt.Print("> ")
 
 	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))

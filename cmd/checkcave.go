@@ -34,19 +34,19 @@ Supervoxel IDs are stable, but root IDs can change when proofreading edits
 
 Examples:
   # Check a single root ID
-  crantinject check-cave 720575940610453042
+  crantcli check-cave 720575940610453042
 
   # Check multiple root IDs
-  crantinject check-cave 720575940610453042 720575940631928371
+  crantcli check-cave 720575940610453042 720575940631928371
 
   # Check all neurons in the table
-  crantinject check-cave --all
+  crantcli check-cave --all
 
   # Check only kenyon cells
-  crantinject check-cave --all --cell-class kenyon_cell
+  crantcli check-cave --all --cell-class kenyon_cell
 
   # Only print stale entries (exit code 1 if any found)
-  crantinject check-cave --all --quiet`,
+  crantcli check-cave --all --quiet`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 

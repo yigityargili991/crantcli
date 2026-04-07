@@ -9,7 +9,7 @@ import (
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Set or update API tokens (SeaTable and CAVE)",
-	Long:  "Interactively set or update the SeaTable API token and optional CAVE token stored in ~/.crantinject/.",
+	Long:  "Interactively set or update the SeaTable API token and optional CAVE token stored in ~/.crantcli/.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := config.RunSetupPrompt(); err != nil {
 			return err

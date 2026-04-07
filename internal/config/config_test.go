@@ -36,7 +36,7 @@ func TestReadStoredToken(t *testing.T) {
 		home, cleanup := setupTestHome(t)
 		defer cleanup()
 
-		writeEncodedToken(t, filepath.Join(home, ".crantinject", "credentials"), "new-token")
+		writeEncodedToken(t, filepath.Join(home, ".crantcli", "credentials"), "new-token")
 
 		if got := ReadStoredToken(); got != "new-token" {
 			t.Fatalf("expected new-token, got %q", got)
@@ -58,7 +58,7 @@ func TestReadStoredToken(t *testing.T) {
 		home, cleanup := setupTestHome(t)
 		defer cleanup()
 
-		writeEncodedToken(t, filepath.Join(home, ".crantinject", "credentials"), "new-token")
+		writeEncodedToken(t, filepath.Join(home, ".crantcli", "credentials"), "new-token")
 		writeEncodedToken(t, filepath.Join(home, ".crant_type_look", "credentials"), "legacy-token")
 
 		if got := ReadStoredToken(); got != "new-token" {
