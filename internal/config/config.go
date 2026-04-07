@@ -145,13 +145,20 @@ func StoreCAVEToken(token string) error {
 	return nil
 }
 
-// GetCAVEToken retrieves the CAVE API token from stored credentials or CAVE_TOKEN env var.
+// GetCAVEToken retrieves the CAVE API token from one of several sources.
+// It checks sources in the following precedence order:
+//  1. Stored credentials from ~/.crantinject/cave_credentials
+//  2. CAVE_TOKEN environment variable
+//  3. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
 func GetCAVEToken() string {
 	if token := ReadStoredCAVEToken(); token != "" {
 		return token
 	}
 	if token := os.Getenv("CAVE_TOKEN"); token != "" {
 		return token
+	}
+	if path := os.Getenv("CAVE_TOKEN_FILE"); path != "" {
+		return readTokenFile(path)
 	}
 	return ""
 }

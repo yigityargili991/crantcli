@@ -243,7 +243,6 @@ func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow,
 		if err != nil {
 			return nil, err
 		}
-		_ = regionOpts
 		regionFilterID, err = resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
 		if err != nil {
 			return nil, err

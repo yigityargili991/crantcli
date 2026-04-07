@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// errStaleFound is returned when --quiet mode detects stale root IDs.
+// root.go handles this by exiting with code 1 without printing the error.
+var errStaleFound = errors.New("stale root IDs found")
 
 var checkCaveCmd = &cobra.Command{
 	Use:   "check-cave [root_id...]",
@@ -140,7 +145,7 @@ func init() {
 		staleCount := printResults(results, checkQuiet)
 
 		if checkQuiet && staleCount > 0 {
-			os.Exit(1)
+			return errStaleFound
 		}
 		return nil
 	}
@@ -159,8 +164,9 @@ type checkResult struct {
 func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow) ([]checkResult, error) {
 	// Separate neurons with and without supervoxel IDs.
 	type indexed struct {
-		idx  int
-		svID uint64
+		idx    int
+		svID   uint64
+		rootID uint64
 	}
 	results := make([]checkResult, len(neurons))
 	var withSV []indexed
@@ -182,7 +188,16 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 			results[i].Err = fmt.Errorf("invalid supervoxel_id %q: %w", n.SupervoxelID, err)
 			continue
 		}
-		withSV = append(withSV, indexed{idx: i, svID: svID})
+		// Parse root_id as uint64 for numeric comparison to avoid
+		// string formatting differences (leading zeros, whitespace).
+		rootID, err := strconv.ParseUint(strings.TrimSpace(n.RootID), 10, 64)
+		if err != nil {
+			results[i].CaveRootID = "-"
+			results[i].Status = "error"
+			results[i].Err = fmt.Errorf("invalid root_id %q: %w", n.RootID, err)
+			continue
+		}
+		withSV = append(withSV, indexed{idx: i, svID: svID, rootID: rootID})
 	}
 
 	if len(withSV) == 0 {
@@ -192,16 +207,15 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 	if len(withSV) <= batchThreshold {
 		// Individual lookups.
 		for _, item := range withSV {
-			rootID, err := caveClient.GetRootID(item.svID)
+			caveRoot, err := caveClient.GetRootID(item.svID)
 			if err != nil {
 				results[item.idx].CaveRootID = "-"
 				results[item.idx].Status = "error"
 				results[item.idx].Err = err
 				continue
 			}
-			caveStr := strconv.FormatUint(rootID, 10)
-			results[item.idx].CaveRootID = caveStr
-			if results[item.idx].RootID == caveStr {
+			results[item.idx].CaveRootID = strconv.FormatUint(caveRoot, 10)
+			if item.rootID == caveRoot {
 				results[item.idx].Status = "ok"
 			} else {
 				results[item.idx].Status = "STALE"
@@ -221,9 +235,8 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 			return nil, fmt.Errorf("CAVE returned %d root IDs for %d supervoxels", len(caveRoots), len(svIDs))
 		}
 		for i, item := range withSV {
-			caveStr := strconv.FormatUint(caveRoots[i], 10)
-			results[item.idx].CaveRootID = caveStr
-			if results[item.idx].RootID == caveStr {
+			results[item.idx].CaveRootID = strconv.FormatUint(caveRoots[i], 10)
+			if item.rootID == caveRoots[i] {
 				results[item.idx].Status = "ok"
 			} else {
 				results[item.idx].Status = "STALE"
@@ -243,6 +256,10 @@ func printResults(results []checkResult, quiet bool) int {
 	for _, r := range results {
 		if r.Status == "STALE" {
 			staleCount++
+		}
+		// Always print errors to stderr, even in quiet mode.
+		if r.Err != nil {
+			fmt.Fprintf(os.Stderr, "  error for %s: %v\n", r.RootID, r.Err)
 		}
 		if quiet && r.Status != "STALE" {
 			continue

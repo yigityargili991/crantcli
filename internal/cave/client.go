@@ -138,4 +138,3 @@ func (c *Client) GetRootIDs(supervoxelIDs []uint64) ([]uint64, error) {
 	}
 	return rootIDs, nil
 }
-
