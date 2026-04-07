@@ -23,6 +23,10 @@ const (
 	ImageSource        = "precomputed://gs://dkronauer-ant-001-alignment-final/aligned"
 	MeshSource         = "precomputed://gs://dkronauer-ant-001-alignment-final/tissue_mesh/mesh#type=mesh"
 
+	CAVEServer         = "https://data.proofreading.zetta.ai"
+	CAVETable          = "kronauer_ant_x1"
+	SupervoxelIDColumn = "supervoxel_id"
+
 	appConfigDir       = ".crantinject"
 	legacyAppConfigDir = ".crant_type_look"
 )
@@ -111,6 +115,47 @@ func GetAPIToken() string {
 	return ""
 }
 
+func caveCredentialFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, appConfigDir, "cave_credentials")
+}
+
+// ReadStoredCAVEToken reads a base64-encoded CAVE token from ~/.crantinject/cave_credentials.
+func ReadStoredCAVEToken() string {
+	return readStoredTokenAtPath(caveCredentialFilePath())
+}
+
+// StoreCAVEToken stores a CAVE token as base64 in ~/.crantinject/cave_credentials.
+func StoreCAVEToken(token string) error {
+	path := caveCredentialFilePath()
+	if path == "" {
+		return fmt.Errorf("could not determine home directory")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(token))
+	if err := os.WriteFile(path, []byte(encoded+"\n"), 0o600); err != nil {
+		return fmt.Errorf("writing CAVE credentials file: %w", err)
+	}
+	return nil
+}
+
+// GetCAVEToken retrieves the CAVE API token from stored credentials or CAVE_TOKEN env var.
+func GetCAVEToken() string {
+	if token := ReadStoredCAVEToken(); token != "" {
+		return token
+	}
+	if token := os.Getenv("CAVE_TOKEN"); token != "" {
+		return token
+	}
+	return ""
+}
+
 // RunSetupPrompt interactively prompts the user for their SeaTable token and stores it.
 // Returns an error if stdin is not a terminal.
 func RunSetupPrompt() error {
@@ -138,5 +183,34 @@ func RunSetupPrompt() error {
 	}
 
 	fmt.Println("Token saved! You're all set.")
+	return nil
+}
+
+// RunCAVESetupPrompt interactively prompts for the CAVE token (optional, can be skipped).
+func RunCAVESetupPrompt() error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return nil
+	}
+
+	fmt.Println("\nCAVE token (needed for check-cave). Press Enter to skip:")
+	fmt.Print("> ")
+
+	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+
+	if token == "" {
+		fmt.Println("Skipped CAVE token setup.")
+		return nil
+	}
+
+	if err := StoreCAVEToken(token); err != nil {
+		return err
+	}
+
+	fmt.Println("CAVE token saved!")
 	return nil
 }
