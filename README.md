@@ -62,16 +62,13 @@ crantcli add --bundle LX
 # Replace segments instead of appending
 crantcli add --cell-type ER --replace
 
-# Force clipboard overwrite output mode
-crantcli add --cell-class kenyon_cell --pile
-
 # Just get root IDs, no state manipulation
 crantcli add --cell-class kenyon_cell --root-ids-only
 ```
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (named palette, `colored`, or 6-digit hex), `--replace`, `--pile` (force clipboard overwrite mode), `--open`
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (named palette, `colored`, or 6-digit hex), `--replace`, `--open`
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)
