@@ -2,7 +2,6 @@
 
 A CLI tool for the [CRANT](https://github.com/flyconnectome/crant) (Connectome Reconstruction and Analysis of Neural Tissue) ant connectome dataset. Query neurons by classification, inject root IDs into [Neuroglancer](https://github.com/google/neuroglancer) scenes, check root ID freshness against [CAVE](https://caveclient.readthedocs.io/), and open visualizations in your browser -- all from the terminal.
 
-Built as a native Go companion to the R [crantr](https://github.com/flyconnectome/crantr) package.
 
 ## Quick Start
 
