@@ -137,6 +137,28 @@ crantcli lookup-column --pos 31870.5,26635.5,1502.5
 
 **Flags:** `--pos` (comma-separated `x,y,z` coordinates; skips the root ID lookup)
 
+### `state-transfer` -- Build state from clipboard IDs
+
+Read root IDs from the clipboard, inject them into a Neuroglancer state, and copy the resulting state URL back to the clipboard. Useful when you have a list of root IDs from another source and want to quickly visualize them.
+
+```bash
+# Copy some root IDs to clipboard, then:
+crantcli state-transfer
+
+# Use a specific base state
+crantcli state-transfer -s base.json
+
+# Target a specific segmentation layer
+crantcli state-transfer -l "my layer"
+
+# Write to file instead of clipboard
+crantcli state-transfer -o output.json
+```
+
+IDs in the clipboard can be separated by whitespace, newlines, or commas. Duplicates are removed automatically.
+
+**Flags:** `-s`/`--state` (base state URL or file), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (segment color)
+
 ### `generate` -- Output default template
 
 Print the built-in CRANT scene template to stdout.
