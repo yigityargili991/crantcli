@@ -47,8 +47,11 @@ Examples:
   # Add all neurons annotated to bundle/region LX
   crantcli add --bundle LX
 
-  # Mix cell classes and types as independent groups
-  crantcli add --cell-class kenyon_cell --cell-type ER --color colored`,
+  # Cross-product: kenyon_cell+ER and kenyon_cell+EPG/PEG as separate groups
+  crantcli add --cell-class kenyon_cell --cell-type ER --cell-type EPG/PEG --color colored
+
+  # Sub-color by cell_subtype within each group
+  crantcli add --cell-class kenyon_cell --color-sub --color blue`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -71,6 +74,7 @@ func init() {
 		addReplace     bool
 		addRootIDsOnly bool
 		addOpen        bool
+		addColorSub    bool
 	)
 
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
@@ -86,7 +90,8 @@ func init() {
 	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard/session state")
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
-	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise) with auto-toning, 'colored' for random, or hex (#ff0000)")
+	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
+	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -121,40 +126,40 @@ func init() {
 			return err
 		}
 
-		// Build independent query groups: each --cell-class and --cell-type
-		// is its own group so they can be freely mixed.
-		type querySpec struct {
-			label   string
-			filters seatable.Filters
-		}
-		var specs []querySpec
+		specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes)
 
-		for _, cc := range addCellClasses {
-			f := *baseFilters
-			f.CellClass = cc
-			specs = append(specs, querySpec{label: cc, filters: f})
+		if addColorSub && normalizedColor == "" {
+			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
+			addColorSub = false
 		}
-		for _, ct := range addCellTypes {
-			f := *baseFilters
-			f.CellType = ct
-			specs = append(specs, querySpec{label: ct, filters: f})
-		}
-
-		// If no class/type flags were given, run a single query with base filters.
-		if len(specs) == 0 {
-			specs = append(specs, querySpec{label: "", filters: *baseFilters})
+		if addColorSub && strings.HasPrefix(normalizedColor, "#") {
+			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect with a hex color; use a named color or 'colored'")
+			addColorSub = false
 		}
 
 		var groups [][]string
 		var allRootIDs []string
 		var totalRows int
+		var subtypeMap map[string]string
+		if addColorSub {
+			subtypeMap = make(map[string]string)
+		}
 
 		for _, s := range specs {
 			rows, err := seatable.QueryNeurons(client, &s.filters)
 			if err != nil {
 				return err
 			}
-			ids := extractRootIDs(rows)
+			var ids []string
+			if addColorSub {
+				var sm map[string]string
+				ids, sm = extractRootIDsWithSubtype(rows)
+				for k, v := range sm {
+					subtypeMap[k] = v
+				}
+			} else {
+				ids = extractRootIDs(rows)
+			}
 			groups = append(groups, ids)
 			allRootIDs = append(allRootIDs, ids...)
 			totalRows += len(rows)
@@ -198,11 +203,17 @@ func init() {
 
 		nglstate.AddSegments(layer, allRootIDs, addReplace)
 
-		// Color assignment: per-group palette toning for multi-group, single resolve otherwise
-		if len(groups) > 1 && normalizedColor != "" {
+		// Color assignment: base group coloring, then subtype overlay.
+		// When --color-sub is active, always use SetSegmentColorByGroups
+		// (even for a single group) so the base color comes from a palette
+		// rather than a random hex from "colored" mode.
+		if (len(groups) > 1 || addColorSub) && normalizedColor != "" {
 			nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
 		} else {
 			nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
+		}
+		if addColorSub {
+			nglstate.SetSegmentColorBySubtype(layer, groups, subtypeMap, normalizedColor)
 		}
 
 		// Output
@@ -233,13 +244,20 @@ func init() {
 }
 
 func extractRootIDs(rows []seatable.NeuronRow) []string {
+	ids, _ := extractRootIDsWithSubtype(rows)
+	return ids
+}
+
+func extractRootIDsWithSubtype(rows []seatable.NeuronRow) ([]string, map[string]string) {
 	ids := make([]string, 0, len(rows))
+	subtypeMap := make(map[string]string, len(rows))
 	for _, r := range rows {
 		if r.RootID != "" {
 			ids = append(ids, r.RootID)
+			subtypeMap[r.RootID] = r.CellSubtype
 		}
 	}
-	return ids
+	return ids, subtypeMap
 }
 
 func resolveAddRegionFilter(region, bundle string) (string, error) {
@@ -259,4 +277,44 @@ func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error 
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
 	}
 	return nil
+}
+
+type querySpec struct {
+	label   string
+	filters seatable.Filters
+}
+
+// buildQuerySpecs creates query groups from cell-class and cell-type flags.
+// When both are given, produces the cross-product. When only one dimension
+// is given, each value is its own group. With neither, returns a single
+// group using the base filters.
+func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes []string) []querySpec {
+	var specs []querySpec
+
+	if len(cellClasses) > 0 && len(cellTypes) > 0 {
+		for _, cc := range cellClasses {
+			for _, ct := range cellTypes {
+				f := *base
+				f.CellClass = cc
+				f.CellType = ct
+				specs = append(specs, querySpec{label: cc + "/" + ct, filters: f})
+			}
+		}
+	} else {
+		for _, cc := range cellClasses {
+			f := *base
+			f.CellClass = cc
+			specs = append(specs, querySpec{label: cc, filters: f})
+		}
+		for _, ct := range cellTypes {
+			f := *base
+			f.CellType = ct
+			specs = append(specs, querySpec{label: ct, filters: f})
+		}
+	}
+
+	if len(specs) == 0 {
+		specs = append(specs, querySpec{label: "", filters: *base})
+	}
+	return specs
 }
