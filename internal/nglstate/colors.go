@@ -3,6 +3,7 @@ package nglstate
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 )
 
@@ -37,13 +38,69 @@ var colorPalettes = map[string][]string{
 		"#80deea",
 		"#b2ebf2",
 	},
+	"orange": {
+		"#e65100",
+		"#f57c00",
+		"#fb8c00",
+		"#ffb74d",
+		"#ffe0b2",
+	},
+	"purple": {
+		"#6a1b9a",
+		"#8e24aa",
+		"#ab47bc",
+		"#ce93d8",
+		"#e1bee7",
+	},
+	"yellow": {
+		"#f9a825",
+		"#fbc02d",
+		"#fdd835",
+		"#fff176",
+		"#fff9c4",
+	},
+	"pink": {
+		"#c2185b",
+		"#d81b60",
+		"#ec407a",
+		"#f48fb1",
+		"#f8bbd0",
+	},
+	"brown": {
+		"#4e342e",
+		"#6d4c41",
+		"#8d6e63",
+		"#bcaaa4",
+		"#d7ccc8",
+	},
+	"indigo": {
+		"#283593",
+		"#3949ab",
+		"#5c6bc0",
+		"#9fa8da",
+		"#c5cae9",
+	},
+	"teal": {
+		"#00695c",
+		"#00897b",
+		"#26a69a",
+		"#80cbc4",
+		"#b2dfdb",
+	},
+	"lime": {
+		"#9e9d24",
+		"#afb42b",
+		"#c0ca33",
+		"#dce775",
+		"#f0f4c3",
+	},
 }
 
 // ResolveColor resolves a pre-normalized color input to a concrete hex code.
 // colorInput must already be normalized via NormalizeColorInput (lowercase,
 // trimmed, hex prefixed with '#').
 //   - "colored" → random hex color
-//   - Named color (blue, red, green, turquoise) → next unused tone from that palette
+//   - Named color (see colorPalettes) → next unused tone from that palette
 //   - Raw hex → returned as-is
 //   - Empty → empty
 func ResolveColor(layer map[string]interface{}, colorInput string) string {
@@ -98,7 +155,11 @@ func countPaletteTones(layer map[string]interface{}, palette []string) int {
 }
 
 // paletteNames is the ordered list of palettes for automatic per-type assignment.
-var paletteNames = []string{"blue", "red", "green", "turquoise"}
+var paletteNames = []string{
+	"blue", "red", "green", "turquoise",
+	"orange", "purple", "yellow", "pink",
+	"brown", "indigo", "teal", "lime",
+}
 
 // SetSegmentColorByGroups assigns colors to multiple groups of segments.
 // Each group represents a cell type. colorInput must already be normalized via
@@ -145,6 +206,68 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 			for _, id := range group {
 				colors[id] = colorInput
 			}
+		}
+	}
+
+	layer["segmentColors"] = colors
+}
+
+// SetSegmentColorBySubtype assigns sub-colors to neurons within each group
+// based on their cell_subtype. Each group gets its own base palette (determined
+// by the group index). Within a group, each distinct subtype gets its own tone.
+// Neurons with empty subtypes keep their existing group color.
+func SetSegmentColorBySubtype(layer map[string]interface{}, groups [][]string, subtypeMap map[string]string, colorInput string) {
+	if colorInput == "" {
+		return
+	}
+
+	colorsRaw, ok := layer["segmentColors"]
+	var colors map[string]interface{}
+	if ok {
+		colors, _ = colorsRaw.(map[string]interface{})
+	}
+	if colors == nil {
+		colors = make(map[string]interface{})
+	}
+
+	for i, group := range groups {
+		var palette []string
+		switch {
+		case colorInput == "colored":
+			palette = colorPalettes[paletteNames[i%len(paletteNames)]]
+		case colorPalettes[colorInput] != nil:
+			palette = colorPalettes[colorInput]
+		default:
+			// Single hex color -- cannot sub-color, skip
+			continue
+		}
+
+		// Collect distinct subtypes, sorted alphabetically for deterministic
+		// color assignment regardless of query result ordering.
+		subtypeSeen := map[string]bool{}
+		for _, id := range group {
+			st := subtypeMap[id]
+			if st != "" {
+				subtypeSeen[st] = true
+			}
+		}
+		subtypeOrder := make([]string, 0, len(subtypeSeen))
+		for st := range subtypeSeen {
+			subtypeOrder = append(subtypeOrder, st)
+		}
+		sort.Strings(subtypeOrder)
+
+		subtypeToTone := make(map[string]int, len(subtypeOrder))
+		for idx, st := range subtypeOrder {
+			subtypeToTone[st] = idx % len(palette)
+		}
+
+		for _, id := range group {
+			st := subtypeMap[id]
+			if st == "" {
+				continue
+			}
+			colors[id] = palette[subtypeToTone[st]]
 		}
 	}
 
