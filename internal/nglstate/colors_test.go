@@ -150,7 +150,8 @@ func TestCountPaletteTones(t *testing.T) {
 }
 
 func TestSetSegmentColorBySubtype_ColoredMultiGroup(t *testing.T) {
-	// Two groups with "colored": group 0 gets blue tones, group 1 gets red tones.
+	// Two groups with "colored": group 0 gets blue tones, group 1 gets yellow tones.
+	// (With 2 groups, palettes are spaced at indices 0 and 6 for max contrast.)
 	// Subtypes within each group get different tones from that palette.
 	layer := map[string]interface{}{}
 	groups := [][]string{
@@ -178,7 +179,7 @@ func TestSetSegmentColorBySubtype_ColoredMultiGroup(t *testing.T) {
 	}
 
 	blue := colorPalettes["blue"]
-	red := colorPalettes["red"]
+	yellow := colorPalettes["yellow"]
 
 	// Group 0 subtypes: subtypeA -> blue[0], subtypeB -> blue[1]
 	if got["a1"] != blue[0] {
@@ -195,15 +196,15 @@ func TestSetSegmentColorBySubtype_ColoredMultiGroup(t *testing.T) {
 		t.Errorf("a4 (no subtype) = %v, want base group color %v", got["a4"], blue[3])
 	}
 
-	// Group 1 subtypes: subtypeC -> red[0], subtypeD -> red[1]
-	if got["b1"] != red[0] {
-		t.Errorf("b1 (subtypeC) = %v, want %v", got["b1"], red[0])
+	// Group 1 subtypes: subtypeC -> yellow[0], subtypeD -> yellow[1]
+	if got["b1"] != yellow[0] {
+		t.Errorf("b1 (subtypeC) = %v, want %v", got["b1"], yellow[0])
 	}
-	if got["b2"] != red[1] {
-		t.Errorf("b2 (subtypeD) = %v, want %v", got["b2"], red[1])
+	if got["b2"] != yellow[1] {
+		t.Errorf("b2 (subtypeD) = %v, want %v", got["b2"], yellow[1])
 	}
-	if got["b3"] != red[0] {
-		t.Errorf("b3 (subtypeC) = %v, want %v", got["b3"], red[0])
+	if got["b3"] != yellow[0] {
+		t.Errorf("b3 (subtypeC) = %v, want %v", got["b3"], yellow[0])
 	}
 }
 
@@ -311,10 +312,10 @@ func TestPaletteNamesMatchPalettes(t *testing.T) {
 // TestSetSegmentColorByGroups_EmptyGroupShiftsPalette verifies that an empty group
 // (from a query that returned 0 neurons) still consumes a palette index in "colored" mode,
 // meaning subsequent non-empty groups get later palettes rather than the next available one.
-// This is the documented/consistent behavior — palette index == group index.
 func TestSetSegmentColorByGroups_EmptyGroupShiftsPalette(t *testing.T) {
 	layer := map[string]interface{}{}
-	// group[0]=blue, group[1]=empty (consumes red slot), group[2]=green
+	// With 3 groups, stride=4: indices 0,4,8 → blue, orange, brown.
+	// Empty group 1 consumes the orange slot.
 	groups := [][]string{
 		{"id1"},
 		{},
@@ -324,14 +325,13 @@ func TestSetSegmentColorByGroups_EmptyGroupShiftsPalette(t *testing.T) {
 
 	colors := layer["segmentColors"].(map[string]interface{})
 	blue := colorPalettes["blue"]
-	green := colorPalettes["green"] // paletteNames[2]
+	brown := colorPalettes["brown"] // index 2*4=8
 
 	if colors["id1"] != blue[0] {
 		t.Errorf("id1 (group 0) = %v, want blue[0]=%s", colors["id1"], blue[0])
 	}
-	// group[2] is index 2 -> green, NOT red (red was consumed by the empty group at index 1)
-	if colors["id2"] != green[0] {
-		t.Errorf("id2 (group 2, after empty group 1) = %v, want green[0]=%s; empty group consumed red slot", colors["id2"], green[0])
+	if colors["id2"] != brown[0] {
+		t.Errorf("id2 (group 2, after empty group 1) = %v, want brown[0]=%s; empty group consumed orange slot", colors["id2"], brown[0])
 	}
 }
 
@@ -350,13 +350,13 @@ func TestSetSegmentColorBySubtype_EmptyGroupShiftsPalette(t *testing.T) {
 
 	colors := layer["segmentColors"].(map[string]interface{})
 	blue := colorPalettes["blue"]
-	green := colorPalettes["green"] // index 2 — red at index 1 was consumed by empty group
+	brown := colorPalettes["brown"] // 3 groups stride 4: indices 0,4,8 → blue, orange, brown; group 1 (empty) consumes orange
 
 	if colors["a1"] != blue[0] {
 		t.Errorf("a1 (group 0, stA) = %v, want blue[0]=%s", colors["a1"], blue[0])
 	}
-	if colors["b1"] != green[0] {
-		t.Errorf("b1 (group 2, stB) = %v, want green[0]=%s (index 2 after empty group consumed index 1)", colors["b1"], green[0])
+	if colors["b1"] != brown[0] {
+		t.Errorf("b1 (group 2, stB) = %v, want brown[0]=%s (index 2*4=8 after empty group consumed index 4)", colors["b1"], brown[0])
 	}
 }
 
@@ -371,18 +371,18 @@ func TestSetSegmentColorByGroups_DuplicateIDsAcrossGroups(t *testing.T) {
 	SetSegmentColorByGroups(layer, groups, "colored")
 
 	colors := layer["segmentColors"].(map[string]interface{})
-	red := colorPalettes["red"]
+	yellow := colorPalettes["yellow"] // 2 groups stride 6: group 1 → index 6 → yellow
 
-	// "shared" appears at j=0 in both groups. Group 1 writes last -> red[0].
-	if colors["shared"] != red[0] {
-		t.Errorf("duplicate id 'shared': got %v, want red[0]=%s (last group wins)", colors["shared"], red[0])
+	// "shared" appears at j=0 in both groups. Group 1 writes last -> yellow[0].
+	if colors["shared"] != yellow[0] {
+		t.Errorf("duplicate id 'shared': got %v, want yellow[0]=%s (last group wins)", colors["shared"], yellow[0])
 	}
 	// Unique IDs keep their group's color.
 	if colors["a_only"] != colorPalettes["blue"][1] {
 		t.Errorf("a_only: got %v, want blue[1]=%s", colors["a_only"], colorPalettes["blue"][1])
 	}
-	if colors["b_only"] != red[1] {
-		t.Errorf("b_only: got %v, want red[1]=%s", colors["b_only"], red[1])
+	if colors["b_only"] != yellow[1] {
+		t.Errorf("b_only: got %v, want yellow[1]=%s", colors["b_only"], yellow[1])
 	}
 }
 
