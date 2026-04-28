@@ -21,20 +21,41 @@ crantcli check-cave 720575940610453042
 
 ## Installation
 
+### From releases
+
+Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows).
+
+**macOS / Linux** -- pick the asset matching `uname -s` (Darwin/Linux) and `uname -m` (arm64/x86_64). Apple Silicon example:
+
+```bash
+curl -L -o crantcli https://github.com/yigityargili991/crantcli/releases/latest/download/crant_type_look-darwin-arm64
+chmod +x crantcli
+sudo mv crantcli /usr/local/bin/    # or: mv crantcli ~/.local/bin/
+crantcli --version
+```
+
+For Linux, swap the asset for `crant_type_look-linux-amd64` or `crant_type_look-linux-arm64`. To pin a version, replace `latest/download` with `download/v0.7.2` (or any tag).
+
+On macOS, if Gatekeeper blocks the binary on first run, clear the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine "$(which crantcli)"
+```
+
+**Windows** -- download `crant_type_look-windows-amd64.exe` (or `-arm64.exe`) from the Releases page, rename it to `crantcli.exe`, and put it on your `PATH`.
+
+**Linux clipboard helper** -- the clipboard-driven workflows (`add` without `-s`, `state-transfer`, `inspect`) need one of: `wl-clipboard` (Wayland; preferred), `xclip`, or `xsel` (X11). Install via your distro -- e.g. `sudo apt install wl-clipboard` or `sudo apt install xclip`.
+
 ### From source
 
 Requires Go 1.25.5+.
 
 ```bash
-git clone https://github.com/yigityargili991/crantinject.git
-cd crantinject
+git clone https://github.com/yigityargili991/crantcli.git
+cd crantcli
 make build      # produces ./crantcli
 make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
 ```
-
-### From releases
-
-Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are available on the [Releases](https://github.com/yigityargili991/crantinject/releases) page.
 
 ## Commands
 
