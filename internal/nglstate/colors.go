@@ -161,12 +161,27 @@ var paletteNames = []string{
 	"brown", "indigo", "teal", "lime",
 }
 
+// groupPaletteDistinct returns the palette index for a group, spacing groups
+// evenly across the available palettes for maximum visual distinctiveness.
+// With N groups, palette indices are spaced by floor(P/N) positions.
+func groupPaletteDistinct(groupIdx, numGroups int) int {
+	if numGroups <= 1 {
+		return 0
+	}
+	stride := len(paletteNames) / numGroups
+	if stride < 1 {
+		stride = 1
+	}
+	return (groupIdx * stride) % len(paletteNames)
+}
+
 // SetSegmentColorByGroups assigns colors to multiple groups of segments.
 // Each group represents a cell type. colorInput must already be normalized via
 // NormalizeColorInput (lowercase, trimmed, hex prefixed with '#').
-// With "colored", each group gets a distinct palette and neurons within cycle
-// through its tones. With a named color, all groups share that palette with
-// tones continuing across groups.
+// With "colored", each group gets a distinct palette (spaced around the color
+// wheel for maximum visual separation) and neurons within cycle through its tones.
+// With a named color, all groups share that palette with tones continuing across
+// groups.
 func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, colorInput string) {
 	if colorInput == "" {
 		return
@@ -183,9 +198,12 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 
 	switch {
 	case colorInput == "colored":
-		// Each group gets a different palette, neurons cycle through tones
+		// Each group gets a different palette, spaced for maximum distinctness.
+		// Neurons within a group cycle through the palette's tones.
+		numGroups := len(groups)
 		for i, group := range groups {
-			palette := colorPalettes[paletteNames[i%len(paletteNames)]]
+			paletteIdx := groupPaletteDistinct(i, numGroups)
+			palette := colorPalettes[paletteNames[paletteIdx]]
 			for j, id := range group {
 				colors[id] = palette[j%len(palette)]
 			}
@@ -214,8 +232,9 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 
 // SetSegmentColorBySubtype assigns sub-colors to neurons within each group
 // based on their cell_subtype. Each group gets its own base palette (determined
-// by the group index). Within a group, each distinct subtype gets its own tone.
-// Neurons with empty subtypes keep their existing group color.
+// by the group index, spaced for maximum visual separation). Within a group,
+// each distinct subtype gets its own tone. Neurons with empty subtypes keep
+// their existing group color.
 func SetSegmentColorBySubtype(layer map[string]interface{}, groups [][]string, subtypeMap map[string]string, colorInput string) {
 	if colorInput == "" {
 		return
@@ -234,7 +253,9 @@ func SetSegmentColorBySubtype(layer map[string]interface{}, groups [][]string, s
 		var palette []string
 		switch {
 		case colorInput == "colored":
-			palette = colorPalettes[paletteNames[i%len(paletteNames)]]
+			numGroups := len(groups)
+			paletteIdx := groupPaletteDistinct(i, numGroups)
+			palette = colorPalettes[paletteNames[paletteIdx]]
 		case colorPalettes[colorInput] != nil:
 			palette = colorPalettes[colorInput]
 		default:

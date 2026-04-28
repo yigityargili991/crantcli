@@ -207,8 +207,8 @@ func TestSetSegmentColorByGroups(t *testing.T) {
 		want := map[string]interface{}{
 			"a1": colorPalettes["blue"][0],
 			"a2": colorPalettes["blue"][1],
-			"b1": colorPalettes["red"][0],
-			"b2": colorPalettes["red"][1],
+			"b1": colorPalettes["yellow"][0], // 2 groups stride 6: index 6 → yellow
+			"b2": colorPalettes["yellow"][1],
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("segmentColors = %#v, want %#v", got, want)
