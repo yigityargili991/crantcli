@@ -53,11 +53,12 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           artifact="crant_type_look-${GOOS}-${GOARCH}${ext}"
-          go build -ldflags "-s -w" -o "$artifact" .
+          go build -ldflags "-s -w -X crantcli/cmd.Version=${REF_NAME}" -o "$artifact" .
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
       - name: Upload to release
