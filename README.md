@@ -160,7 +160,7 @@ crantcli lookup-column --pos 31870.5,26635.5,1502.5
 
 ### `side-check` -- Check side annotations against nearest EPG/PEG
 
-Checks neurons selected by exactly one classifier against the nearest valid `EPG/PEG` neuron by 3D Euclidean distance. Prints one selected `root_id` per line when side is missing, position is missing or malformed, or side differs from the nearest valid `EPG/PEG`.
+Checks neurons selected by exactly one classifier against the nearest valid `EPG/PEG` neuron by 3D Euclidean distance. Prints one selected `root_id` per line when side is missing, position is missing or malformed, or side matches the nearest valid `EPG/PEG`.
 
 ```bash
 crantcli side-check --cell-type PFN

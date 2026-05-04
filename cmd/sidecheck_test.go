@@ -73,15 +73,15 @@ func TestBuildSideCheckReport(t *testing.T) {
 		wantIDs []string
 	}{
 		{
-			name: "matching side is clean",
+			name: "opposite side is clean",
 			targets: []seatable.NeuronPositionRow{
-				positionRow("target-ok", " LEFT ", 1, 0, 0, true),
+				positionRow("target-ok", "right", 1, 0, 0, true),
 			},
 		},
 		{
-			name: "mismatched side is printed",
+			name: "matching nearest side is printed",
 			targets: []seatable.NeuronPositionRow{
-				positionRow("target-mismatch", "right", 1, 0, 0, true),
+				positionRow("target-mismatch", " LEFT ", 1, 0, 0, true),
 			},
 			wantIDs: []string{"target-mismatch"},
 		},
@@ -116,7 +116,7 @@ func TestBuildSideCheckReportCountsMissingRootID(t *testing.T) {
 		positionRow("epg-left", "left", 0, 0, 0, true),
 	}
 	targets := []seatable.NeuronPositionRow{
-		positionRow("", "right", 1, 0, 0, true),
+		positionRow("", "left", 1, 0, 0, true),
 	}
 
 	report := buildSideCheckReport(targets, references)
@@ -138,7 +138,7 @@ func TestInvalidEPGReferencesAreExcluded(t *testing.T) {
 		positionRow("valid-right", "right", 100, 0, 0, true),
 	}
 	targets := []seatable.NeuronPositionRow{
-		positionRow("target", "right", 0, 0, 0, true),
+		positionRow("target", "left", 0, 0, 0, true),
 	}
 
 	report := buildSideCheckReport(targets, references)

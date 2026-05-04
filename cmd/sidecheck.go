@@ -16,8 +16,8 @@ var sideCheckCmd = &cobra.Command{
 	Short: "Check selected neuron sides against the nearest EPG/PEG neuron",
 	Long: `Check selected neurons against the nearest valid EPG/PEG neuron by 3D
 Euclidean distance. Prints one selected root_id per line when the selected
-neuron has missing side data, missing or malformed position data, or a side
-that differs from the nearest valid EPG/PEG neuron.`,
+neuron has missing side data, missing or malformed position data, or the same
+side as the nearest valid EPG/PEG neuron.`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.NoArgs,
 }
@@ -134,7 +134,7 @@ func sideCheckHasProblem(target seatable.NeuronPositionRow, references []seatabl
 	if nearest == nil {
 		return true
 	}
-	return normalizeSide(target.Side) != normalizeSide(nearest.Side)
+	return normalizeSide(target.Side) == normalizeSide(nearest.Side)
 }
 
 func nearestSideReference(target seatable.NeuronPositionRow, references []seatable.NeuronPositionRow) *seatable.NeuronPositionRow {
