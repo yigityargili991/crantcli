@@ -207,6 +207,8 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 		}
 
 		row, err := buildNeuronPositionRow(r, regionOpts)
+		// With preserveInvalid, return malformed target rows rather than
+		// logging/skipping them; side-check inspects PositionSet/HasPosition.
 		if err != nil && !preserveInvalid {
 			log.Printf("warning: skipping neuron %s: %v", row.RootID, err)
 			continue

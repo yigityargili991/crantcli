@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"crantcli/internal/seatable"
@@ -138,7 +139,7 @@ func sideCheckHasProblem(target seatable.NeuronPositionRow, references []seatabl
 
 func nearestSideReference(target seatable.NeuronPositionRow, references []seatable.NeuronPositionRow) *seatable.NeuronPositionRow {
 	var closest *seatable.NeuronPositionRow
-	closestDist := float64(0)
+	closestDist := math.MaxFloat64
 
 	for i := range references {
 		candidate := &references[i]
@@ -146,7 +147,7 @@ func nearestSideReference(target seatable.NeuronPositionRow, references []seatab
 			continue
 		}
 		d := euclideanDistance(target.X, target.Y, target.Z, candidate.X, candidate.Y, candidate.Z)
-		if closest == nil || d < closestDist {
+		if d < closestDist {
 			closestDist = d
 			closest = candidate
 		}
