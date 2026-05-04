@@ -149,7 +149,7 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 
 // QueryNeuronPosition queries a single neuron's position by root ID.
 func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]string) (*NeuronPositionRow, error) {
-	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `position` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
+	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `side`, `position` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
 		sanitizeIdentifier(config.SeaTableTable), escapeSQL(rootID))
 
 	resp, err := client.ExecuteSQL(sql)
@@ -161,16 +161,72 @@ func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]st
 		return nil, nil
 	}
 
-	r := resp.Results[0]
-	x, y, z, err := parsePositionValue(r["position"])
-	row := &NeuronPositionRow{
+	row, err := buildNeuronPositionRow(resp.Results[0], regionOpts)
+	if err != nil {
+		log.Printf("warning: skipping neuron %s: %v", row.RootID, err)
+		return &row, nil
+	}
+	return &row, nil
+}
+
+// QueryNeuronsWithPosition queries all EPG/PEG neurons with their positions.
+func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]NeuronPositionRow, error) {
+	f := &Filters{CellType: "EPG/PEG"}
+	return queryNeuronPositions(client, f, regionOpts, false)
+}
+
+// QueryNeuronPositions queries neurons matching the filters and preserves rows
+// whose position field is missing or malformed.
+func QueryNeuronPositions(client *Client, f *Filters, regionOpts map[string]string) ([]NeuronPositionRow, error) {
+	return queryNeuronPositions(client, f, regionOpts, true)
+}
+
+func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]string, preserveInvalid bool) ([]NeuronPositionRow, error) {
+	if f == nil {
+		f = &Filters{}
+	}
+
+	regionFilterID := ""
+	if f.Region != "" {
+		var err error
+		regionFilterID, err = resolveSelectFilterID(f.Region, regionOpts, selectOptionNameMap(regionOpts), "region")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	rowsRaw, err := executePagedSelect(client, "`root_id`, `region`, `cell_type`, `side`, `position`", buildWhere(f))
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]NeuronPositionRow, 0, len(rowsRaw))
+	for _, r := range rowsRaw {
+		if regionFilterID != "" && !selectValueContains(r["region"], regionFilterID) {
+			continue
+		}
+
+		row, err := buildNeuronPositionRow(r, regionOpts)
+		if err != nil && !preserveInvalid {
+			log.Printf("warning: skipping neuron %s: %v", row.RootID, err)
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func buildNeuronPositionRow(r map[string]interface{}, regionOpts map[string]string) (NeuronPositionRow, error) {
+	row := NeuronPositionRow{
 		RootID:   toString(r["root_id"]),
 		Region:   resolveSelectValue(r["region"], regionOpts),
 		CellType: toString(r["cell_type"]),
+		Side:     toString(r["side"]),
 	}
+
+	x, y, z, err := parsePositionValue(r["position"])
 	if err != nil {
-		log.Printf("warning: skipping neuron %s: %v", toString(r["root_id"]), err)
-		return row, nil
+		return row, err
 	}
 	row.X = x
 	row.Y = y
@@ -179,32 +235,12 @@ func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]st
 	return row, nil
 }
 
-// QueryNeuronsWithPosition queries all EPG/PEG neurons with their positions.
-func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]NeuronPositionRow, error) {
-	f := &Filters{CellType: "EPG/PEG"}
-	rowsRaw, err := executePagedSelect(client, "`root_id`, `region`, `cell_type`, `position`", buildWhere(f))
-	if err != nil {
-		return nil, err
+func selectOptionNameMap(idToName map[string]string) map[string]string {
+	m := make(map[string]string, len(idToName))
+	for id, name := range idToName {
+		m[strings.ToLower(strings.TrimSpace(name))] = id
 	}
-
-	rows := make([]NeuronPositionRow, 0, len(rowsRaw))
-	for _, r := range rowsRaw {
-		x, y, z, err := parsePositionValue(r["position"])
-		if err != nil {
-			log.Printf("warning: skipping neuron %s: %v", toString(r["root_id"]), err)
-			continue
-		}
-		rows = append(rows, NeuronPositionRow{
-			RootID:      toString(r["root_id"]),
-			Region:      resolveSelectValue(r["region"], regionOpts),
-			CellType:    toString(r["cell_type"]),
-			X:           x,
-			Y:           y,
-			Z:           z,
-			PositionSet: true,
-		})
-	}
-	return rows, nil
+	return m
 }
 
 // QueryNeuronSupervoxel looks up the supervoxel_id for a single root ID.
@@ -523,7 +559,6 @@ func parsePositionComponent(v interface{}) (float64, error) {
 		return 0, fmt.Errorf("unsupported component type %T", v)
 	}
 }
-
 
 func toString(v interface{}) string {
 	if v == nil {
