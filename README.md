@@ -158,6 +158,17 @@ crantcli lookup-column --pos 31870.5,26635.5,1502.5
 
 **Flags:** `--pos` (comma-separated `x,y,z` coordinates; skips the root ID lookup)
 
+### `side-check` -- Check side annotations against nearest EPG/PEG
+
+Checks neurons selected by exactly one classifier against the nearest valid `EPG/PEG` neuron by 3D Euclidean distance. Prints one selected `root_id` per line when side is missing, position is missing or malformed, or side differs from the nearest valid `EPG/PEG`.
+
+```bash
+crantcli side-check --cell-type PFN
+crantcli side-check --cell-class some_class
+```
+
+**Flags:** `--cell-type`, `--cell-class` (provide exactly one)
+
 ### `state-transfer` -- Build state from clipboard IDs
 
 Read root IDs from the clipboard, inject them into a Neuroglancer state, and copy the resulting state URL back to the clipboard. Useful when you have a list of root IDs from another source and want to quickly visualize them.

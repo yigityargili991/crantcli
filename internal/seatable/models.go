@@ -20,6 +20,7 @@ type NeuronPositionRow struct {
 	RootID      string
 	Region      string
 	CellType    string
+	Side        string
 	X, Y, Z     float64
 	PositionSet bool
 }

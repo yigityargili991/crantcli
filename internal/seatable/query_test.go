@@ -172,6 +172,93 @@ func TestQueryNeuronPositionReturnsRowWhenPositionIsMalformed(t *testing.T) {
 	}
 }
 
+func TestQueryNeuronPositionsPreservesMalformedTargets(t *testing.T) {
+	var gotSQL string
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			gotSQL = sql
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{
+						"root_id":   "target-malformed",
+						"region":    []interface{}{"452098"},
+						"cell_type": "PFN",
+						"side":      "left",
+						"position":  nil,
+					},
+				},
+			}, nil
+		},
+	}
+
+	rows, err := QueryNeuronPositions(client, &Filters{CellType: "PFN"}, map[string]string{"452098": "LX"})
+	if err != nil {
+		t.Fatalf("QueryNeuronPositions returned error: %v", err)
+	}
+	if got, want := len(rows), 1; got != want {
+		t.Fatalf("len(rows) = %d, want %d", got, want)
+	}
+	if !strings.Contains(gotSQL, "`side`") {
+		t.Fatalf("QueryNeuronPositions SQL omitted side column: %s", gotSQL)
+	}
+	if rows[0].RootID != "target-malformed" {
+		t.Fatalf("RootID = %q, want target-malformed", rows[0].RootID)
+	}
+	if rows[0].Side != "left" {
+		t.Fatalf("Side = %q, want left", rows[0].Side)
+	}
+	if rows[0].HasPosition() {
+		t.Fatalf("HasPosition() = true, want false for malformed position")
+	}
+}
+
+func TestQueryNeuronsWithPositionIncludesSideAndSkipsMalformedRows(t *testing.T) {
+	var gotSQL string
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			gotSQL = sql
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{
+						"root_id":   "valid-epg",
+						"region":    []interface{}{"452098"},
+						"cell_type": "EPG/PEG",
+						"side":      "right",
+						"position":  "1,2,3",
+					},
+					{
+						"root_id":   "bad-epg",
+						"region":    []interface{}{"452098"},
+						"cell_type": "EPG/PEG",
+						"side":      "left",
+						"position":  nil,
+					},
+				},
+			}, nil
+		},
+	}
+
+	rows, err := QueryNeuronsWithPosition(client, map[string]string{"452098": "LX"})
+	if err != nil {
+		t.Fatalf("QueryNeuronsWithPosition returned error: %v", err)
+	}
+	if got, want := len(rows), 1; got != want {
+		t.Fatalf("len(rows) = %d, want %d", got, want)
+	}
+	if !strings.Contains(gotSQL, "`side`") {
+		t.Fatalf("QueryNeuronsWithPosition SQL omitted side column: %s", gotSQL)
+	}
+	if rows[0].RootID != "valid-epg" {
+		t.Fatalf("RootID = %q, want valid-epg", rows[0].RootID)
+	}
+	if rows[0].Side != "right" {
+		t.Fatalf("Side = %q, want right", rows[0].Side)
+	}
+	if !rows[0].HasPosition() {
+		t.Fatalf("HasPosition() = false, want true")
+	}
+}
+
 func TestParsePositionValueRejectsMalformedArrays(t *testing.T) {
 	tests := []struct {
 		name string
