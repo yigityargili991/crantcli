@@ -85,12 +85,33 @@ func TestBuildColorByGroups(t *testing.T) {
 
 	groups, labels := buildColorByGroups(rows, "cell_type")
 
-	wantGroups := [][]string{{"100", "300"}, {"200"}, {"400"}}
+	wantGroups := [][]string{{"200"}, {"100", "300"}, {"400"}}
 	if !reflect.DeepEqual(groups, wantGroups) {
 		t.Fatalf("groups = %#v, want %#v", groups, wantGroups)
 	}
 
-	wantLabels := []string{"cell_type=ER", "cell_type=EPG/PEG", "cell_type=(empty)"}
+	wantLabels := []string{"cell_type=EPG/PEG", "cell_type=ER", "cell_type=(empty)"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %#v, want %#v", labels, wantLabels)
+	}
+}
+
+func TestBuildColorByGroups_DeterministicOrdering(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "300", CellType: "ER"},
+		{RootID: "100", CellType: "ER"},
+		{RootID: "400", CellType: ""},
+		{RootID: "200", CellType: "EPG/PEG"},
+	}
+
+	groups, labels := buildColorByGroups(rows, "cell_type")
+
+	wantGroups := [][]string{{"200"}, {"300", "100"}, {"400"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %#v, want %#v", groups, wantGroups)
+	}
+
+	wantLabels := []string{"cell_type=EPG/PEG", "cell_type=ER", "cell_type=(empty)"}
 	if !reflect.DeepEqual(labels, wantLabels) {
 		t.Fatalf("labels = %#v, want %#v", labels, wantLabels)
 	}

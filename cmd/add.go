@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"crantcli/internal/browser"
@@ -116,6 +117,9 @@ func init() {
 		}
 		if colorByField != "" && normalizedColor == "" {
 			normalizedColor = "colored"
+		}
+		if colorByField != "" && strings.HasPrefix(normalizedColor, "#") {
+			fmt.Fprintln(os.Stderr, "Warning: --color-by with a hex color assigns the same color to every group; use a named palette or 'colored' for distinct group colors")
 		}
 		if addColorSub && normalizedColor == "" {
 			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
@@ -387,6 +391,7 @@ func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []
 		}
 		groupsByValue[value] = append(groupsByValue[value], row.RootID)
 	}
+	sortColorByValues(values)
 
 	groups := make([][]string, 0, len(values))
 	labels := make([]string, 0, len(values))
@@ -399,6 +404,18 @@ func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []
 		labels = append(labels, field+"="+labelValue)
 	}
 	return groups, labels
+}
+
+func sortColorByValues(values []string) {
+	sort.Slice(values, func(i, j int) bool {
+		if values[i] == "" {
+			return false
+		}
+		if values[j] == "" {
+			return true
+		}
+		return values[i] < values[j]
+	})
 }
 
 func addColorByFieldValue(row seatable.NeuronRow, field string) string {
