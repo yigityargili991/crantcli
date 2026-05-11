@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -74,6 +75,28 @@ func TestWriteMappings(t *testing.T) {
 	want := "222\t333\n555\t666\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestFailOnResultErrors(t *testing.T) {
+	results := []checkResult{
+		{RootID: "111", Status: statusOK},
+		{RootID: "222", Status: statusError, Err: errors.New("transient failure")},
+		{RootID: "333", Status: statusError, Err: errors.New("invalid root")},
+	}
+
+	var buf bytes.Buffer
+	err := failOnResultErrors(&buf, results)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got, want := err.Error(), "2 CAVE lookup errors; output incomplete"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+
+	want := "  error for 222: transient failure\n  error for 333: invalid root\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 

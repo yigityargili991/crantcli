@@ -175,6 +175,12 @@ func init() {
 			return err
 		}
 
+		if checkMapping || checkRefreshState {
+			if err := failOnResultErrors(os.Stderr, results); err != nil {
+				return err
+			}
+		}
+
 		staleMappings := staleRootMappings(results)
 		var staleCount int
 
@@ -355,6 +361,31 @@ func printResults(results []checkResult, quiet bool) (int, error) {
 	}
 
 	return staleCount, nil
+}
+
+func failOnResultErrors(w io.Writer, results []checkResult) error {
+	errCount, err := writeResultErrors(w, results)
+	if err != nil {
+		return err
+	}
+	if errCount > 0 {
+		return fmt.Errorf("%d CAVE lookup errors; output incomplete", errCount)
+	}
+	return nil
+}
+
+func writeResultErrors(w io.Writer, results []checkResult) (int, error) {
+	var errCount int
+	for _, r := range results {
+		if r.Err == nil {
+			continue
+		}
+		errCount++
+		if _, err := fmt.Fprintf(w, "  error for %s: %v\n", r.RootID, r.Err); err != nil {
+			return errCount, fmt.Errorf("writing error output: %w", err)
+		}
+	}
+	return errCount, nil
 }
 
 func staleRootMappings(results []checkResult) []rootMapping {
