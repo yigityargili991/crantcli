@@ -3,12 +3,14 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"crantcli/internal/cave"
+	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
 
 	"github.com/spf13/cobra"
@@ -46,7 +48,13 @@ Examples:
   crantcli check-cave --all --cell-class kenyon_cell
 
   # Only print stale entries (exit code 1 if any found)
-  crantcli check-cave --all --quiet`,
+  crantcli check-cave --all --quiet
+
+  # Print stale root mappings as old_root_id<TAB>current_cave_root_id
+  crantcli check-cave --all --mapping
+
+  # Refresh stale segment IDs in a Neuroglancer state
+  crantcli check-cave --all --refresh-state -s state.json -o refreshed.json`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -54,18 +62,23 @@ const batchThreshold = 10
 
 func init() {
 	var (
-		checkAll        bool
-		checkQuiet      bool
-		checkSuperClass string
-		checkCellClass  string
-		checkCellType   string
-		checkCellSubtype string
-		checkSide       string
-		checkRegion     string
-		checkTract      string
-		checkNerve      string
-		checkHemilineage string
-		checkProofread  string
+		checkAll          bool
+		checkQuiet        bool
+		checkSuperClass   string
+		checkCellClass    string
+		checkCellType     string
+		checkCellSubtype  string
+		checkSide         string
+		checkRegion       string
+		checkTract        string
+		checkNerve        string
+		checkHemilineage  string
+		checkProofread    string
+		checkMapping      bool
+		checkRefreshState bool
+		checkState        string
+		checkOutput       string
+		checkLayer        string
 	)
 
 	checkCaveCmd.Flags().BoolVar(&checkAll, "all", false, "Check all neurons (or filtered subset)")
@@ -80,6 +93,11 @@ func init() {
 	checkCaveCmd.Flags().StringVar(&checkNerve, "nerve", "", "Filter by nerve")
 	checkCaveCmd.Flags().StringVar(&checkHemilineage, "hemilineage", "", "Filter by hemilineage")
 	checkCaveCmd.Flags().StringVar(&checkProofread, "proofread", "", "Filter by proofread status")
+	checkCaveCmd.Flags().BoolVar(&checkMapping, "mapping", false, "Print stale mappings as old_root_id<TAB>current_cave_root_id")
+	checkCaveCmd.Flags().BoolVar(&checkRefreshState, "refresh-state", false, "Replace stale segment IDs in a Neuroglancer state with current CAVE root IDs")
+	checkCaveCmd.Flags().StringVarP(&checkState, "state", "s", "", "Neuroglancer state (URL or file path) for --refresh-state")
+	checkCaveCmd.Flags().StringVarP(&checkOutput, "output", "o", "", "Output file path for --refresh-state (default: clipboard or stdout)")
+	checkCaveCmd.Flags().StringVarP(&checkLayer, "layer", "l", "", "Target segmentation layer name for --refresh-state")
 
 	checkCaveCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		filters := &seatable.Filters{
@@ -103,6 +121,12 @@ func init() {
 		}
 		if !hasArgs && !checkAll && !hasFilters {
 			return fmt.Errorf("provide root_id arguments, use --all, or specify filter flags")
+		}
+		if !checkRefreshState && (checkState != "" || checkOutput != "" || checkLayer != "") {
+			return fmt.Errorf("--state, --output, and --layer require --refresh-state")
+		}
+		if checkRefreshState && checkMapping && checkOutput == "" {
+			return fmt.Errorf("combine --mapping and --refresh-state only with --output to avoid mixing mapping and state JSON on stdout")
 		}
 
 		stClient, err := seatable.NewClient()
@@ -142,7 +166,7 @@ func init() {
 			return nil
 		}
 
-		if !checkQuiet {
+		if !checkQuiet && !checkMapping {
 			fmt.Fprintf(os.Stderr, "Checking %d neurons against CAVE...\n", len(neurons))
 		}
 
@@ -151,9 +175,28 @@ func init() {
 			return err
 		}
 
-		staleCount, err := printResults(results, checkQuiet)
-		if err != nil {
-			return err
+		staleMappings := staleRootMappings(results)
+		var staleCount int
+
+		if checkMapping {
+			if err := writeMappings(os.Stdout, staleMappings); err != nil {
+				return err
+			}
+			staleCount = len(staleMappings)
+		} else if checkRefreshState {
+			staleCount = len(staleMappings)
+		} else {
+			var err error
+			staleCount, err = printResults(results, checkQuiet)
+			if err != nil {
+				return err
+			}
+		}
+
+		if checkRefreshState {
+			if err := refreshStateSegments(staleMappings, checkState, checkOutput, checkLayer); err != nil {
+				return err
+			}
 		}
 
 		if checkQuiet && staleCount > 0 {
@@ -312,4 +355,54 @@ func printResults(results []checkResult, quiet bool) (int, error) {
 	}
 
 	return staleCount, nil
+}
+
+func staleRootMappings(results []checkResult) []rootMapping {
+	mappings := make([]rootMapping, 0)
+	for _, r := range results {
+		if r.Status != statusStale || r.CaveRootID == "" || r.CaveRootID == "-" {
+			continue
+		}
+		mappings = append(mappings, rootMapping{OldRootID: r.RootID, CurrentRootID: r.CaveRootID})
+	}
+	return mappings
+}
+
+type rootMapping struct {
+	OldRootID     string
+	CurrentRootID string
+}
+
+func writeMappings(w io.Writer, mappings []rootMapping) error {
+	for _, mapping := range mappings {
+		if _, err := fmt.Fprintf(w, "%s\t%s\n", mapping.OldRootID, mapping.CurrentRootID); err != nil {
+			return fmt.Errorf("writing mapping output: %w", err)
+		}
+	}
+	return nil
+}
+
+func refreshStateSegments(mappings []rootMapping, stateArg, outputFile, layerName string) error {
+	result, err := nglstate.LoadState(stateArg, false)
+	if err != nil {
+		return err
+	}
+
+	layer, _, err := nglstate.FindSegmentationLayer(result.State, layerName)
+	if err != nil {
+		return err
+	}
+
+	replaced := nglstate.ReplaceSegments(layer, rootMappingMap(mappings))
+	fmt.Fprintf(os.Stderr, "Replaced %d stale segments in state\n", replaced)
+
+	return nglstate.WriteState(result, outputFile)
+}
+
+func rootMappingMap(mappings []rootMapping) map[string]string {
+	result := make(map[string]string, len(mappings))
+	for _, mapping := range mappings {
+		result[mapping.OldRootID] = mapping.CurrentRootID
+	}
+	return result
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net/http"
@@ -32,6 +33,47 @@ func TestCheckNeurons_SingleOK(t *testing.T) {
 	}
 	if results[0].Status != statusOK {
 		t.Errorf("status = %q, want %s", results[0].Status, statusOK)
+	}
+}
+
+func TestStaleRootMappings(t *testing.T) {
+	results := []checkResult{
+		{RootID: "111", CaveRootID: "111", Status: statusOK},
+		{RootID: "222", CaveRootID: "333", Status: statusStale},
+		{RootID: "444", CaveRootID: "-", Status: statusError},
+		{RootID: "555", CaveRootID: "666", Status: statusStale},
+	}
+
+	got := staleRootMappings(results)
+	want := []rootMapping{
+		{OldRootID: "222", CurrentRootID: "333"},
+		{OldRootID: "555", CurrentRootID: "666"},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("got %d mappings, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("mapping[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestWriteMappings(t *testing.T) {
+	var buf bytes.Buffer
+	mappings := []rootMapping{
+		{OldRootID: "222", CurrentRootID: "333"},
+		{OldRootID: "555", CurrentRootID: "666"},
+	}
+
+	if err := writeMappings(&buf, mappings); err != nil {
+		t.Fatalf("writeMappings: %v", err)
+	}
+
+	want := "222\t333\n555\t666\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
 

@@ -77,6 +77,72 @@ func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
 	layer["segments"] = toInterfaceSlice(segments)
 }
 
+// ReplaceSegments replaces segment IDs that appear in mappings and deduplicates
+// the final segment list while preserving the first-seen order.
+func ReplaceSegments(layer map[string]interface{}, mappings map[string]string) int {
+	if len(mappings) == 0 {
+		return 0
+	}
+
+	var segments []string
+	seen := make(map[string]bool)
+	replaced := 0
+	colors := segmentColors(layer)
+
+	if segsRaw, ok := layer["segments"]; ok {
+		if segs, ok := segsRaw.([]interface{}); ok {
+			for _, s := range segs {
+				str := fmt.Sprintf("%v", s)
+				next := str
+				if mapped, ok := mappings[str]; ok {
+					next = mapped
+					replaced++
+					migrateSegmentColor(colors, str, next)
+				}
+				if !seen[next] {
+					seen[next] = true
+					segments = append(segments, next)
+				}
+			}
+		}
+	}
+
+	removeMappedSegmentColors(colors, mappings)
+	layer["segments"] = toInterfaceSlice(segments)
+	return replaced
+}
+
+func segmentColors(layer map[string]interface{}) map[string]interface{} {
+	colorsRaw, ok := layer["segmentColors"]
+	if !ok {
+		return nil
+	}
+	colors, _ := colorsRaw.(map[string]interface{})
+	return colors
+}
+
+func migrateSegmentColor(colors map[string]interface{}, oldID, newID string) {
+	if colors == nil || oldID == newID {
+		return
+	}
+	color, ok := colors[oldID]
+	if !ok {
+		return
+	}
+	if _, exists := colors[newID]; !exists {
+		colors[newID] = color
+	}
+}
+
+func removeMappedSegmentColors(colors map[string]interface{}, mappings map[string]string) {
+	if colors == nil {
+		return
+	}
+	for oldID := range mappings {
+		delete(colors, oldID)
+	}
+}
+
 // SetSegmentColor sets the segment colors in a segmentation layer.
 // color must already be normalized via NormalizeColorInput (lowercase, trimmed,
 // hex prefixed with '#'). Otherwise the UI won't set it to the seed.

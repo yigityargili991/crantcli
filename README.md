@@ -115,11 +115,22 @@ crantcli check-cave --all --cell-class kenyon_cell
 
 # Only print stale entries (exit code 1 if any found)
 crantcli check-cave --all --quiet
+
+# Print stale mappings as old_root_id<TAB>current_cave_root_id
+crantcli check-cave --all --mapping
+
+# Replace stale segment IDs in a Neuroglancer state
+crantcli check-cave --all --refresh-state -s state.json -o refreshed.json
+
+# Refresh only the selected segmentation layer
+crantcli check-cave --all --refresh-state -s state.json -o refreshed.json -l "proofreadable seg"
 ```
 
 **Filter flags:** Same as `add` (`--super-class`, `--cell-class`, `--cell-type`, etc.)
 
-**Flags:** `--all` (check all neurons), `-q`/`--quiet` (only print stale entries)
+**Flags:** `--all` (check all neurons), `-q`/`--quiet` (only print stale entries), `--mapping` (print stale `old_root_id<TAB>current_cave_root_id` pairs), `--refresh-state` (replace stale segment IDs in a Neuroglancer state), `-s`/`--state` (state URL or file for refresh), `-o`/`--output` (refreshed state file), `-l`/`--layer` (target segmentation layer)
+
+`--refresh-state` uses the same smart state loading and output behavior as the state-editing commands: with `-s` it reads a URL or JSON file, and with `-o` it writes JSON to a file. Without `-o`, output follows the loaded state source (clipboard/URL sources are written back as a Neuroglancer URL; file/stdin sources are written as JSON to stdout). Refresh mode writes the updated state instead of the normal check table. If you combine `--mapping` and `--refresh-state`, provide `-o` so mapping output and state JSON do not share stdout.
 
 Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
 
