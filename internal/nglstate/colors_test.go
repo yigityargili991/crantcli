@@ -392,8 +392,8 @@ func TestSetSegmentColorBySubtype_IDsNotInAnyGroup(t *testing.T) {
 	layer := map[string]interface{}{}
 	groups := [][]string{{"in_group"}}
 	subtypeMap := map[string]string{
-		"in_group":    "stA",
-		"orphan_id":   "stB", // in map but not in any group
+		"in_group":       "stA",
+		"orphan_id":      "stB", // in map but not in any group
 		"another_orphan": "stC",
 	}
 	SetSegmentColorBySubtype(layer, groups, subtypeMap, "blue")

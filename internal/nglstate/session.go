@@ -31,7 +31,6 @@ func lastStateFilePath() string {
 	return lastStateFilePathForDir(appSessionDir)
 }
 
-
 func readStateURLAtPath(path string) string {
 	if path == "" {
 		return ""
