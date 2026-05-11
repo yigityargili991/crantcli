@@ -26,6 +26,42 @@ func TestResolveAddRegionFilter(t *testing.T) {
 	})
 }
 
+func TestResolveAddColorBy(t *testing.T) {
+	t.Run("valid field", func(t *testing.T) {
+		got, err := resolveAddColorBy("cell_type", false)
+		if err != nil {
+			t.Fatalf("resolveAddColorBy returned error: %v", err)
+		}
+		if got != "cell_type" {
+			t.Fatalf("resolveAddColorBy = %q, want cell_type", got)
+		}
+	})
+
+	t.Run("color-sub validates without color-by grouping", func(t *testing.T) {
+		got, err := resolveAddColorBy("", true)
+		if err != nil {
+			t.Fatalf("resolveAddColorBy returned error: %v", err)
+		}
+		if got != "" {
+			t.Fatalf("resolveAddColorBy = %q, want empty color-by field", got)
+		}
+	})
+
+	t.Run("conflict", func(t *testing.T) {
+		_, err := resolveAddColorBy("cell_type", true)
+		if err == nil {
+			t.Fatal("expected conflict error")
+		}
+	})
+
+	t.Run("invalid field", func(t *testing.T) {
+		_, err := resolveAddColorBy("not_a_field", false)
+		if err == nil {
+			t.Fatal("expected invalid field error")
+		}
+	})
+}
+
 func TestValidateAddInputs(t *testing.T) {
 	err := validateAddInputs(&seatable.Filters{Region: "LX"}, false)
 	if err != nil {
@@ -35,6 +71,119 @@ func TestValidateAddInputs(t *testing.T) {
 	err = validateAddInputs(&seatable.Filters{}, false)
 	if err == nil {
 		t.Fatal("expected missing-filters error")
+	}
+}
+
+func TestBuildColorByGroups(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "100", CellType: "ER", Side: "left"},
+		{RootID: "200", CellType: "EPG/PEG", Side: "right"},
+		{RootID: "", CellType: "ER", Side: "left"},
+		{RootID: "300", CellType: "ER", Side: "right"},
+		{RootID: "400", CellType: "", Side: "right"},
+	}
+
+	groups, labels := buildColorByGroups(rows, "cell_type")
+
+	wantGroups := [][]string{{"200"}, {"100", "300"}, {"400"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %#v, want %#v", groups, wantGroups)
+	}
+
+	wantLabels := []string{"cell_type=EPG/PEG", "cell_type=ER", "cell_type=(empty)"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %#v, want %#v", labels, wantLabels)
+	}
+}
+
+func TestBuildColorByGroups_DeterministicOrdering(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "300", CellType: "ER"},
+		{RootID: "100", CellType: "ER"},
+		{RootID: "400", CellType: ""},
+		{RootID: "200", CellType: "EPG/PEG"},
+	}
+
+	groups, labels := buildColorByGroups(rows, "cell_type")
+
+	wantGroups := [][]string{{"200"}, {"300", "100"}, {"400"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %#v, want %#v", groups, wantGroups)
+	}
+
+	wantLabels := []string{"cell_type=EPG/PEG", "cell_type=ER", "cell_type=(empty)"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %#v, want %#v", labels, wantLabels)
+	}
+}
+
+func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := [][]string{
+		{"a1", "a2"},
+		{"b1", "b2"},
+	}
+	subtypeMap := map[string]string{
+		"a1": "shared",
+		"a2": "",
+		"b1": "shared",
+		"b2": "other",
+	}
+
+	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, subtypeMap, "colored", "", true)
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("same subtype in different query groups got the same color: a1=%v b1=%v", colors["a1"], colors["b1"])
+	}
+	if _, ok := colors["a2"]; !ok {
+		t.Fatalf("empty subtype should keep its base group color")
+	}
+	if colors["a2"] == colors["a1"] {
+		t.Fatalf("empty subtype should not be recolored as the non-empty subtype in its group")
+	}
+}
+
+func TestAddColorByFieldValue_AllFields(t *testing.T) {
+	row := seatable.NeuronRow{
+		SuperClass:  "super",
+		CellClass:   "class",
+		CellType:    "type",
+		CellSubtype: "subtype",
+		Side:        "side",
+		Region:      "region",
+		Tract:       "tract",
+		Nerve:       "nerve",
+		Hemilineage: "hemilineage",
+		Proofread:   "proofread",
+	}
+
+	tests := []struct {
+		field string
+		want  string
+	}{
+		{"super_class", "super"},
+		{"cell_class", "class"},
+		{"cell_type", "type"},
+		{"cell_subtype", "subtype"},
+		{"side", "side"},
+		{"region", "region"},
+		{"tract", "tract"},
+		{"nerve", "nerve"},
+		{"hemilineage", "hemilineage"},
+		{"proofread", "proofread"},
+		{"invalid", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			if got := addColorByFieldValue(row, tt.field); got != tt.want {
+				t.Fatalf("addColorByFieldValue(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -311,7 +460,7 @@ func TestExtractRootIDsWithSubtype(t *testing.T) {
 		{RootID: "100", CellSubtype: "alpha"},
 		{RootID: "200", CellSubtype: "beta"},
 		{RootID: "", CellSubtype: "gamma"}, // no root ID, should be skipped
-		{RootID: "300", CellSubtype: ""},    // no subtype
+		{RootID: "300", CellSubtype: ""},   // no subtype
 	}
 
 	ids, sm := extractRootIDsWithSubtype(rows)

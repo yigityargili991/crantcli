@@ -76,6 +76,12 @@ crantcli add --cell-class kenyon_cell --generate
 # Combine filters
 crantcli add --super-class sensory --side left --color "#ff0000"
 
+# Color matched neurons by a metadata field
+crantcli add --super-class sensory --color-by cell_type
+
+# Use a named palette across color-by groups
+crantcli add --region LX --color-by side --color blue
+
 # Query by bundle/region annotation
 crantcli add --bundle LX
 
@@ -88,7 +94,9 @@ crantcli add --cell-class kenyon_cell --root-ids-only
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (named palette, `colored`, or 6-digit hex), `--replace`, `--open`
+**Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`).
+
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--replace`, `--open`
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)

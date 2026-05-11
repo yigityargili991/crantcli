@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"crantcli/internal/browser"
@@ -44,13 +45,16 @@ Examples:
   # Add multiple cell types with per-group coloring
   crantcli add --cell-type ER --cell-type EPG/PEG --color colored
 
+  # Add sensory neurons and color by cell_type
+  crantcli add --super-class sensory --color-by cell_type
+
   # Add all neurons annotated to bundle/region LX
   crantcli add --bundle LX
 
   # Cross-product: kenyon_cell+ER and kenyon_cell+EPG/PEG as separate groups
   crantcli add --cell-class kenyon_cell --cell-type ER --cell-type EPG/PEG --color colored
 
-  # Sub-color by cell_subtype within each group
+  # Sub-color by cell_subtype within each query group
   crantcli add --cell-class kenyon_cell --color-sub --color blue`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
@@ -71,6 +75,7 @@ func init() {
 		addOutput      string
 		addLayer       string
 		addColor       string
+		addColorBy     string
 		addReplace     bool
 		addRootIDsOnly bool
 		addOpen        bool
@@ -91,7 +96,8 @@ func init() {
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
-	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each group")
+	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread")
+	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -104,6 +110,24 @@ func init() {
 		normalizedColor, err := nglstate.NormalizeColorInput(addColor)
 		if err != nil {
 			return err
+		}
+		colorByField, err := resolveAddColorBy(addColorBy, addColorSub)
+		if err != nil {
+			return err
+		}
+		if colorByField != "" && normalizedColor == "" {
+			normalizedColor = "colored"
+		}
+		if colorByField != "" && strings.HasPrefix(normalizedColor, "#") {
+			fmt.Fprintln(os.Stderr, "Warning: --color-by with a hex color assigns the same color to every group; use a named palette or 'colored' for distinct group colors")
+		}
+		if addColorSub && normalizedColor == "" {
+			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
+			addColorSub = false
+		}
+		if addColorSub && strings.HasPrefix(normalizedColor, "#") {
+			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect with a hex color; use a named color or 'colored'")
+			addColorSub = false
 		}
 
 		baseFilters := &seatable.Filters{
@@ -128,18 +152,10 @@ func init() {
 
 		specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes)
 
-		if addColorSub && normalizedColor == "" {
-			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
-			addColorSub = false
-		}
-		if addColorSub && strings.HasPrefix(normalizedColor, "#") {
-			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect with a hex color; use a named color or 'colored'")
-			addColorSub = false
-		}
-
 		var groups [][]string
 		var allRootIDs []string
 		var totalRows int
+		var allRows []seatable.NeuronRow
 		var subtypeMap map[string]string
 		if addColorSub {
 			subtypeMap = make(map[string]string)
@@ -162,9 +178,18 @@ func init() {
 			}
 			groups = append(groups, ids)
 			allRootIDs = append(allRootIDs, ids...)
+			allRows = append(allRows, rows...)
 			totalRows += len(rows)
 			if s.label != "" {
 				fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
+			}
+		}
+
+		if colorByField != "" {
+			var labels []string
+			groups, labels = buildColorByGroups(allRows, colorByField)
+			for i, group := range groups {
+				fmt.Fprintf(os.Stderr, "  %s: %d with root IDs\n", labels[i], len(group))
 			}
 		}
 
@@ -203,18 +228,7 @@ func init() {
 
 		nglstate.AddSegments(layer, allRootIDs, addReplace)
 
-		// Color assignment: base group coloring, then subtype overlay.
-		// When --color-sub is active, always use SetSegmentColorByGroups
-		// (even for a single group) so the base color comes from a palette
-		// rather than a random hex from "colored" mode.
-		if (len(groups) > 1 || addColorSub) && normalizedColor != "" {
-			nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
-		} else {
-			nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
-		}
-		if addColorSub {
-			nglstate.SetSegmentColorBySubtype(layer, groups, subtypeMap, normalizedColor)
-		}
+		applyAddSegmentColors(layer, allRootIDs, groups, subtypeMap, normalizedColor, colorByField, addColorSub)
 
 		// Output
 		if err := nglstate.WriteState(result, addOutput); err != nil {
@@ -272,6 +286,36 @@ func resolveAddRegionFilter(region, bundle string) (string, error) {
 	return region, nil
 }
 
+func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
+	colorBy = strings.TrimSpace(colorBy)
+	if colorBy != "" && colorSub {
+		return "", fmt.Errorf("--color-by and --color-sub cannot be used together")
+	}
+	if colorSub {
+		return "", nil
+	}
+	if colorBy == "" {
+		return "", nil
+	}
+	if !validAddColorByFields[colorBy] {
+		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread", colorBy)
+	}
+	return colorBy, nil
+}
+
+var validAddColorByFields = map[string]bool{
+	"super_class":  true,
+	"cell_class":   true,
+	"cell_type":    true,
+	"cell_subtype": true,
+	"side":         true,
+	"region":       true,
+	"tract":        true,
+	"nerve":        true,
+	"hemilineage":  true,
+	"proofread":    true,
+}
+
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
 	if !baseFilters.HasAny() && !hasGroupFlags {
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
@@ -317,4 +361,86 @@ func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes []string) []
 		specs = append(specs, querySpec{label: "", filters: *base})
 	}
 	return specs
+}
+
+func applyAddSegmentColors(layer map[string]interface{}, allRootIDs []string, groups [][]string, subtypeMap map[string]string, normalizedColor, colorByField string, colorSub bool) {
+	// Repeated class/type flags, --color-by, and --color-sub all need
+	// group-aware base coloring. For --color-by, keep group-aware coloring even
+	// when only one field value is present so "colored" uses a palette.
+	if (len(groups) > 1 || colorByField != "" || colorSub) && normalizedColor != "" {
+		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
+	} else {
+		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
+	}
+	if colorSub {
+		nglstate.SetSegmentColorBySubtype(layer, groups, subtypeMap, normalizedColor)
+	}
+}
+
+func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []string) {
+	groupsByValue := make(map[string][]string)
+	var values []string
+
+	for _, row := range rows {
+		if row.RootID == "" {
+			continue
+		}
+		value := addColorByFieldValue(row, field)
+		if _, ok := groupsByValue[value]; !ok {
+			values = append(values, value)
+		}
+		groupsByValue[value] = append(groupsByValue[value], row.RootID)
+	}
+	sortColorByValues(values)
+
+	groups := make([][]string, 0, len(values))
+	labels := make([]string, 0, len(values))
+	for _, value := range values {
+		groups = append(groups, groupsByValue[value])
+		labelValue := value
+		if labelValue == "" {
+			labelValue = "(empty)"
+		}
+		labels = append(labels, field+"="+labelValue)
+	}
+	return groups, labels
+}
+
+func sortColorByValues(values []string) {
+	sort.Slice(values, func(i, j int) bool {
+		if values[i] == "" {
+			return false
+		}
+		if values[j] == "" {
+			return true
+		}
+		return values[i] < values[j]
+	})
+}
+
+func addColorByFieldValue(row seatable.NeuronRow, field string) string {
+	switch field {
+	case "super_class":
+		return row.SuperClass
+	case "cell_class":
+		return row.CellClass
+	case "cell_type":
+		return row.CellType
+	case "cell_subtype":
+		return row.CellSubtype
+	case "side":
+		return row.Side
+	case "region":
+		return row.Region
+	case "tract":
+		return row.Tract
+	case "nerve":
+		return row.Nerve
+	case "hemilineage":
+		return row.Hemilineage
+	case "proofread":
+		return row.Proofread
+	default:
+		return ""
+	}
 }
