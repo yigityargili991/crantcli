@@ -53,7 +53,7 @@ Examples:
   # Cross-product: kenyon_cell+ER and kenyon_cell+EPG/PEG as separate groups
   crantcli add --cell-class kenyon_cell --cell-type ER --cell-type EPG/PEG --color colored
 
-  # Backward-compatible shorthand for --color-by cell_subtype
+  # Sub-color by cell_subtype within each query group
   crantcli add --cell-class kenyon_cell --color-sub --color blue`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
@@ -96,7 +96,7 @@ func init() {
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread")
-	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Backward-compatible shorthand for --color-by cell_subtype")
+	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -116,6 +116,14 @@ func init() {
 		}
 		if colorByField != "" && normalizedColor == "" {
 			normalizedColor = "colored"
+		}
+		if addColorSub && normalizedColor == "" {
+			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
+			addColorSub = false
+		}
+		if addColorSub && strings.HasPrefix(normalizedColor, "#") {
+			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect with a hex color; use a named color or 'colored'")
+			addColorSub = false
 		}
 
 		baseFilters := &seatable.Filters{
@@ -144,13 +152,26 @@ func init() {
 		var allRootIDs []string
 		var totalRows int
 		var allRows []seatable.NeuronRow
+		var subtypeMap map[string]string
+		if addColorSub {
+			subtypeMap = make(map[string]string)
+		}
 
 		for _, s := range specs {
 			rows, err := seatable.QueryNeurons(client, &s.filters)
 			if err != nil {
 				return err
 			}
-			ids := extractRootIDs(rows)
+			var ids []string
+			if addColorSub {
+				var sm map[string]string
+				ids, sm = extractRootIDsWithSubtype(rows)
+				for k, v := range sm {
+					subtypeMap[k] = v
+				}
+			} else {
+				ids = extractRootIDs(rows)
+			}
 			groups = append(groups, ids)
 			allRootIDs = append(allRootIDs, ids...)
 			allRows = append(allRows, rows...)
@@ -203,14 +224,7 @@ func init() {
 
 		nglstate.AddSegments(layer, allRootIDs, addReplace)
 
-		// Color assignment: repeated class/type flags and --color-by both use
-		// group-aware coloring. For --color-by, keep group-aware coloring even
-		// when only one field value is present so "colored" uses a palette.
-		if (len(groups) > 1 || colorByField != "") && normalizedColor != "" {
-			nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
-		} else {
-			nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
-		}
+		applyAddSegmentColors(layer, allRootIDs, groups, subtypeMap, normalizedColor, colorByField, addColorSub)
 
 		// Output
 		if err := nglstate.WriteState(result, addOutput); err != nil {
@@ -271,10 +285,10 @@ func resolveAddRegionFilter(region, bundle string) (string, error) {
 func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
 	colorBy = strings.TrimSpace(colorBy)
 	if colorBy != "" && colorSub {
-		return "", fmt.Errorf("--color-by and --color-sub cannot be used together; use --color-by cell_subtype")
+		return "", fmt.Errorf("--color-by and --color-sub cannot be used together")
 	}
 	if colorSub {
-		return "cell_subtype", nil
+		return "", nil
 	}
 	if colorBy == "" {
 		return "", nil
@@ -343,6 +357,20 @@ func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes []string) []
 		specs = append(specs, querySpec{label: "", filters: *base})
 	}
 	return specs
+}
+
+func applyAddSegmentColors(layer map[string]interface{}, allRootIDs []string, groups [][]string, subtypeMap map[string]string, normalizedColor, colorByField string, colorSub bool) {
+	// Repeated class/type flags, --color-by, and --color-sub all need
+	// group-aware base coloring. For --color-by, keep group-aware coloring even
+	// when only one field value is present so "colored" uses a palette.
+	if (len(groups) > 1 || colorByField != "" || colorSub) && normalizedColor != "" {
+		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
+	} else {
+		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
+	}
+	if colorSub {
+		nglstate.SetSegmentColorBySubtype(layer, groups, subtypeMap, normalizedColor)
+	}
 }
 
 func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []string) {

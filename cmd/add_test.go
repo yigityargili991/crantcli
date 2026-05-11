@@ -37,13 +37,13 @@ func TestResolveAddColorBy(t *testing.T) {
 		}
 	})
 
-	t.Run("color-sub shorthand", func(t *testing.T) {
+	t.Run("color-sub validates without color-by grouping", func(t *testing.T) {
 		got, err := resolveAddColorBy("", true)
 		if err != nil {
 			t.Fatalf("resolveAddColorBy returned error: %v", err)
 		}
-		if got != "cell_subtype" {
-			t.Fatalf("resolveAddColorBy = %q, want cell_subtype", got)
+		if got != "" {
+			t.Fatalf("resolveAddColorBy = %q, want empty color-by field", got)
 		}
 	})
 
@@ -93,6 +93,36 @@ func TestBuildColorByGroups(t *testing.T) {
 	wantLabels := []string{"cell_type=ER", "cell_type=EPG/PEG", "cell_type=(empty)"}
 	if !reflect.DeepEqual(labels, wantLabels) {
 		t.Fatalf("labels = %#v, want %#v", labels, wantLabels)
+	}
+}
+
+func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := [][]string{
+		{"a1", "a2"},
+		{"b1", "b2"},
+	}
+	subtypeMap := map[string]string{
+		"a1": "shared",
+		"a2": "",
+		"b1": "shared",
+		"b2": "other",
+	}
+
+	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, subtypeMap, "colored", "", true)
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("same subtype in different query groups got the same color: a1=%v b1=%v", colors["a1"], colors["b1"])
+	}
+	if _, ok := colors["a2"]; !ok {
+		t.Fatalf("empty subtype should keep its base group color")
+	}
+	if colors["a2"] == colors["a1"] {
+		t.Fatalf("empty subtype should not be recolored as the non-empty subtype in its group")
 	}
 }
 
