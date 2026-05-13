@@ -124,3 +124,94 @@ func TestGetRootIDs_BadResponseLength(t *testing.T) {
 		t.Fatal("expected error for bad response length")
 	}
 }
+
+func TestGetRootChangeLog(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Errorf("unexpected auth header: %s", r.Header.Get("Authorization"))
+		}
+		want := "/segmentation/api/v1/table/test_table/root/720575940610453042/tabular_change_log"
+		if r.URL.Path != want {
+			t.Errorf("unexpected path: got %s, want %s", r.URL.Path, want)
+		}
+		if got := r.URL.Query().Get("filtered"); got != "true" {
+			t.Errorf("filtered query = %q, want true", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{
+			"operation_id": 123,
+			"timestamp": 1700000000000,
+			"user_id": 42,
+			"before_root_ids": [720575940610453042, 720575940610453043],
+			"after_root_ids": [720575940610453044],
+			"is_merge": true,
+			"user_name": "Ada",
+			"user_affiliation": "CRANT"
+		}]`)
+	}))
+
+	rows, err := c.GetRootChangeLog(720575940610453042, true)
+	if err != nil {
+		t.Fatalf("GetRootChangeLog: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.OperationID != 123 || row.Timestamp != 1700000000000 || row.UserID != 42 {
+		t.Fatalf("decoded scalar fields incorrectly: %#v", row)
+	}
+	if len(row.BeforeRootIDs) != 2 || row.BeforeRootIDs[0] != 720575940610453042 || row.BeforeRootIDs[1] != 720575940610453043 {
+		t.Fatalf("before_root_ids = %v", row.BeforeRootIDs)
+	}
+	if len(row.AfterRootIDs) != 1 || row.AfterRootIDs[0] != 720575940610453044 {
+		t.Fatalf("after_root_ids = %v", row.AfterRootIDs)
+	}
+	if !row.IsMerge || row.UserName != "Ada" || row.UserAffiliation != "CRANT" {
+		t.Fatalf("decoded metadata incorrectly: %#v", row)
+	}
+}
+
+func TestGetRootChangeLog_Unfiltered(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("filtered"); got != "false" {
+			t.Errorf("filtered query = %q, want false", got)
+		}
+		fmt.Fprint(w, `[]`)
+	}))
+
+	rows, err := c.GetRootChangeLog(1, false)
+	if err != nil {
+		t.Fatalf("GetRootChangeLog: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("got %d rows, want 0", len(rows))
+	}
+}
+
+func TestGetRootChangeLog_HTTPError(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, "upstream failure")
+	}))
+
+	_, err := c.GetRootChangeLog(1, true)
+	if err == nil {
+		t.Fatal("expected error for HTTP 502")
+	}
+}
+
+func TestGetRootChangeLog_ReadTimeoutMeansNoHistory(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"message": "Read timed out"}`)
+	}))
+
+	rows, err := c.GetRootChangeLog(1, true)
+	if err != nil {
+		t.Fatalf("GetRootChangeLog: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("got %d rows, want 0", len(rows))
+	}
+}

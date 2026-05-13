@@ -1,6 +1,6 @@
 # crantcli
 
-A CLI tool for the [CRANT](https://github.com/flyconnectome/crant) (Clonal Raider Ant Connectome) dataset. Query neurons by classification, inject root IDs into [Neuroglancer](https://github.com/google/neuroglancer) scenes, check root ID freshness against [CAVE](https://caveclient.readthedocs.io/), and open visualizations in your browser -- all from the terminal.
+A CLI tool for the [CRANT](https://github.com/flyconnectome/crant) (Clonal Raider Ant Connectome) dataset. Query neurons by classification, inject root IDs into [Neuroglancer](https://github.com/google/neuroglancer) scenes, check root ID freshness and edit history against [CAVE](https://caveclient.readthedocs.io/), and open visualizations in your browser -- all from the terminal.
 
 
 ## Quick Start
@@ -17,6 +17,9 @@ crantcli add --cell-type ER --open
 
 # Check if a root ID is still current in CAVE
 crantcli check-cave 720575940610453042
+
+# Show CAVE edit history for a root ID
+crantcli cave-history 720575940610453042
 ```
 
 ## Installation
@@ -139,6 +142,28 @@ crantcli check-cave --all --refresh-state -s state.json -o refreshed.json -l "pr
 **Flags:** `--all` (check all neurons), `-q`/`--quiet` (only print stale entries), `--mapping` (print stale `old_root_id<TAB>current_cave_root_id` pairs), `--refresh-state` (replace stale segment IDs in a Neuroglancer state), `-s`/`--state` (state URL or file for refresh), `-o`/`--output` (refreshed state file), `-l`/`--layer` (target segmentation layer)
 
 `--refresh-state` uses the same smart state loading and output behavior as the state-editing commands: with `-s` it reads a URL or JSON file, and with `-o` it writes JSON to a file. Without `-o`, output follows the loaded state source (clipboard/URL sources are written back as a Neuroglancer URL; file/stdin sources are written as JSON to stdout). Refresh mode writes the updated state instead of the normal check table. If you combine `--mapping` and `--refresh-state`, provide `-o` so mapping output and state JSON do not share stdout.
+
+Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
+
+### `cave-history` -- Show CAVE edit history
+
+Show tabular CAVE changelog rows for one or more root IDs. By default, history is filtered to edits that affect the final state of the queried root.
+
+```bash
+# Show readable history table
+crantcli cave-history 720575940610453042
+
+# Check multiple roots
+crantcli cave-history 720575940610453042 720575940631928371
+
+# Print stable JSON output
+crantcli cave-history 720575940610453042 --json
+
+# Include broader split/merge history
+crantcli cave-history 720575940610453042 --unfiltered
+```
+
+**Flags:** `--json` (print JSON result objects), `--unfiltered` (request unfiltered CAVE history)
 
 Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
 
