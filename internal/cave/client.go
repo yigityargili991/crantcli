@@ -22,6 +22,18 @@ type Client struct {
 	http      *http.Client
 }
 
+// ChangeLogRow is one CAVE tabular changelog row for a root ID.
+type ChangeLogRow struct {
+	OperationID     uint64   `json:"operation_id"`
+	Timestamp       int64    `json:"timestamp"`
+	UserID          uint64   `json:"user_id"`
+	BeforeRootIDs   []uint64 `json:"before_root_ids"`
+	AfterRootIDs    []uint64 `json:"after_root_ids"`
+	IsMerge         bool     `json:"is_merge"`
+	UserName        string   `json:"user_name"`
+	UserAffiliation string   `json:"user_affiliation"`
+}
+
 // NewTestClient creates a CAVE client with a custom base URL and HTTP client, for testing.
 func NewTestClient(baseURL string, httpClient *http.Client) *Client {
 	return &Client{
@@ -137,4 +149,41 @@ func (c *Client) GetRootIDs(supervoxelIDs []uint64) ([]uint64, error) {
 		rootIDs[i] = binary.LittleEndian.Uint64(respBody[i*8:])
 	}
 	return rootIDs, nil
+}
+
+// GetRootChangeLog returns the tabular CAVE edit history for a root ID.
+func (c *Client) GetRootChangeLog(rootID uint64, filtered bool) ([]ChangeLogRow, error) {
+	url := fmt.Sprintf("%s/segmentation/api/v1/table/%s/root/%d/tabular_change_log",
+		c.baseURL, c.tableName, rootID)
+
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating CAVE changelog request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
+
+	query := req.URL.Query()
+	query.Set("filtered", strconv.FormatBool(filtered))
+	req.URL.RawQuery = query.Encode()
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("CAVE changelog request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusInternalServerError && bytes.Contains(body, []byte("Read timed out")) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var rows []ChangeLogRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return nil, fmt.Errorf("decoding CAVE changelog response: %w", err)
+	}
+	return rows, nil
 }
