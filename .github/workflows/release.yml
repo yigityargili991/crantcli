@@ -66,3 +66,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" "${{ steps.build.outputs.artifact }}" --clobber
+
+  checksums:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate and upload checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          gh release download "$REF_NAME" --pattern 'crant_type_look-*' --dir dist
+          cd dist
+          sha256sum crant_type_look-* > checksums.txt
+          gh release upload "$REF_NAME" checksums.txt --clobber

@@ -28,16 +28,33 @@ crantcli cave-history 720575940610453042
 
 Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows).
 
-**macOS / Linux** -- pick the asset matching `uname -s` (Darwin/Linux) and `uname -m` (arm64/x86_64). Apple Silicon example:
+**macOS / Linux** -- install the latest release to `~/.local/bin/crantcli`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | sh
+```
+
+To pin a version or choose a different install directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | CRANTCLI_VERSION=v0.10.1 sh
+curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | CRANTCLI_INSTALL_DIR=/usr/local/bin sh
+```
+
+Make sure the install directory is on your `PATH`, then verify the install:
+
+```bash
+crantcli --version
+```
+
+Manual install is also supported. Pick the asset matching `uname -s` (Darwin/Linux) and `uname -m` (arm64/x86_64). Apple Silicon example:
 
 ```bash
 curl -L -o crantcli https://github.com/yigityargili991/crantcli/releases/latest/download/crant_type_look-darwin-arm64
 chmod +x crantcli
-sudo mv crantcli /usr/local/bin/    # or: mv crantcli ~/.local/bin/
+mv crantcli ~/.local/bin/    # or another directory on PATH
 crantcli --version
 ```
-
-For Linux, swap the asset for `crant_type_look-linux-amd64` or `crant_type_look-linux-arm64`. To pin a version, replace `latest/download` with `download/v0.7.2` (or any tag).
 
 On macOS, if Gatekeeper blocks the binary on first run, clear the quarantine attribute:
 
