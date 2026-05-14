@@ -172,6 +172,65 @@ func TestGetRootChangeLog(t *testing.T) {
 	}
 }
 
+func TestGetRootChangeLog_ColumnarResponse(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"operation_id": {"12": 460496, "11": 460495},
+			"timestamp": {"12": 1772639709709, "11": 1772639424192},
+			"user_id": {"12": "110", "11": "110"},
+			"before_root_ids": {
+				"12": [576460752692696295, 576460752696292404],
+				"11": [576460752684881005]
+			},
+			"after_root_ids": {
+				"12": [576460752756408394],
+				"11": [576460752696292404]
+			},
+			"is_merge": {"12": true, "11": false},
+			"user_name": {"12": "Marcel Sayre", "11": "Marcel Sayre"},
+			"user_affiliation": {"12": "", "11": ""}
+		}`)
+	}))
+
+	rows, err := c.GetRootChangeLog(576460752688642351, true)
+	if err != nil {
+		t.Fatalf("GetRootChangeLog: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+
+	if got, want := rows[0].OperationID, uint64(460495); got != want {
+		t.Fatalf("rows[0].OperationID = %d, want %d", got, want)
+	}
+	if got, want := rows[0].Timestamp, int64(1772639424192); got != want {
+		t.Fatalf("rows[0].Timestamp = %d, want %d", got, want)
+	}
+	if got, want := rows[0].UserID, uint64(110); got != want {
+		t.Fatalf("rows[0].UserID = %d, want %d", got, want)
+	}
+	if rows[0].IsMerge {
+		t.Fatal("rows[0].IsMerge = true, want false")
+	}
+	if len(rows[0].BeforeRootIDs) != 1 || rows[0].BeforeRootIDs[0] != 576460752684881005 {
+		t.Fatalf("rows[0].BeforeRootIDs = %v", rows[0].BeforeRootIDs)
+	}
+	if len(rows[0].AfterRootIDs) != 1 || rows[0].AfterRootIDs[0] != 576460752696292404 {
+		t.Fatalf("rows[0].AfterRootIDs = %v", rows[0].AfterRootIDs)
+	}
+	if got, want := rows[0].UserName, "Marcel Sayre"; got != want {
+		t.Fatalf("rows[0].UserName = %q, want %q", got, want)
+	}
+
+	if got, want := rows[1].OperationID, uint64(460496); got != want {
+		t.Fatalf("rows[1].OperationID = %d, want %d", got, want)
+	}
+	if !rows[1].IsMerge {
+		t.Fatal("rows[1].IsMerge = false, want true")
+	}
+}
+
 func TestGetRootChangeLog_Unfiltered(t *testing.T) {
 	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("filtered"); got != "false" {

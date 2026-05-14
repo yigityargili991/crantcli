@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -181,9 +182,177 @@ func (c *Client) GetRootChangeLog(rootID uint64, filtered bool) ([]ChangeLogRow,
 		return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
-	var rows []ChangeLogRow
-	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading CAVE changelog response: %w", err)
+	}
+
+	rows, err := decodeChangeLogRows(respBody)
+	if err != nil {
 		return nil, fmt.Errorf("decoding CAVE changelog response: %w", err)
 	}
 	return rows, nil
+}
+
+type changeLogTableResponse struct {
+	OperationID     map[string]json.RawMessage `json:"operation_id"`
+	Timestamp       map[string]json.RawMessage `json:"timestamp"`
+	UserID          map[string]json.RawMessage `json:"user_id"`
+	BeforeRootIDs   map[string][]uint64        `json:"before_root_ids"`
+	AfterRootIDs    map[string][]uint64        `json:"after_root_ids"`
+	IsMerge         map[string]bool            `json:"is_merge"`
+	UserName        map[string]string          `json:"user_name"`
+	UserAffiliation map[string]string          `json:"user_affiliation"`
+}
+
+func decodeChangeLogRows(data []byte) ([]ChangeLogRow, error) {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	if data[0] == '[' {
+		var rows []ChangeLogRow
+		if err := json.Unmarshal(data, &rows); err != nil {
+			return nil, err
+		}
+		return rows, nil
+	}
+
+	var table changeLogTableResponse
+	if err := json.Unmarshal(data, &table); err != nil {
+		return nil, err
+	}
+
+	keys := changeLogRowKeys(table)
+	rows := make([]ChangeLogRow, 0, len(keys))
+	for _, key := range keys {
+		operationID, err := requiredUint(table.OperationID, key, "operation_id")
+		if err != nil {
+			return nil, err
+		}
+		timestamp, err := requiredInt64(table.Timestamp, key, "timestamp")
+		if err != nil {
+			return nil, err
+		}
+		userID, err := requiredUint(table.UserID, key, "user_id")
+		if err != nil {
+			return nil, err
+		}
+
+		rows = append(rows, ChangeLogRow{
+			OperationID:     operationID,
+			Timestamp:       timestamp,
+			UserID:          userID,
+			BeforeRootIDs:   table.BeforeRootIDs[key],
+			AfterRootIDs:    table.AfterRootIDs[key],
+			IsMerge:         table.IsMerge[key],
+			UserName:        table.UserName[key],
+			UserAffiliation: table.UserAffiliation[key],
+		})
+	}
+	return rows, nil
+}
+
+func changeLogRowKeys(table changeLogTableResponse) []string {
+	seen := make(map[string]struct{})
+	addRawKeys := func(m map[string]json.RawMessage) {
+		for key := range m {
+			seen[key] = struct{}{}
+		}
+	}
+	addRootListKeys := func(m map[string][]uint64) {
+		for key := range m {
+			seen[key] = struct{}{}
+		}
+	}
+	addBoolKeys := func(m map[string]bool) {
+		for key := range m {
+			seen[key] = struct{}{}
+		}
+	}
+	addStringKeys := func(m map[string]string) {
+		for key := range m {
+			seen[key] = struct{}{}
+		}
+	}
+
+	addRawKeys(table.OperationID)
+	addRawKeys(table.Timestamp)
+	addRawKeys(table.UserID)
+	addRootListKeys(table.BeforeRootIDs)
+	addRootListKeys(table.AfterRootIDs)
+	addBoolKeys(table.IsMerge)
+	addStringKeys(table.UserName)
+	addStringKeys(table.UserAffiliation)
+
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, leftErr := strconv.ParseInt(keys[i], 10, 64)
+		right, rightErr := strconv.ParseInt(keys[j], 10, 64)
+		if leftErr == nil && rightErr == nil {
+			return left < right
+		}
+		if leftErr == nil {
+			return true
+		}
+		if rightErr == nil {
+			return false
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+func requiredUint(values map[string]json.RawMessage, key, field string) (uint64, error) {
+	raw, ok := values[key]
+	if !ok {
+		return 0, fmt.Errorf("missing %s for changelog row %s", field, key)
+	}
+	return parseJSONUint(raw, field, key)
+}
+
+func requiredInt64(values map[string]json.RawMessage, key, field string) (int64, error) {
+	raw, ok := values[key]
+	if !ok {
+		return 0, fmt.Errorf("missing %s for changelog row %s", field, key)
+	}
+	return parseJSONInt64(raw, field, key)
+}
+
+func parseJSONUint(raw json.RawMessage, field, key string) (uint64, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		value, err := strconv.ParseUint(text, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing %s %q for changelog row %s: %w", field, text, key, err)
+		}
+		return value, nil
+	}
+
+	var value uint64
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, fmt.Errorf("parsing %s for changelog row %s: %w", field, key, err)
+	}
+	return value, nil
+}
+
+func parseJSONInt64(raw json.RawMessage, field, key string) (int64, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		value, err := strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing %s %q for changelog row %s: %w", field, text, key, err)
+		}
+		return value, nil
+	}
+
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, fmt.Errorf("parsing %s for changelog row %s: %w", field, key, err)
+	}
+	return value, nil
 }
