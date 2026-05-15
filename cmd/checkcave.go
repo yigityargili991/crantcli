@@ -98,6 +98,20 @@ func init() {
 	checkCaveCmd.Flags().StringVarP(&checkState, "state", "s", "", "Neuroglancer state (URL or file path) for --refresh-state")
 	checkCaveCmd.Flags().StringVarP(&checkOutput, "output", "o", "", "Output file path for --refresh-state (default: clipboard or stdout)")
 	checkCaveCmd.Flags().StringVarP(&checkLayer, "layer", "l", "", "Target segmentation layer name for --refresh-state")
+	checkCaveCmd.ValidArgsFunction = noFileCompletion
+	registerClassificationFlagCompletions(checkCaveCmd,
+		"super-class",
+		"cell-class",
+		"cell-type",
+		"cell-subtype",
+		"side",
+		"region",
+		"tract",
+		"nerve",
+		"hemilineage",
+		"proofread",
+	)
+	mustRegisterFlagCompletion(checkCaveCmd, "layer", noFileCompletion)
 
 	checkCaveCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		filters := &seatable.Filters{

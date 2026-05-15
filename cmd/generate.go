@@ -20,5 +20,6 @@ var generateCmd = &cobra.Command{
 }
 
 func init() {
+	generateCmd.ValidArgsFunction = noFileCompletion
 	rootCmd.AddCommand(generateCmd)
 }

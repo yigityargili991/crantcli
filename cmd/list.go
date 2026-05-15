@@ -44,6 +44,16 @@ func init() {
 	listCmd.Flags().StringVar(&listSide, "side", "", "Filter by side")
 	listCmd.Flags().StringVar(&listRegion, "region", "", "Filter by region")
 	listCmd.Flags().StringVar(&listTract, "tract", "", "Filter by tract")
+	listCmd.ValidArgsFunction = completeListFields
+	registerClassificationFlagCompletions(listCmd,
+		"super-class",
+		"cell-class",
+		"cell-type",
+		"cell-subtype",
+		"side",
+		"region",
+		"tract",
+	)
 
 	listCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		field := args[0]

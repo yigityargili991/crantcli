@@ -73,6 +73,7 @@ var inspectState string
 
 func init() {
 	inspectCmd.Flags().StringVarP(&inspectState, "state", "s", "", "Neuroglancer state (URL or file path)")
+	inspectCmd.ValidArgsFunction = noFileCompletion
 	rootCmd.AddCommand(inspectCmd)
 }
 

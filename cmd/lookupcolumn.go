@@ -23,6 +23,8 @@ func init() {
 	var lookupColumnPos string
 
 	lookupColumnCmd.Flags().StringVar(&lookupColumnPos, "pos", "", "Position as x,y,z (e.g. 100.5,200.3,300.1)")
+	lookupColumnCmd.ValidArgsFunction = noFileCompletion
+	mustRegisterFlagCompletion(lookupColumnCmd, "pos", noFileCompletion)
 
 	lookupColumnCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		var x, y, z float64

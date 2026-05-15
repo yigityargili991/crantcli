@@ -77,6 +77,23 @@ make build      # produces ./crantcli
 make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
 ```
 
+## Shell completion
+
+`crantcli` can generate shell completion scripts through Cobra:
+
+```bash
+# Bash
+source <(crantcli completion bash)
+
+# Zsh
+source <(crantcli completion zsh)
+
+# Fish
+crantcli completion fish | source
+```
+
+The completion hooks include command names, flags, valid `list` fields, color names, and CRANT classifier values for flags like `--cell-class`, `--cell-type`, `--region`, and `--proofread`. Data-backed classifier completions require the SeaTable token from `crantcli setup` and network access.
+
 ## Commands
 
 ### `add` -- Query and inject neurons

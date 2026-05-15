@@ -101,6 +101,21 @@ func init() {
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
+	addCmd.ValidArgsFunction = noFileCompletion
+	registerClassificationFlagCompletions(addCmd,
+		"super-class",
+		"cell-class",
+		"cell-type",
+		"cell-subtype",
+		"side",
+		"region",
+		"bundle",
+		"tract",
+		"proofread",
+	)
+	mustRegisterFlagCompletion(addCmd, "color", completeStaticValues(colorCompletions))
+	mustRegisterFlagCompletion(addCmd, "color-by", completeStaticValues(completionFields))
+	mustRegisterFlagCompletion(addCmd, "layer", noFileCompletion)
 
 	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		effectiveRegion, err := resolveAddRegionFilter(addRegion, addBundle)

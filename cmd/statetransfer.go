@@ -48,6 +48,9 @@ func init() {
 	stateTransferCmd.Flags().StringVarP(&stOutput, "output", "o", "", "Output file path (default: clipboard)")
 	stateTransferCmd.Flags().StringVarP(&stLayer, "layer", "l", "", "Target segmentation layer name")
 	stateTransferCmd.Flags().StringVar(&stColor, "color", "", "Segment color: named color, 'colored' for random, or hex (#ff0000)")
+	stateTransferCmd.ValidArgsFunction = noFileCompletion
+	mustRegisterFlagCompletion(stateTransferCmd, "color", completeStaticValues(colorCompletions))
+	mustRegisterFlagCompletion(stateTransferCmd, "layer", noFileCompletion)
 
 	stateTransferCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		// Read IDs from clipboard

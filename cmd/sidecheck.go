@@ -30,6 +30,8 @@ func init() {
 
 	sideCheckCmd.Flags().StringVar(&sideCheckCellType, "cell-type", "", "Check neurons with this cell_type")
 	sideCheckCmd.Flags().StringVar(&sideCheckCellClass, "cell-class", "", "Check neurons with this cell_class")
+	sideCheckCmd.ValidArgsFunction = noFileCompletion
+	registerClassificationFlagCompletions(sideCheckCmd, "cell-type", "cell-class")
 
 	sideCheckCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		filters, err := validateSideCheckFilters(sideCheckCellType, sideCheckCellClass)

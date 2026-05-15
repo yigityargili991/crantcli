@@ -76,6 +76,7 @@ that were once associated with the queried root.`,
 func init() {
 	caveHistoryCmd.Flags().Bool("json", false, "Print JSON output")
 	caveHistoryCmd.Flags().Bool("unfiltered", false, "Include unfiltered split/merge history")
+	caveHistoryCmd.ValidArgsFunction = noFileCompletion
 	rootCmd.AddCommand(caveHistoryCmd)
 }
 
