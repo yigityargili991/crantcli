@@ -259,6 +259,146 @@ func TestQueryNeuronsWithPositionIncludesSideAndSkipsMalformedRows(t *testing.T)
 	}
 }
 
+func TestQueryNeuronInfoResolvesKnownFieldsAndExtras(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			if !strings.Contains(sql, "SELECT *") {
+				t.Fatalf("QueryNeuronInfo SQL = %q, want SELECT *", sql)
+			}
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{
+						"_id":             "row-id",
+						"root_id":         "111",
+						"super_class":     "central",
+						"cell_class":      "cx",
+						"cell_type":       "EPG/PEG",
+						"cell_subtype":    "sub",
+						"side":            "left",
+						"region":          []interface{}{"452098"},
+						"tract":           "tract",
+						"nerve":           "nerve",
+						"hemilineage":     "hemi",
+						"proofread":       "yes",
+						"supervoxel_id":   "999",
+						"position":        "1, 2, 3",
+						"annotation_note": "keep me",
+					},
+				},
+			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	row, err := QueryNeuronInfo(client, "111")
+	if err != nil {
+		t.Fatalf("QueryNeuronInfo returned error: %v", err)
+	}
+	if row == nil {
+		t.Fatal("QueryNeuronInfo returned nil row")
+	}
+	if row.Region != "LX" {
+		t.Fatalf("Region = %q, want LX", row.Region)
+	}
+	if !row.HasPosition() || row.X != 1 || row.Y != 2 || row.Z != 3 {
+		t.Fatalf("position = (%v,%v,%v), set=%v; want (1,2,3), true", row.X, row.Y, row.Z, row.HasPosition())
+	}
+	if row.SupervoxelID != "999" {
+		t.Fatalf("SupervoxelID = %q, want 999", row.SupervoxelID)
+	}
+	if got := row.ExtraFields["annotation_note"]; got != "keep me" {
+		t.Fatalf("ExtraFields[annotation_note] = %q, want keep me", got)
+	}
+	if _, ok := row.ExtraFields["_id"]; ok {
+		t.Fatal("ExtraFields unexpectedly includes _id")
+	}
+}
+
+func TestQueryNeuronInfoPreservesMalformedPosition(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{
+						"root_id":  "111",
+						"region":   []interface{}{"452098"},
+						"position": nil,
+					},
+				},
+			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	row, err := QueryNeuronInfo(client, "111")
+	if err != nil {
+		t.Fatalf("QueryNeuronInfo returned error: %v", err)
+	}
+	if row == nil {
+		t.Fatal("QueryNeuronInfo returned nil row")
+	}
+	if row.HasPosition() {
+		t.Fatal("HasPosition() = true, want false")
+	}
+	if !strings.Contains(row.PositionError, "position value is nil") {
+		t.Fatalf("PositionError = %q, want nil-position message", row.PositionError)
+	}
+}
+
+func TestBuildNeuronInfoRowPrefersNamedColumnsOverMappedKeys(t *testing.T) {
+	row := buildNeuronInfoRow(
+		map[string]interface{}{
+			"key_root":      "mapped-root",
+			"root_id":       "named-root",
+			"key_region":    []interface{}{"333131"},
+			"region":        []interface{}{"452098"},
+			"key_position":  "9, 9, 9",
+			"position":      "1, 2, 3",
+			"key_note":      "mapped note",
+			"annotation":    "named note",
+			"key_cell_type": "mapped-cell-type",
+			"cell_type":     "named-cell-type",
+		},
+		map[string]string{
+			"333131": "CX",
+			"452098": "LX",
+		},
+		map[string]string{
+			"key_root":      "root_id",
+			"key_region":    "region",
+			"key_position":  "position",
+			"key_note":      "annotation",
+			"key_cell_type": "cell_type",
+		},
+	)
+
+	if row.RootID != "named-root" {
+		t.Fatalf("RootID = %q, want named-root", row.RootID)
+	}
+	if row.CellType != "named-cell-type" {
+		t.Fatalf("CellType = %q, want named-cell-type", row.CellType)
+	}
+	if row.Region != "LX" {
+		t.Fatalf("Region = %q, want LX", row.Region)
+	}
+	if !row.HasPosition() || row.X != 1 || row.Y != 2 || row.Z != 3 {
+		t.Fatalf("position = (%v,%v,%v), set=%v; want (1,2,3), true", row.X, row.Y, row.Z, row.HasPosition())
+	}
+	if got := row.ExtraFields["annotation"]; got != "named note" {
+		t.Fatalf("ExtraFields[annotation] = %q, want named note", got)
+	}
+	if _, ok := row.ExtraFields["key_note"]; ok {
+		t.Fatal("ExtraFields unexpectedly includes raw mapped key")
+	}
+	if _, ok := row.ExtraFields["key_cell_type"]; ok {
+		t.Fatal("ExtraFields unexpectedly includes mapped known field key")
+	}
+}
+
 func TestParsePositionValueRejectsMalformedArrays(t *testing.T) {
 	tests := []struct {
 		name string

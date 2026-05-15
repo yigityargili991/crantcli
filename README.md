@@ -20,6 +20,9 @@ crantcli check-cave 720575940610453042
 
 # Show CAVE edit history for a root ID
 crantcli cave-history 720575940610453042
+
+# Show all available info for a root ID
+crantcli root-info 720575940610453042
 ```
 
 ## Installation
@@ -200,6 +203,28 @@ crantcli cave-history 720575940610453042 --unfiltered
 **Flags:** `--json` (print JSON result objects), `--unfiltered` (request unfiltered CAVE history)
 
 Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
+
+### `root-info` -- Show all available root metadata
+
+Show CRANT metadata, CAVE current-root status, edit history summary, recent history rows, and nearest EPG/PEG column context for one root ID.
+
+```bash
+# Readable summary
+crantcli root-info 720575940610453042
+
+# Stable JSON output
+crantcli root-info 720575940610453042 --json
+
+# Show more recent history rows
+crantcli root-info 720575940610453042 --history-limit 10
+
+# Include broader split/merge history
+crantcli root-info 720575940610453042 --unfiltered
+```
+
+**Flags:** `--json` (print JSON result object), `--history-limit` (number of recent CAVE history rows, default `5`), `--unfiltered` (request unfiltered split/merge history)
+
+Requires SeaTable and CAVE tokens (configured via `crantcli setup` or environment variables).
 
 ### `list` -- Explore the dataset
 
