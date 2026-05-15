@@ -36,6 +36,32 @@ type NeuronCaveCheckRow struct {
 	SupervoxelID string
 }
 
+// NeuronInfoRow holds the full row data used by the root-info command.
+type NeuronInfoRow struct {
+	RootID        string
+	SuperClass    string
+	CellClass     string
+	CellType      string
+	CellSubtype   string
+	Side          string
+	Region        string
+	Tract         string
+	Nerve         string
+	Hemilineage   string
+	Proofread     string
+	SupervoxelID  string
+	PositionRaw   string
+	X, Y, Z       float64
+	PositionSet   bool
+	PositionError string
+	ExtraFields   map[string]string
+}
+
+// HasPosition returns true if position data was successfully parsed.
+func (n *NeuronInfoRow) HasPosition() bool {
+	return n != nil && n.PositionSet
+}
+
 // AuthResponse is returned by the SeaTable app-access-token endpoint.
 type AuthResponse struct {
 	AccessToken string `json:"access_token"`

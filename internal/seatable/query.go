@@ -267,6 +267,158 @@ func QueryNeuronSupervoxel(client *Client, rootID string) (*NeuronCaveCheckRow, 
 	}, nil
 }
 
+// QueryNeuronInfo looks up a single neuron row by root ID and resolves fields
+// needed for root-info, preserving unknown columns as display strings.
+func QueryNeuronInfo(client *Client, rootID string) (*NeuronInfoRow, error) {
+	sql := fmt.Sprintf("SELECT * FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
+		sanitizeIdentifier(config.SeaTableTable),
+		escapeSQL(rootID))
+
+	resp, err := client.ExecuteSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Results) == 0 || resp.Results[0] == nil {
+		return nil, nil
+	}
+
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+
+	row := buildNeuronInfoRow(resp.Results[0], SelectOptionMap(meta, "region"), tableColumnKeyToName(meta))
+	return &row, nil
+}
+
+func buildNeuronInfoRow(r map[string]interface{}, regionOpts map[string]string, keyToName map[string]string) NeuronInfoRow {
+	values := canonicalColumnValues(r, keyToName)
+	get := func(name string) (interface{}, bool) {
+		value, ok := values[name]
+		return value, ok
+	}
+
+	row := NeuronInfoRow{
+		RootID:       toStringValue(get("root_id")),
+		SuperClass:   toStringValue(get("super_class")),
+		CellClass:    toStringValue(get("cell_class")),
+		CellType:     toStringValue(get("cell_type")),
+		CellSubtype:  toStringValue(get("cell_subtype")),
+		Side:         toStringValue(get("side")),
+		Region:       resolveSelectValueFromLookup(get, "region", regionOpts),
+		Tract:        toStringValue(get("tract")),
+		Nerve:        toStringValue(get("nerve")),
+		Hemilineage:  toStringValue(get("hemilineage")),
+		Proofread:    toStringValue(get("proofread")),
+		SupervoxelID: toStringValue(get(config.SupervoxelIDColumn)),
+		ExtraFields:  make(map[string]string),
+	}
+
+	if position, ok := get("position"); ok {
+		row.PositionRaw = toString(position)
+		x, y, z, err := parsePositionValue(position)
+		if err != nil {
+			row.PositionError = err.Error()
+		} else {
+			row.X = x
+			row.Y = y
+			row.Z = z
+			row.PositionSet = true
+		}
+	} else {
+		row.PositionError = "position missing"
+	}
+
+	for name, value := range values {
+		if isRootInfoKnownField(name) {
+			continue
+		}
+		display := toString(value)
+		if display == "" {
+			continue
+		}
+		row.ExtraFields[name] = display
+	}
+
+	return row
+}
+
+func canonicalColumnValues(r map[string]interface{}, keyToName map[string]string) map[string]interface{} {
+	// SeaTable rows may contain both raw column keys and column names; map keys
+	// first, then let direct named columns intentionally override duplicates.
+	values := make(map[string]interface{}, len(r))
+	for key, value := range r {
+		name := key
+		if mapped, ok := keyToName[key]; ok {
+			name = mapped
+		}
+		values[name] = value
+	}
+	for key, value := range r {
+		if _, isMappedKey := keyToName[key]; isMappedKey {
+			continue
+		}
+		values[key] = value
+	}
+	return values
+}
+
+func toStringValue(v interface{}, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return toString(v)
+}
+
+func resolveSelectValueFromLookup(get func(string) (interface{}, bool), name string, opts map[string]string) string {
+	value, ok := get(name)
+	if !ok {
+		return ""
+	}
+	return resolveSelectValue(value, opts)
+}
+
+func tableColumnKeyToName(meta *MetadataResponse) map[string]string {
+	result := make(map[string]string)
+	if meta == nil {
+		return result
+	}
+	for _, table := range meta.Metadata.Tables {
+		if table.Name != config.SeaTableTable {
+			continue
+		}
+		for _, col := range table.Columns {
+			if col.Key == "" || col.Name == "" {
+				continue
+			}
+			result[col.Key] = col.Name
+		}
+	}
+	return result
+}
+
+func isRootInfoKnownField(name string) bool {
+	switch name {
+	case "_id",
+		"root_id",
+		"super_class",
+		"cell_class",
+		"cell_type",
+		"cell_subtype",
+		"side",
+		"region",
+		"tract",
+		"nerve",
+		"hemilineage",
+		"proofread",
+		"position",
+		config.SupervoxelIDColumn:
+		return true
+	default:
+		return false
+	}
+}
+
 // QueryNeuronsForCaveCheck returns root_id and supervoxel_id for neurons matching filters.
 func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow, error) {
 	columns := fmt.Sprintf("`root_id`, `%s`", sanitizeIdentifier(config.SupervoxelIDColumn))
