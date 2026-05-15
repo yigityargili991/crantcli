@@ -77,7 +77,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          gh release download "$REF_NAME" --pattern 'crant_type_look-*' --dir dist
+          gh release download "$REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'crant_type_look-*' --dir dist
           cd dist
           sha256sum crant_type_look-* > checksums.txt
-          gh release upload "$REF_NAME" checksums.txt --clobber
+          gh release upload "$REF_NAME" checksums.txt --repo "$GITHUB_REPOSITORY" --clobber
