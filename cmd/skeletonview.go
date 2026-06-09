@@ -93,7 +93,7 @@ func defaultSkeletonViewDeps() skeletonViewDeps {
 		viewerPath: findSkeletonViewer,
 		launch:     launchSkeletonViewer,
 		remote: func(token string) skeletonRemote {
-			return skeleton.NewRemoteClient(config.CAVEGlobalServer, config.CAVESkeletonTable, token)
+			return skeleton.NewRemoteClient(config.CAVEServer, config.CAVESkeletonTable, token)
 		},
 		rootInfo: fetchSkeletonViewRootInfo,
 		rootInfoOK: func() bool {
@@ -407,7 +407,7 @@ func skeletonForView(
 			RuntimeDir: cache.BridgeDir(),
 			RootID:     rootID,
 			Token:      token,
-			Server:     config.CAVEGlobalServer,
+			Server:     config.CAVEServer,
 			Datastack:  config.CAVESkeletonTable,
 		})
 		return fetchErr

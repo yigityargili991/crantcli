@@ -129,14 +129,14 @@ func TestRunSkeletonViewJSONDebugDoesNotOpenViewer(t *testing.T) {
 	}
 }
 
-func TestRunSkeletonViewUsesGlobalSkeletoncacheServer(t *testing.T) {
+func TestRunSkeletonViewUsesDatastackSkeletoncacheServer(t *testing.T) {
 	err := runSkeletonView(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, "111", skeletonViewOptions{JSONDebug: true}, skeletonViewDeps{
 		token:      func() string { return "token" },
 		lookPathUV: func() (string, error) { return "/usr/bin/uv", nil },
 		cacheRoot:  func() (string, error) { return t.TempDir(), nil },
 		fetch: func(_ context.Context, opts skeleton.BridgeOptions) (*skeleton.Skeleton, error) {
-			if opts.Server != config.CAVEGlobalServer {
-				t.Fatalf("bridge server = %q, want %q", opts.Server, config.CAVEGlobalServer)
+			if opts.Server != config.CAVEServer {
+				t.Fatalf("bridge server = %q, want %q", opts.Server, config.CAVEServer)
 			}
 			return testSkeleton(), nil
 		},
