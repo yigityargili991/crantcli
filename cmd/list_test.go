@@ -25,3 +25,11 @@ func TestWriteDistinctResults(t *testing.T) {
 		t.Fatalf("writeDistinctResults output = %q, want %q", buf.String(), want)
 	}
 }
+
+func TestListCommandExposesSupportedFilterFlags(t *testing.T) {
+	for _, flag := range []string{"nerve", "hemilineage", "proofread"} {
+		if listCmd.Flags().Lookup(flag) == nil {
+			t.Fatalf("list command missing --%s", flag)
+		}
+	}
+}

@@ -1,8 +1,56 @@
 package seatable
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 )
+
+type seatableRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f seatableRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestExecuteSQLPreservesLargeNumericIDs(t *testing.T) {
+	oldHTTPClient := httpClient
+	t.Cleanup(func() { httpClient = oldHTTPClient })
+
+	httpClient = &http.Client{Transport: seatableRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.Header.Get("Authorization"); got != "Bearer access-token" {
+			t.Fatalf("Authorization = %q, want bearer token", got)
+		}
+		body := `{
+			"metadata": [
+				{"key":"0000","name":"root_id","type":"number"},
+				{"key":"0001","name":"supervoxel_id","type":"number"}
+			],
+			"results": [
+				{"0000":720575940610453042,"0001":720575940610453043}
+			]
+		}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	client := &Client{accessToken: "access-token", dtableUUID: "base-uuid"}
+	resp, err := client.ExecuteSQL("SELECT `root_id`, `supervoxel_id` FROM `CRANTb_meta` LIMIT 1")
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if got, ok := resp.Results[0]["root_id"].(json.Number); !ok || got.String() != "720575940610453042" {
+		t.Fatalf("root_id = %#v (%T), want json.Number 720575940610453042", resp.Results[0]["root_id"], resp.Results[0]["root_id"])
+	}
+	if got, ok := resp.Results[0]["supervoxel_id"].(json.Number); !ok || got.String() != "720575940610453043" {
+		t.Fatalf("supervoxel_id = %#v (%T), want json.Number 720575940610453043", resp.Results[0]["supervoxel_id"], resp.Results[0]["supervoxel_id"])
+	}
+}
 
 // TestNormalizeResultKeys_WithNilRow verifies that normalizeResultKeys handles nil rows gracefully.
 func TestNormalizeResultKeys_WithNilRow(t *testing.T) {

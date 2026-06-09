@@ -164,6 +164,27 @@ func TestCompletionFiltersUsesBundleAsRegionAlias(t *testing.T) {
 	}
 }
 
+func TestCompletionFiltersIncludesExtendedFields(t *testing.T) {
+	cmd := &cobra.Command{Use: "test"}
+	for _, flag := range []string{"nerve", "hemilineage", "proofread"} {
+		cmd.Flags().String(flag, "", "")
+		if err := cmd.Flags().Set(flag, flag+"-value"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	filters := completionFilters(cmd, "cell_type")
+	if filters.Nerve != "nerve-value" {
+		t.Fatalf("Nerve = %q, want nerve-value", filters.Nerve)
+	}
+	if filters.Hemilineage != "hemilineage-value" {
+		t.Fatalf("Hemilineage = %q, want hemilineage-value", filters.Hemilineage)
+	}
+	if filters.Proofread != "proofread-value" {
+		t.Fatalf("Proofread = %q, want proofread-value", filters.Proofread)
+	}
+}
+
 func TestCompleteDistinctValuesReturnsActiveHelpWhenUnavailable(t *testing.T) {
 	restore := replaceCompletionHooks(t)
 	defer restore()

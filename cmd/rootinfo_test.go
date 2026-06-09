@@ -182,9 +182,9 @@ func TestFetchRootInfoReportsMissingRow(t *testing.T) {
 
 func TestFetchRootInfoPropagatesHistoryError(t *testing.T) {
 	data := &fakeRootInfoDataSource{
-		row: &seatable.NeuronInfoRow{RootID: "111", ExtraFields: map[string]string{}},
+		row: &seatable.NeuronInfoRow{RootID: "111", SupervoxelID: "999", ExtraFields: map[string]string{}},
 	}
-	caveClient := &fakeRootInfoCaveClient{historyErr: errors.New("boom")}
+	caveClient := &fakeRootInfoCaveClient{currentRoot: 111, historyErr: errors.New("boom")}
 
 	_, err := fetchRootInfo(data, caveClient, "111", rootInfoOptions{Filtered: true})
 	if err == nil {
@@ -192,6 +192,29 @@ func TestFetchRootInfoPropagatesHistoryError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "fetching history for root_id 111: boom") {
 		t.Fatalf("error = %q, want history context", err.Error())
+	}
+}
+
+func TestFetchRootInfoHistoryTimeoutIsUnavailable(t *testing.T) {
+	data := &fakeRootInfoDataSource{
+		row: &seatable.NeuronInfoRow{RootID: "111", ExtraFields: map[string]string{}},
+	}
+	caveClient := &fakeRootInfoCaveClient{historyErr: cave.ErrChangeLogTimeout}
+
+	result, err := fetchRootInfo(data, caveClient, "111", rootInfoOptions{Filtered: true})
+	if err != nil {
+		t.Fatalf("fetchRootInfo returned error: %v", err)
+	}
+	if result.History.Error != cave.ErrChangeLogTimeout.Error() {
+		t.Fatalf("History.Error = %q, want timeout", result.History.Error)
+	}
+
+	var out bytes.Buffer
+	if err := writeRootInfoText(&out, result); err != nil {
+		t.Fatalf("writeRootInfoText: %v", err)
+	}
+	if !strings.Contains(out.String(), "unavailable: CAVE changelog request timed out") {
+		t.Fatalf("text output missing unavailable history:\n%s", out.String())
 	}
 }
 

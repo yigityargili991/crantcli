@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,7 @@ type caveHistoryOptions struct {
 type caveHistoryResult struct {
 	RootID  string             `json:"root_id"`
 	Entries []caveHistoryEntry `json:"entries"`
+	Error   string             `json:"error,omitempty"`
 }
 
 var caveHistoryCmd = &cobra.Command{
@@ -95,6 +97,13 @@ func fetchCaveHistory(client caveHistoryClient, args []string, filtered bool) ([
 
 		rows, err := client.GetRootChangeLog(rootID, filtered)
 		if err != nil {
+			if errors.Is(err, cave.ErrChangeLogTimeout) {
+				results[i] = caveHistoryResult{
+					RootID: strconv.FormatUint(rootID, 10),
+					Error:  err.Error(),
+				}
+				continue
+			}
 			return nil, fmt.Errorf("fetching history for root_id %s: %w", arg, err)
 		}
 
@@ -118,8 +127,14 @@ func writeCaveHistoryTable(out, errOut io.Writer, results []caveHistoryResult) e
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	headerPrinted := false
 	rowCount := 0
+	unavailableCount := 0
 
 	for _, result := range results {
+		if result.Error != "" {
+			unavailableCount++
+			fmt.Fprintf(errOut, "history unavailable for root_id %s: %s\n", result.RootID, result.Error)
+			continue
+		}
 		for _, entry := range result.Entries {
 			if !headerPrinted {
 				fmt.Fprintln(w, "root_id\toperation_id\ttimestamp_utc\ttype\tbefore_root_ids\tafter_root_ids\tuser_id\tuser_name\tuser_affiliation")
@@ -143,7 +158,7 @@ func writeCaveHistoryTable(out, errOut io.Writer, results []caveHistoryResult) e
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("writing output: %w", err)
 	}
-	if rowCount == 0 {
+	if rowCount == 0 && unavailableCount == 0 {
 		fmt.Fprintln(errOut, "no history found")
 	}
 	return nil

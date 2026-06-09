@@ -23,8 +23,10 @@ const (
 	ImageSource        = "precomputed://gs://dkronauer-ant-001-alignment-final/aligned"
 	MeshSource         = "precomputed://gs://dkronauer-ant-001-alignment-final/tissue_mesh/mesh#type=mesh"
 
+	CAVEGlobalServer   = "https://global.daf-apis.com"
 	CAVEServer         = "https://data.proofreading.zetta.ai"
 	CAVETable          = "kronauer_ant_x1"
+	CAVESkeletonTable  = "kronauer_ant"
 	SupervoxelIDColumn = "supervoxel_id"
 
 	appConfigDir        = ".crantcli"
@@ -108,20 +110,22 @@ func readTokenFile(path string) string {
 
 // GetAPIToken retrieves the SeaTable API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. Stored credentials from ~/.crantcli/credentials (fallback ~/.crantinject/ and ~/.crant_type_look/)
-//  2. CRANTTABLE_TOKEN environment variable
-//  3. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
+//  1. CRANTTABLE_TOKEN environment variable
+//  2. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
+//  3. Stored credentials from ~/.crantcli/credentials (fallback ~/.crantinject/ and ~/.crant_type_look/)
 //
 // Returns an empty string if no token is found from any source.
 func GetAPIToken() string {
-	if token := ReadStoredToken(); token != "" {
-		return token
-	}
-	if token := os.Getenv("CRANTTABLE_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("CRANTTABLE_TOKEN")); token != "" {
 		return token
 	}
 	if path := os.Getenv("CRANTTABLE_TOKEN_FILE"); path != "" {
-		return readTokenFile(path)
+		if token := readTokenFile(path); token != "" {
+			return token
+		}
+	}
+	if token := ReadStoredToken(); token != "" {
+		return token
 	}
 	return ""
 }
@@ -146,18 +150,20 @@ func StoreCAVEToken(token string) error {
 
 // GetCAVEToken retrieves the CAVE API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. Stored credentials from ~/.crantcli/cave_credentials
-//  2. CAVE_TOKEN environment variable
-//  3. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
+//  1. CAVE_TOKEN environment variable
+//  2. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
+//  3. Stored credentials from ~/.crantcli/cave_credentials
 func GetCAVEToken() string {
-	if token := ReadStoredCAVEToken(); token != "" {
-		return token
-	}
-	if token := os.Getenv("CAVE_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("CAVE_TOKEN")); token != "" {
 		return token
 	}
 	if path := os.Getenv("CAVE_TOKEN_FILE"); path != "" {
-		return readTokenFile(path)
+		if token := readTokenFile(path); token != "" {
+			return token
+		}
+	}
+	if token := ReadStoredCAVEToken(); token != "" {
+		return token
 	}
 	return ""
 }

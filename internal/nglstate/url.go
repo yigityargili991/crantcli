@@ -29,6 +29,9 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 
 	// Strip leading '!' if present
 	fragment = strings.TrimPrefix(fragment, "!")
+	if isRemoteStateFragment(fragment) {
+		return nil, fmt.Errorf("remote Neuroglancer state URLs (#!url...) are not supported; provide an embedded-state URL or JSON file")
+	}
 
 	// URL-decode the fragment.
 	// Use PathUnescape so '+' is preserved (QueryUnescape converts '+' to space).
@@ -36,6 +39,9 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 	if err != nil {
 		// Try using the raw fragment
 		decoded = fragment
+	}
+	if isRemoteStateFragment(decoded) {
+		return nil, fmt.Errorf("remote Neuroglancer state URLs (#!url...) are not supported; provide an embedded-state URL or JSON file")
 	}
 
 	var state map[string]interface{}
@@ -45,6 +51,22 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 	repairLegacyMiddleauthSource(state)
 
 	return state, nil
+}
+
+func isRemoteStateFragment(fragment string) bool {
+	fragment = strings.TrimSpace(fragment)
+	if len(fragment) < len("url") || !strings.EqualFold(fragment[:len("url")], "url") {
+		return false
+	}
+	if len(fragment) == len("url") {
+		return true
+	}
+	switch fragment[len("url")] {
+	case ':', '=', '/', '?':
+		return true
+	default:
+		return false
+	}
 }
 
 // EncodeURL creates a Neuroglancer URL with the state embedded in the fragment.
@@ -58,7 +80,7 @@ func EncodeURL(state map[string]interface{}, viewer string) (string, error) {
 		return "", fmt.Errorf("marshaling state: %w", err)
 	}
 
-	return viewer + "/#!" + string(data), nil
+	return viewer + "/#!" + url.PathEscape(string(data)), nil
 }
 
 // repairLegacyMiddleauthSource fixes old state URLs that were decoded with '+'

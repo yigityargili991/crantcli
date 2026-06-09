@@ -69,6 +69,8 @@ func init() {
 		addRegion      string
 		addBundle      string
 		addTract       string
+		addNerve       string
+		addHemilineage string
 		addProofread   string
 		addState       string
 		addGenerate    bool
@@ -90,9 +92,11 @@ func init() {
 	addCmd.Flags().StringVar(&addRegion, "region", "", "Filter by region")
 	addCmd.Flags().StringVar(&addBundle, "bundle", "", "Filter by bundle region annotation (alias of --region, e.g. LX)")
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
+	addCmd.Flags().StringVar(&addNerve, "nerve", "", "Filter by nerve")
+	addCmd.Flags().StringVar(&addHemilineage, "hemilineage", "", "Filter by hemilineage")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
-	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard/session state")
+	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of stdin/clipboard/session state")
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
@@ -111,6 +115,8 @@ func init() {
 		"region",
 		"bundle",
 		"tract",
+		"nerve",
+		"hemilineage",
 		"proofread",
 	)
 	mustRegisterFlagCompletion(addCmd, "color", completeStaticValues(colorCompletions))
@@ -151,6 +157,8 @@ func init() {
 			Side:        addSide,
 			Region:      effectiveRegion,
 			Tract:       addTract,
+			Nerve:       addNerve,
+			Hemilineage: addHemilineage,
 			Proofread:   addProofread,
 		}
 
@@ -171,6 +179,8 @@ func init() {
 		var allRootIDs []string
 		var totalRows int
 		var allRows []seatable.NeuronRow
+		seenRootIDs := make(map[string]struct{})
+		duplicateRootIDs := 0
 		var subtypeMap map[string]string
 		if addColorSub {
 			subtypeMap = make(map[string]string)
@@ -181,19 +191,11 @@ func init() {
 			if err != nil {
 				return err
 			}
-			var ids []string
-			if addColorSub {
-				var sm map[string]string
-				ids, sm = extractRootIDsWithSubtype(rows)
-				for k, v := range sm {
-					subtypeMap[k] = v
-				}
-			} else {
-				ids = extractRootIDs(rows)
-			}
+			ids, uniqueRows, duplicates := uniqueRootIDsForRows(rows, seenRootIDs, subtypeMap)
+			duplicateRootIDs += duplicates
 			groups = append(groups, ids)
 			allRootIDs = append(allRootIDs, ids...)
-			allRows = append(allRows, rows...)
+			allRows = append(allRows, uniqueRows...)
 			totalRows += len(rows)
 			if s.label != "" {
 				fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
@@ -208,7 +210,10 @@ func init() {
 			}
 		}
 
-		fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
+		fmt.Fprintf(os.Stderr, "Found %d neurons (%d unique root IDs)\n", totalRows, len(allRootIDs))
+		if duplicateRootIDs > 0 {
+			fmt.Fprintf(os.Stderr, "Skipped %d duplicate root IDs\n", duplicateRootIDs)
+		}
 
 		if len(allRootIDs) == 0 {
 			fmt.Fprintln(os.Stderr, "No neurons found matching filters")
@@ -287,6 +292,31 @@ func extractRootIDsWithSubtype(rows []seatable.NeuronRow) ([]string, map[string]
 		}
 	}
 	return ids, subtypeMap
+}
+
+func uniqueRootIDsForRows(rows []seatable.NeuronRow, seen map[string]struct{}, subtypeMap map[string]string) ([]string, []seatable.NeuronRow, int) {
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	ids := make([]string, 0, len(rows))
+	uniqueRows := make([]seatable.NeuronRow, 0, len(rows))
+	duplicates := 0
+	for _, row := range rows {
+		if row.RootID == "" {
+			continue
+		}
+		if _, ok := seen[row.RootID]; ok {
+			duplicates++
+			continue
+		}
+		seen[row.RootID] = struct{}{}
+		ids = append(ids, row.RootID)
+		uniqueRows = append(uniqueRows, row)
+		if subtypeMap != nil {
+			subtypeMap[row.RootID] = row.CellSubtype
+		}
+	}
+	return ids, uniqueRows, duplicates
 }
 
 func resolveAddRegionFilter(region, bundle string) (string, error) {

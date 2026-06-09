@@ -1,6 +1,7 @@
 package seatable
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -640,10 +641,14 @@ func resolveSelectValues(v interface{}, opts map[string]string) []string {
 
 // resolveOptionID converts a value to a string suitable for option map lookup.
 func resolveOptionID(v interface{}) string {
-	if f, ok := v.(float64); ok {
-		return fmt.Sprintf("%d", int64(f))
+	switch val := v.(type) {
+	case json.Number:
+		return val.String()
+	case float64:
+		return fmt.Sprintf("%d", int64(val))
+	default:
+		return fmt.Sprintf("%v", v)
 	}
-	return fmt.Sprintf("%v", v)
 }
 
 // parsePositionValue extracts x, y, z from a position value, which may be
@@ -697,6 +702,12 @@ func parsePositionComponent(v interface{}) (float64, error) {
 	switch val := v.(type) {
 	case nil:
 		return 0, fmt.Errorf("component is nil")
+	case json.Number:
+		f, err := val.Float64()
+		if err != nil {
+			return 0, fmt.Errorf("invalid numeric value %q: %w", val.String(), err)
+		}
+		return f, nil
 	case float64:
 		return val, nil
 	case string:
@@ -721,6 +732,8 @@ func toString(v interface{}) string {
 	switch val := v.(type) {
 	case string:
 		return val
+	case json.Number:
+		return val.String()
 	case float64:
 		if val == float64(int64(val)) {
 			return fmt.Sprintf("%d", int64(val))
