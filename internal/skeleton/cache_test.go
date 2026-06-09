@@ -51,6 +51,26 @@ func TestCacheReadSkeletonRejectsMismatchedRootID(t *testing.T) {
 	}
 }
 
+func TestCacheReadSkeletonRejectsMissingRootID(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	path := cache.SkeletonPath("111")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("creating cache dir: %v", err)
+	}
+	data := []byte(`{"nodes":[{"id":1}],"edges":[]}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("writing cache file: %v", err)
+	}
+
+	got, ok, err := cache.ReadSkeleton("111")
+	if err != nil {
+		t.Fatalf("ReadSkeleton: %v", err)
+	}
+	if ok || got != nil {
+		t.Fatalf("got hit %#v, want rootless cache miss", got)
+	}
+}
+
 func TestCacheWriteSkeletonRejectsMismatchedRootID(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	err := cache.WriteSkeleton("111", &Skeleton{

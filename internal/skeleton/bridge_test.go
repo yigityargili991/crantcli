@@ -3,6 +3,7 @@ package skeleton
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -87,5 +88,10 @@ func TestEnsureBridgeRuntime(t *testing.T) {
 	}
 	if err := EnsureBridgeRuntime(dir); err != nil {
 		t.Fatalf("EnsureBridgeRuntime second call: %v", err)
+	}
+	for _, name := range []string{"pyproject.toml", "bridge.py"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("expected bridge runtime file %s: %v", name, err)
+		}
 	}
 }

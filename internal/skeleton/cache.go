@@ -52,10 +52,9 @@ func (c Cache) ReadSkeleton(rootID string) (*Skeleton, bool, error) {
 	if err := ValidateSkeleton(&sk); err != nil {
 		return nil, false, fmt.Errorf("invalid skeleton cache: %w", err)
 	}
-	if sk.RootID != "" && sk.RootID != rootID {
+	if sk.RootID != rootID {
 		return nil, false, nil
 	}
-	sk.RootID = rootID
 	return &sk, true, nil
 }
 

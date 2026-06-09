@@ -3,9 +3,9 @@ package skeleton
 import (
 	"bytes"
 	"embed"
-	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 )
 
@@ -14,7 +14,7 @@ var bridgeFiles embed.FS
 
 func EnsureBridgeRuntime(dir string) error {
 	for _, name := range []string{"pyproject.toml", "bridge.py"} {
-		data, err := bridgeFiles.ReadFile(filepath.Join("bridge", name))
+		data, err := bridgeFiles.ReadFile(path.Join("bridge", name))
 		if err != nil {
 			return fmt.Errorf("reading embedded bridge file %s: %w", name, err)
 		}
@@ -53,12 +53,7 @@ func writeBridgeRuntimeFile(path string, data []byte) error {
 		return fmt.Errorf("closing bridge runtime temp file: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return fmt.Errorf("storing bridge runtime file: %w", err)
-		}
-		if renameErr := os.Rename(tmpPath, path); renameErr != nil {
-			return fmt.Errorf("storing bridge runtime file: %w", renameErr)
-		}
+		return fmt.Errorf("storing bridge runtime file: %w", err)
 	}
 	return nil
 }
