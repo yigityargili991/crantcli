@@ -147,6 +147,26 @@ func TestRunSkeletonViewUsesGlobalSkeletoncacheServer(t *testing.T) {
 	}
 }
 
+func TestRunSkeletonViewRejectsFetchedSkeletonRootIDMismatch(t *testing.T) {
+	err := runSkeletonView(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, "111", skeletonViewOptions{JSONDebug: true}, skeletonViewDeps{
+		token:      func() string { return "token" },
+		lookPathUV: func() (string, error) { return "/usr/bin/uv", nil },
+		cacheRoot:  func() (string, error) { return t.TempDir(), nil },
+		fetch: func(context.Context, skeleton.BridgeOptions) (*skeleton.Skeleton, error) {
+			sk := testSkeleton()
+			sk.RootID = "222"
+			return sk, nil
+		},
+		remote: func(string) skeletonRemote { return &fakeSkeletonRemote{exists: true} },
+	})
+	if err == nil {
+		t.Fatal("expected fetched skeleton root_id mismatch error")
+	}
+	if !strings.Contains(err.Error(), "does not match requested root_id") {
+		t.Fatalf("error = %q, want mismatch guidance", err.Error())
+	}
+}
+
 func TestRunSkeletonViewUsesSkeletonCache(t *testing.T) {
 	cacheDir := t.TempDir()
 	var fetched int
@@ -184,7 +204,7 @@ func TestRunSkeletonViewUsesSkeletonCache(t *testing.T) {
 func TestRunSkeletonViewUsesCachedSkeletonWithoutUV(t *testing.T) {
 	cacheDir := t.TempDir()
 	cache := skeleton.NewCache(cacheDir)
-	if err := cache.WriteSkeleton(testSkeleton()); err != nil {
+	if err := cache.WriteSkeleton("111", testSkeleton()); err != nil {
 		t.Fatalf("writing cache: %v", err)
 	}
 
@@ -221,7 +241,7 @@ func TestRunSkeletonViewUsesCachedSkeletonWithoutUV(t *testing.T) {
 func TestRunSkeletonViewUsesCachedSkeletonWithoutCAVEToken(t *testing.T) {
 	cacheDir := t.TempDir()
 	cache := skeleton.NewCache(cacheDir)
-	if err := cache.WriteSkeleton(testSkeleton()); err != nil {
+	if err := cache.WriteSkeleton("111", testSkeleton()); err != nil {
 		t.Fatalf("writing cache: %v", err)
 	}
 
@@ -276,7 +296,7 @@ func TestRunSkeletonViewCacheMissRequiresCAVETokenBeforeRemote(t *testing.T) {
 func TestRunSkeletonViewSkipsLiveRootInfoWithoutCAVEToken(t *testing.T) {
 	cacheDir := t.TempDir()
 	cache := skeleton.NewCache(cacheDir)
-	if err := cache.WriteSkeleton(testSkeleton()); err != nil {
+	if err := cache.WriteSkeleton("111", testSkeleton()); err != nil {
 		t.Fatalf("writing cache: %v", err)
 	}
 

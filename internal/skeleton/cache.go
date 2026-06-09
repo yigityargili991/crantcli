@@ -52,6 +52,10 @@ func (c Cache) ReadSkeleton(rootID string) (*Skeleton, bool, error) {
 	if err := ValidateSkeleton(&sk); err != nil {
 		return nil, false, fmt.Errorf("invalid skeleton cache: %w", err)
 	}
+	if sk.RootID != "" && sk.RootID != rootID {
+		return nil, false, nil
+	}
+	sk.RootID = rootID
 	return &sk, true, nil
 }
 
@@ -77,11 +81,15 @@ func (c Cache) ReadViewerInfo(rootID string) (ViewerInfo, bool, error) {
 	return info, true, nil
 }
 
-func (c Cache) WriteSkeleton(sk *Skeleton) error {
+func (c Cache) WriteSkeleton(rootID string, sk *Skeleton) error {
 	if sk == nil {
 		return nil
 	}
-	path := c.SkeletonPath(sk.RootID)
+	if sk.RootID != "" && sk.RootID != rootID {
+		return fmt.Errorf("skeleton root_id %q does not match requested root_id %q", sk.RootID, rootID)
+	}
+	sk.RootID = rootID
+	path := c.SkeletonPath(rootID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating skeleton cache directory: %w", err)
 	}

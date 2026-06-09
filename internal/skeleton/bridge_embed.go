@@ -1,7 +1,9 @@
 package skeleton
 
 import (
+	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,11 +22,42 @@ func EnsureBridgeRuntime(dir string) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return fmt.Errorf("creating bridge runtime directory: %w", err)
 		}
-		if existing, err := os.ReadFile(path); err == nil && string(existing) == string(data) {
+		if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
 			continue
 		}
-		if err := os.WriteFile(path, data, 0o600); err != nil {
+		if err := writeBridgeRuntimeFile(path, data); err != nil {
 			return fmt.Errorf("writing bridge runtime file %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func writeBridgeRuntimeFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating bridge runtime temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing bridge runtime temp file: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("setting bridge runtime temp file permissions: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing bridge runtime temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return fmt.Errorf("storing bridge runtime file: %w", err)
+		}
+		if renameErr := os.Rename(tmpPath, path); renameErr != nil {
+			return fmt.Errorf("storing bridge runtime file: %w", renameErr)
 		}
 	}
 	return nil

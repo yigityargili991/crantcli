@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -62,6 +63,24 @@ func TestRemoteQueueSkeleton(t *testing.T) {
 	}
 	if estimate != 75 {
 		t.Fatalf("estimate = %v, want 75", estimate)
+	}
+}
+
+func TestRemoteEscapesDatastackPathSegment(t *testing.T) {
+	client := NewRemoteClient("http://skeleton.test", "stack/with space", "token")
+	client.http = &http.Client{Transport: remoteRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.EscapedPath(); got != "/skeletoncache/api/v1/stack%2Fwith%20space/precomputed/skeleton/exists" {
+			t.Fatalf("escaped path = %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`true`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	if _, err := client.SkeletonExists(context.Background(), "111"); err != nil {
+		t.Fatalf("SkeletonExists: %v", err)
 	}
 }
 

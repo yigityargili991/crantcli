@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -70,8 +71,8 @@ func (c RemoteClient) doJSON(ctx context.Context, path string, body any, out any
 	if err != nil {
 		return fmt.Errorf("encoding skeletoncache request: %w", err)
 	}
-	url := fmt.Sprintf("%s/skeletoncache/api/v1/%s%s", c.server, c.datastack, path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	requestURL := fmt.Sprintf("%s/skeletoncache/api/v1/%s%s", c.server, url.PathEscape(c.datastack), path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("creating skeletoncache request: %w", err)
 	}

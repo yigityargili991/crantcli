@@ -61,11 +61,19 @@ def skeleton_url(server, datastack, root_id):
     return f"{server}/skeletoncache/api/v1/{datastack}/async/get_skeleton/4/{root_id}/flatdict?verbose_level=0"
 
 
+def decode_skeleton_body(body, content_encoding=""):
+    encoding = (content_encoding or "").lower()
+    if "gzip" in encoding or body.startswith(b"\x1f\x8b"):
+        body = gzip.decompress(body)
+    return json.loads(body.decode("utf-8"))
+
+
 def fetch_skeleton_dict(url, token):
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(request, timeout=180) as response:
         body = response.read()
-    return json.loads(gzip.decompress(body).decode("utf-8"))
+        content_encoding = response.headers.get("Content-Encoding", "")
+    return decode_skeleton_body(body, content_encoding)
 
 
 def l2_ids_by_vertex(data, vertex_count):

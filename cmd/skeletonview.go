@@ -421,7 +421,7 @@ func skeletonForView(
 		return nil, nil, err
 	}
 	if err := progress.run(ctx, "writing skeleton cache", func() error {
-		return cache.WriteSkeleton(sk)
+		return cache.WriteSkeleton(rootID, sk)
 	}); err != nil {
 		return nil, nil, err
 	}
