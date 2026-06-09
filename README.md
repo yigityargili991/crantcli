@@ -23,13 +23,16 @@ crantcli cave-history 720575940610453042
 
 # Show all available info for a root ID
 crantcli root-info 720575940610453042
+
+# Open a GPU skeleton viewer for a root ID
+crantcli skeleton-view 720575940610453042
 ```
 
 ## Installation
 
 ### From releases
 
-Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows).
+Pre-built CLI binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows). GPU skeleton-view helper assets are named `crant_type_look-skeleton-viewer-<os>-<arch>` (also with `.exe` on Windows) when available for that platform; `install.sh` installs the helper if the matching macOS/Linux asset exists.
 
 **macOS / Linux** -- install the latest release to `~/.local/bin/crantcli`:
 
@@ -76,8 +79,11 @@ Requires Go 1.25.5+.
 ```bash
 git clone https://github.com/yigityargili991/crantcli.git
 cd crantcli
-make build      # produces ./crantcli
-make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
+make build              # produces dist/crantcli and dist/crantcli-skeleton-viewer
+make build-cli          # CLI only
+make build-viewer       # GPU helper; requires cgo and platform GUI/OpenGL build libraries
+make build-viewer-headless  # no-cgo helper stub for build validation
+make install            # installs CLI and GPU helper to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
 ```
 
 ## Shell completion
@@ -95,7 +101,7 @@ source <(crantcli completion zsh)
 crantcli completion fish | source
 ```
 
-The completion hooks include command names, flags, valid `list` fields, color names, and CRANT classifier values for flags like `--cell-class`, `--cell-type`, `--region`, and `--proofread`. Data-backed classifier completions require the SeaTable token from `crantcli setup` and network access.
+The completion hooks include command names, flags, valid `list` fields, color names, and CRANT classifier values for flags like `--cell-class`, `--cell-type`, `--region`, and `--proofread`. Data-backed classifier completions require a configured SeaTable token and network access.
 
 ## Commands
 
@@ -132,17 +138,19 @@ crantcli add --cell-type ER --replace
 crantcli add --cell-class kenyon_cell --root-ids-only
 ```
 
-**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
+**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--nerve`, `--hemilineage`, `--proofread`
 
 **Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`).
 
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use default template), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--replace`, `--open`
+**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use the configured or built-in default template and skip stdin/clipboard/last-session state), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--replace`, `--open`
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)
 2. Clipboard (Neuroglancer URL)
 3. Last state URL from a previous session
 4. Default CRANT scene template
+
+`--generate` bypasses smart input and starts from the configured default state, or from the built-in CRANT scene template when no custom default is configured.
 
 ### `check-cave` -- Verify root ID freshness
 
@@ -225,6 +233,36 @@ crantcli root-info 720575940610453042 --unfiltered
 **Flags:** `--json` (print JSON result object), `--history-limit` (number of recent CAVE history rows, default `5`), `--unfiltered` (request unfiltered split/merge history)
 
 Requires SeaTable and CAVE tokens (configured via `crantcli setup` or environment variables).
+
+### `skeleton-view` -- Open a GPU skeleton viewer
+
+Fetch a CAVE skeletoncache skeleton for one root ID and open it in a native GPU window. `uv` runs the embedded Python bridge used to download skeleton JSON, and skeleton JSON is cached under `~/.cache/crantcli/skeletons`.
+
+The default view is a 3D orbit view with anti-aliased depth-colored edges, glowing node markers, radius-aware node/edge sizing, scene axes/grid, hover labels, and switchable color modes for depth, branch, radius, and L2 ID. Press `p` in the viewer to save a PNG screenshot. The overlay includes compact `root-info` context such as cell type/class, side/region, CAVE status, nearest column, and recent edit summary. Skeleton geometry and viewer metadata are cached locally; `--no-cache` refreshes both. If a skeleton is not ready in CAVE's server-side skeleton cache, the command queues generation and exits quickly; run it again later to open the skeleton, or pass `--wait` to block until generation completes.
+
+```bash
+# Open the default 3D view
+crantcli skeleton-view 720575940610453042
+
+# Start in a 2D projection
+crantcli skeleton-view 720575940610453042 --projection xy
+
+# Start in isometric 2D projection
+crantcli skeleton-view 720575940610453042 --projection iso
+
+# Refetch instead of reading the skeleton cache
+crantcli skeleton-view 720575940610453042 --no-cache
+
+# Wait for an uncached skeleton instead of queueing generation and exiting
+crantcli skeleton-view 720575940610453042 --wait
+
+# Print the fetched skeleton JSON without opening the viewer
+crantcli skeleton-view 720575940610453042 --json-debug
+```
+
+**Flags:** `--projection` (`3d`, `xy`, `xz`, `yz`, or `iso`), `--max-nodes` (maximum nodes to render/debug-print, `0` keeps all), `--no-cache`, `--wait`, `--wait-timeout` (default `10m`), `--json-debug`
+
+Fetching a ready skeleton requires a CAVE token and `uv` on `PATH`; cache hits and server queue-only misses do not invoke `uv`. The GPU window is provided by the companion `crantcli-skeleton-viewer` binary installed next to `crantcli` with release assets when available for your platform, or by `make install` from source. If you install the helper elsewhere, set `CRANTCLI_SKELETON_VIEWER` to its absolute path.
 
 ### `list` -- Explore the dataset
 
@@ -316,13 +354,13 @@ crantcli change-def-state --reset
 
 ### `setup` -- Configure credentials
 
-Interactively set your SeaTable API token and optional CAVE token. Stored in `~/.crantcli/`.
+Interactively set your SeaTable API token and optional CAVE token. Stored in `~/.crantcli/` as base64-encoded local files; this is obfuscation for local storage, not encryption.
 
 ```bash
 crantcli setup
 ```
 
-Tokens can also be provided via environment variables:
+Tokens can also be provided via environment variables. Explicit environment configuration takes precedence over stored credentials: direct token variable, then token-file variable, then the local file written by `crantcli setup`. Token files should contain the raw token text.
 - **SeaTable:** `CRANTTABLE_TOKEN` or `CRANTTABLE_TOKEN_FILE`
 - **CAVE:** `CAVE_TOKEN` or `CAVE_TOKEN_FILE`
 

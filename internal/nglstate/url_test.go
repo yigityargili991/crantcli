@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -74,6 +75,11 @@ func TestDecodeURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "remote state url unsupported",
+			input:   "https://example.org/#!url=https://state.example/state.json",
+			wantErr: true,
+		},
+		{
 			name:    "invalid url",
 			input:   "://invalid-url",
 			wantErr: true,
@@ -106,6 +112,9 @@ func TestEncodeURL(t *testing.T) {
 		if len(got) < len(wantPrefix) || got[:len(wantPrefix)] != wantPrefix {
 			t.Errorf("expected prefix %q, got %q", wantPrefix, got)
 		}
+		if !strings.Contains(got, "%7B%22layers%22:%5B%5D%7D") {
+			t.Errorf("expected encoded JSON fragment, got %q", got)
+		}
 	})
 
 	t.Run("custom viewer", func(t *testing.T) {
@@ -118,6 +127,36 @@ func TestEncodeURL(t *testing.T) {
 			t.Errorf("expected prefix %q, got %q", wantPrefix, got)
 		}
 	})
+}
+
+func TestEncodeURLSpecialCharactersRoundTrip(t *testing.T) {
+	original := map[string]interface{}{
+		"layers": []interface{}{
+			map[string]interface{}{
+				"source": "graphene://middleauth+https://example.org/a path?q=1&x=2",
+				"type":   "segmentation",
+			},
+		},
+	}
+
+	url, err := EncodeURL(original, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(url, "{\"layers\"") {
+		t.Fatalf("URL fragment was not encoded: %q", url)
+	}
+	if !strings.Contains(url, "middleauth+https") {
+		t.Fatalf("PathEscape should preserve plus signs in fragments, got %q", url)
+	}
+
+	decoded, err := DecodeURL(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, original) {
+		t.Fatalf("decoded = %#v, want %#v", decoded, original)
+	}
 }
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {

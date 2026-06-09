@@ -14,7 +14,8 @@ var inspectCmd = &cobra.Command{
 	Short: "Show info about a Neuroglancer state",
 	Long: `Show layers, types, and segment counts for a Neuroglancer state.
 
-Uses smart input: reads from --state flag, stdin, clipboard, or default template.
+Uses smart input: reads from --state flag, stdin, clipboard, last state URL,
+or default template.
 
 Examples:
   crantcli inspect              # reads from clipboard

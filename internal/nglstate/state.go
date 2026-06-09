@@ -18,7 +18,13 @@ const (
 	SourceFile      StateSource = "file"
 	SourceStdin     StateSource = "stdin"
 	SourceClipboard StateSource = "clipboard"
+	SourceLastState StateSource = "last-state"
 	SourceTemplate  StateSource = "template"
+)
+
+var (
+	clipboardRead  = clipboard.Read
+	clipboardWrite = clipboard.Write
 )
 
 // LoadResult holds a loaded state and its source.
@@ -34,9 +40,11 @@ type LoadResult struct {
 // LoadState loads a Neuroglancer state using smart resolution:
 // 1. If stateArg is a URL, decode it
 // 2. If stateArg is a file path, read it
-// 3. If stateArg is empty, try stdin (if not a terminal)
-// 4. If stdin is empty, try clipboard for a Neuroglancer URL
-// 5. If generate is true or nothing found, use default template
+// 3. If generate is true, use the default template
+// 4. If stateArg is empty, try stdin (if not a terminal)
+// 5. If stdin is empty, try clipboard for a Neuroglancer URL
+// 6. If clipboard is empty, try the last state URL from a previous session
+// 7. If nothing found, use the default template
 func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	// Explicit --state argument
 	if stateArg != "" {
@@ -68,6 +76,10 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		return &LoadResult{State: state, Source: SourceFile}, nil
 	}
 
+	if generate {
+		return loadDefaultTemplate()
+	}
+
 	// Try stdin if it's not a terminal
 	if !isTerminal(os.Stdin) {
 		data, err := io.ReadAll(os.Stdin)
@@ -84,28 +96,51 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	}
 
 	// Try clipboard
-	if !generate {
-		clip, err := clipboard.Read()
-		if err == nil && IsNeuroglancerURL(clip) {
-			state, err := DecodeURL(clip)
-			if err == nil {
-				return &LoadResult{State: state, Source: SourceClipboard, OriginalURL: clip}, nil
-			}
+	clip, err := clipboardRead()
+	if err == nil && IsNeuroglancerURL(clip) {
+		state, err := DecodeURL(clip)
+		if err != nil {
+			return nil, fmt.Errorf("decoding clipboard Neuroglancer URL: %w", err)
 		}
+		return &LoadResult{State: state, Source: SourceClipboard, OriginalURL: clip}, nil
 	}
 
-	// Check for user-configured default state
-	if data, err := ReadDefaultState(); err == nil && len(data) > 0 {
-		state, err := parseJSON(data)
-		if err == nil {
-			return &LoadResult{State: state, Source: SourceTemplate}, nil
+	// Try last session state
+	if lastURL := readLastStateURL(); IsNeuroglancerURL(lastURL) {
+		state, err := DecodeURL(lastURL)
+		if err != nil {
+			return nil, fmt.Errorf("decoding last-session Neuroglancer URL: %w", err)
 		}
+		return &LoadResult{State: state, Source: SourceLastState, OriginalURL: lastURL}, nil
+	}
+
+	return loadDefaultTemplate()
+}
+
+func loadDefaultTemplate() (*LoadResult, error) {
+	// Check for user-configured default state
+	data, err := ReadDefaultState()
+	if err != nil {
+		return nil, fmt.Errorf("reading default state: %w", err)
+	}
+	if len(data) > 0 {
+		state, err := parseJSON(data)
+		if err != nil {
+			return nil, fmt.Errorf("parsing default state: %w", err)
+		}
+		if err := ValidateUsableState(state); err != nil {
+			return nil, fmt.Errorf("validating default state: %w", err)
+		}
+		return &LoadResult{State: state, Source: SourceTemplate}, nil
 	}
 
 	// Fallback: generate from embedded template
 	state, err := parseJSON(DefaultScene)
 	if err != nil {
 		return nil, fmt.Errorf("parsing default template: %w", err)
+	}
+	if err := ValidateUsableState(state); err != nil {
+		return nil, fmt.Errorf("validating default template: %w", err)
 	}
 	return &LoadResult{State: state, Source: SourceTemplate}, nil
 }
@@ -143,13 +178,16 @@ func WriteState(result *LoadResult, outputFile string) error {
 	}
 
 	switch result.Source {
-	case SourceClipboard, SourceURL, SourceTemplate:
+	case SourceClipboard, SourceURL, SourceLastState, SourceTemplate:
 		nglURL, err := EncodeURL(result.State, "")
 		if err != nil {
 			return err
 		}
 		result.OutputURL = nglURL
-		if err := clipboard.Write(nglURL); err != nil {
+		if err := writeLastStateURL(nglURL); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save last state URL: %v\n", err)
+		}
+		if err := clipboardWrite(nglURL); err != nil {
 			fmt.Println(nglURL)
 			return nil
 		}
@@ -166,6 +204,29 @@ func parseJSON(data []byte) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return state, nil
+}
+
+// ValidateUsableState verifies that a Neuroglancer state has layers and at
+// least one segmentation layer that commands can modify.
+func ValidateUsableState(state map[string]interface{}) error {
+	if state == nil {
+		return fmt.Errorf("state is empty")
+	}
+	layersRaw, ok := state["layers"]
+	if !ok {
+		return fmt.Errorf("state has no 'layers' key")
+	}
+	layers, ok := layersRaw.([]interface{})
+	if !ok {
+		return fmt.Errorf("'layers' is not an array")
+	}
+	if len(layers) == 0 {
+		return fmt.Errorf("state has no usable layers")
+	}
+	if _, _, err := FindSegmentationLayer(state, ""); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeToFile(state map[string]interface{}, path string) error {

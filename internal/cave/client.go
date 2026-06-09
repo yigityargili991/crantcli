@@ -5,15 +5,20 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"crantcli/internal/config"
+	"crantcli/internal/httperror"
 )
+
+var ErrChangeLogTimeout = errors.New("CAVE changelog request timed out")
 
 // Client communicates with the CAVE chunkedgraph API to look up current root IDs.
 type Client struct {
@@ -78,8 +83,7 @@ func (c *Client) GetRootID(supervoxelID uint64) (uint64, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return 0, fmt.Errorf("CAVE request failed (HTTP %d): %s", resp.StatusCode, string(body))
+		return 0, httperror.Format("CAVE request", resp.StatusCode, resp.Body)
 	}
 
 	dec := json.NewDecoder(resp.Body)
@@ -132,8 +136,7 @@ func (c *Client) GetRootIDs(supervoxelIDs []uint64) ([]uint64, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("CAVE batch request failed (HTTP %d): %s", resp.StatusCode, string(body))
+		return nil, httperror.Format("CAVE batch request", resp.StatusCode, resp.Body)
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
@@ -175,11 +178,17 @@ func (c *Client) GetRootChangeLog(rootID uint64, filtered bool) ([]ChangeLogRow,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusInternalServerError && bytes.Contains(body, []byte("Read timed out")) {
-			return nil, nil
+		preview, err := httperror.Preview(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d): reading error response: %w", resp.StatusCode, err)
 		}
-		return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d): %s", resp.StatusCode, string(body))
+		if resp.StatusCode == http.StatusInternalServerError && strings.Contains(preview, "Read timed out") {
+			return nil, ErrChangeLogTimeout
+		}
+		if preview == "" {
+			return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d)", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d): %s", resp.StatusCode, preview)
 	}
 
 	respBody, err := io.ReadAll(resp.Body)

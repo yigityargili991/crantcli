@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -104,6 +105,7 @@ type rootInfoHistory struct {
 	Total    int                `json:"total"`
 	Merges   int                `json:"merges"`
 	Splits   int                `json:"splits"`
+	Error    string             `json:"error,omitempty"`
 	Latest   *caveHistoryEntry  `json:"latest,omitempty"`
 	Entries  []caveHistoryEntry `json:"entries"`
 }
@@ -184,8 +186,12 @@ func fetchRootInfo(data rootInfoDataSource, caveClient rootInfoCaveClient, rawRo
 	}
 
 	historyRows, err := caveClient.GetRootChangeLog(rootID, opts.Filtered)
+	history := summarizeRootInfoHistory(historyRows, opts.Filtered, opts.HistoryLimit)
 	if err != nil {
-		return nil, fmt.Errorf("fetching history for root_id %s: %w", rootIDString, err)
+		if !errors.Is(err, cave.ErrChangeLogTimeout) {
+			return nil, fmt.Errorf("fetching history for root_id %s: %w", rootIDString, err)
+		}
+		history.Error = err.Error()
 	}
 
 	result := &rootInfoResult{
@@ -203,7 +209,7 @@ func fetchRootInfo(data rootInfoDataSource, caveClient rootInfoCaveClient, rawRo
 			Proofread:   row.Proofread,
 		},
 		CAVE:        buildRootInfoCAVEStatus(caveClient, row),
-		History:     summarizeRootInfoHistory(historyRows, opts.Filtered, opts.HistoryLimit),
+		History:     history,
 		ExtraFields: row.ExtraFields,
 	}
 
@@ -493,6 +499,9 @@ func writeRootInfoNearestColumnSection(write rootInfoTextWriter, result *rootInf
 func writeRootInfoHistorySection(write rootInfoTextWriter, history rootInfoHistory) error {
 	if err := write("\ncave_history\n"); err != nil {
 		return err
+	}
+	if history.Error != "" {
+		return write("  unavailable: %s\n", history.Error)
 	}
 	if err := write("  edits: %d\n", history.Total); err != nil {
 		return err

@@ -34,6 +34,9 @@ func init() {
 		listSide        string
 		listRegion      string
 		listTract       string
+		listNerve       string
+		listHemilineage string
+		listProofread   string
 	)
 
 	listCmd.Flags().BoolVar(&listCount, "count", false, "Show count of neurons for each value")
@@ -44,6 +47,9 @@ func init() {
 	listCmd.Flags().StringVar(&listSide, "side", "", "Filter by side")
 	listCmd.Flags().StringVar(&listRegion, "region", "", "Filter by region")
 	listCmd.Flags().StringVar(&listTract, "tract", "", "Filter by tract")
+	listCmd.Flags().StringVar(&listNerve, "nerve", "", "Filter by nerve")
+	listCmd.Flags().StringVar(&listHemilineage, "hemilineage", "", "Filter by hemilineage")
+	listCmd.Flags().StringVar(&listProofread, "proofread", "", "Filter by proofread status")
 	listCmd.ValidArgsFunction = completeListFields
 	registerClassificationFlagCompletions(listCmd,
 		"super-class",
@@ -53,6 +59,9 @@ func init() {
 		"side",
 		"region",
 		"tract",
+		"nerve",
+		"hemilineage",
+		"proofread",
 	)
 
 	listCmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -71,6 +80,9 @@ func init() {
 			Side:        listSide,
 			Region:      listRegion,
 			Tract:       listTract,
+			Nerve:       listNerve,
+			Hemilineage: listHemilineage,
+			Proofread:   listProofread,
 		}
 
 		resp, err := seatable.QueryDistinct(client, field, filters, listCount)

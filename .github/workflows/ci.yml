@@ -16,6 +16,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install Linux viewer build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev
+
       - run: go vet ./...
 
       - run: go test ./...
+
+      - name: Verify headless no-cgo build
+        env:
+          CGO_ENABLED: "0"
+        run: go build -tags headless ./...

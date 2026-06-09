@@ -4,6 +4,7 @@ set -eu
 repo_url="https://github.com/yigityargili991/crantcli"
 asset_prefix="crant_type_look"
 binary_name="crantcli"
+helper_binary_name="crantcli-skeleton-viewer"
 version="${CRANTCLI_VERSION:-latest}"
 tmp_dir=""
 
@@ -113,8 +114,11 @@ case "$version" in
 esac
 
 asset="$asset_prefix-$os-$arch"
+helper_asset="$asset_prefix-skeleton-viewer-$os-$arch"
 asset_url="$release_base/$asset"
+helper_asset_url="$release_base/$helper_asset"
 checksums_url="$release_base/checksums.txt"
+helper_downloaded=0
 
 tmp_dir=$(mktemp -d 2>/dev/null || mktemp -d -t crantcli)
 trap cleanup 0
@@ -122,6 +126,11 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 log "Installing $binary_name $version for $os/$arch"
 download "$asset_url" "$tmp_dir/$asset"
+if download_optional "$helper_asset_url" "$tmp_dir/$helper_asset"; then
+	helper_downloaded=1
+else
+	warn "$helper_binary_name release asset not found for $version; skeleton-view GPU viewer will be unavailable"
+fi
 
 if download_optional "$checksums_url" "$tmp_dir/checksums.txt"; then
 	expected_hash=$(awk -v asset="$asset" '$2 == asset { print $1; found = 1; exit } END { if (!found) exit 1 }' "$tmp_dir/checksums.txt") || {
@@ -135,6 +144,21 @@ if download_optional "$checksums_url" "$tmp_dir/checksums.txt"; then
 		log "Verified checksum for $asset"
 	else
 		warn "checksums.txt found, but sha256sum/shasum is unavailable; skipping checksum verification"
+	fi
+
+	if [ "$helper_downloaded" -eq 1 ]; then
+		expected_helper_hash=$(awk -v asset="$helper_asset" '$2 == asset { print $1; found = 1; exit } END { if (!found) exit 1 }' "$tmp_dir/checksums.txt") || {
+			die "checksums.txt does not contain an entry for $helper_asset"
+		}
+
+		if actual_helper_hash=$(sha256_file "$tmp_dir/$helper_asset"); then
+			if [ "$actual_helper_hash" != "$expected_helper_hash" ]; then
+				die "checksum mismatch for $helper_asset"
+			fi
+			log "Verified checksum for $helper_asset"
+		else
+			warn "checksums.txt found, but sha256sum/shasum is unavailable; skipping checksum verification"
+		fi
 	fi
 else
 	warn "checksums.txt not found for $version; skipping checksum verification"
@@ -150,6 +174,13 @@ cp "$tmp_dir/$asset" "$install_path" || die "could not install $binary_name to $
 chmod 0755 "$install_path"
 
 log "Installed $binary_name to $install_path"
+
+if [ "$helper_downloaded" -eq 1 ]; then
+	helper_install_path="$install_dir/$helper_binary_name"
+	cp "$tmp_dir/$helper_asset" "$helper_install_path" || die "could not install $helper_binary_name to $helper_install_path"
+	chmod 0755 "$helper_install_path"
+	log "Installed $helper_binary_name to $helper_install_path"
+fi
 
 case ":${PATH:-}:" in
 	*:"$install_dir":*)
