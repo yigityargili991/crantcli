@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	"crantcli/internal/config"
+	"crantcli/internal/httpx"
 )
 
 // Client holds authenticated SeaTable connection details.
@@ -60,16 +60,11 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := httpx.Do(httpClient, req)
 	if err != nil {
-		return nil, fmt.Errorf("SQL request failed: %w", err)
+		return nil, fmt.Errorf("SQL query failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("SQL query failed (HTTP %d): %s", resp.StatusCode, string(body))
-	}
 
 	var result SQLResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -135,16 +130,11 @@ func (c *Client) FetchMetadata() (*MetadataResponse, error) {
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := httpx.Do(httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("metadata request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("metadata request failed (HTTP %d): %s", resp.StatusCode, string(body))
-	}
 
 	var result MetadataResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
 	"strconv"
-	"time"
 
 	"crantcli/internal/config"
+	"crantcli/internal/httpx"
 )
 
 // Client communicates with the CAVE chunkedgraph API to look up current root IDs.
@@ -55,7 +56,7 @@ func NewClient() (*Client, error) {
 		token:     token,
 		baseURL:   config.CAVEServer,
 		tableName: config.CAVETable,
-		http:      &http.Client{Timeout: 30 * time.Second},
+		http:      httpx.DefaultClient,
 	}, nil
 }
 
@@ -71,16 +72,11 @@ func (c *Client) GetRootID(supervoxelID uint64) (uint64, error) {
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.http.Do(req)
+	resp, err := httpx.Do(c.http, req)
 	if err != nil {
 		return 0, fmt.Errorf("CAVE request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return 0, fmt.Errorf("CAVE request failed (HTTP %d): %s", resp.StatusCode, string(body))
-	}
 
 	dec := json.NewDecoder(resp.Body)
 	dec.UseNumber()
@@ -125,16 +121,11 @@ func (c *Client) GetRootIDs(supervoxelIDs []uint64) ([]uint64, error) {
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = int64(len(buf))
 
-	resp, err := c.http.Do(req)
+	resp, err := httpx.Do(c.http, req)
 	if err != nil {
 		return nil, fmt.Errorf("CAVE batch request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("CAVE batch request failed (HTTP %d): %s", resp.StatusCode, string(body))
-	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -168,19 +159,19 @@ func (c *Client) GetRootChangeLog(rootID uint64, filtered bool) ([]ChangeLogRow,
 	query.Set("filtered", strconv.FormatBool(filtered))
 	req.URL.RawQuery = query.Encode()
 
-	resp, err := c.http.Do(req)
+	resp, err := httpx.Do(c.http, req)
 	if err != nil {
+		// CAVE sometimes returns HTTP 500 "Read timed out" when a root's
+		// history is too large to compute; treat that as "no history".
+		var statusErr *httpx.StatusError
+		if errors.As(err, &statusErr) &&
+			statusErr.StatusCode == http.StatusInternalServerError &&
+			bytes.Contains(statusErr.Body, []byte("Read timed out")) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("CAVE changelog request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusInternalServerError && bytes.Contains(body, []byte("Read timed out")) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("CAVE changelog request failed (HTTP %d): %s", resp.StatusCode, string(body))
-	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
