@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"crantcli/internal/clipboard"
@@ -63,10 +62,7 @@ func init() {
 			return fmt.Errorf("clipboard is empty — copy some root IDs first")
 		}
 
-		ids, err := parseIDs(clip)
-		if err != nil {
-			return err
-		}
+		ids := parseIDs(clip)
 		if len(ids) == 0 {
 			return fmt.Errorf("no valid IDs found in clipboard")
 		}
@@ -112,9 +108,9 @@ func init() {
 	rootCmd.AddCommand(stateTransferCmd)
 }
 
-// parseIDs splits clipboard text into individual uint64 root IDs.
+// parseIDs splits clipboard text into individual root IDs.
 // Accepts whitespace, newlines, commas, or any mix as separators.
-func parseIDs(text string) ([]string, error) {
+func parseIDs(text string) []string {
 	// Replace commas with spaces so we can split uniformly
 	text = strings.ReplaceAll(text, ",", " ")
 	parts := strings.Fields(text)
@@ -126,19 +122,8 @@ func parseIDs(text string) ([]string, error) {
 		if p == "" || seen[p] {
 			continue
 		}
-		id, err := strconv.ParseUint(p, 10, 64)
-		if err != nil {
-			if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
-				return nil, fmt.Errorf("invalid clipboard root ID %q: exceeds uint64 range", p)
-			}
-			return nil, fmt.Errorf("invalid clipboard root ID %q: expected unsigned decimal uint64", p)
-		}
-		normalized := strconv.FormatUint(id, 10)
-		if seen[normalized] {
-			continue
-		}
-		seen[normalized] = true
-		ids = append(ids, normalized)
+		seen[p] = true
+		ids = append(ids, p)
 	}
-	return ids, nil
+	return ids
 }

@@ -23,16 +23,13 @@ crantcli cave-history 720575940610453042
 
 # Show all available info for a root ID
 crantcli root-info 720575940610453042
-
-# Open a GPU skeleton viewer for a root ID
-crantcli skeleton-view 720575940610453042
 ```
 
 ## Installation
 
 ### From releases
 
-Pre-built CLI binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows). GPU skeleton-view helper assets are named `crant_type_look-skeleton-viewer-<os>-<arch>` (also with `.exe` on Windows) when available for that platform; `install.sh` installs the helper if the matching macOS/Linux asset exists.
+Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows).
 
 **macOS / Linux** -- install the latest release to `~/.local/bin/crantcli`:
 
@@ -79,11 +76,8 @@ Requires Go 1.25.5+.
 ```bash
 git clone https://github.com/yigityargili991/crantcli.git
 cd crantcli
-make build              # produces dist/crantcli and dist/crantcli-skeleton-viewer
-make build-cli          # CLI only
-make build-viewer       # GPU helper; requires cgo and platform GUI/OpenGL build libraries
-make build-viewer-headless  # no-cgo helper stub for build validation
-make install            # installs CLI and GPU helper to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
+make build      # produces ./crantcli
+make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
 ```
 
 ## Shell completion
@@ -233,36 +227,6 @@ crantcli root-info 720575940610453042 --unfiltered
 **Flags:** `--json` (print JSON result object), `--history-limit` (number of recent CAVE history rows, default `5`), `--unfiltered` (request unfiltered split/merge history)
 
 Requires SeaTable and CAVE tokens (configured via `crantcli setup` or environment variables).
-
-### `skeleton-view` -- Open a GPU skeleton viewer
-
-Fetch a CAVE skeletoncache skeleton for one root ID and open it in a native GPU window. `uv` runs the embedded Python bridge used to download skeleton JSON, and skeleton JSON is cached under `~/.cache/crantcli/skeletons`.
-
-The default view is a 3D orbit view with anti-aliased depth-colored edges, glowing node markers, radius-aware node/edge sizing, scene axes/grid, hover labels, and switchable color modes for depth, branch, radius, and L2 ID. Press `p` in the viewer to save a PNG screenshot. The overlay includes compact `root-info` context such as cell type/class, side/region, CAVE status, nearest column, and recent edit summary. Skeleton geometry and viewer metadata are cached locally; `--no-cache` refreshes both. If a skeleton is not ready in CAVE's server-side skeleton cache, the command queues generation and exits quickly; run it again later to open the skeleton, or pass `--wait` to block until generation completes.
-
-```bash
-# Open the default 3D view
-crantcli skeleton-view 720575940610453042
-
-# Start in a 2D projection
-crantcli skeleton-view 720575940610453042 --projection xy
-
-# Start in isometric 2D projection
-crantcli skeleton-view 720575940610453042 --projection iso
-
-# Refetch instead of reading the skeleton cache
-crantcli skeleton-view 720575940610453042 --no-cache
-
-# Wait for an uncached skeleton instead of queueing generation and exiting
-crantcli skeleton-view 720575940610453042 --wait
-
-# Print the fetched skeleton JSON without opening the viewer
-crantcli skeleton-view 720575940610453042 --json-debug
-```
-
-**Flags:** `--projection` (`3d`, `xy`, `xz`, `yz`, or `iso`), `--max-nodes` (maximum nodes to render/debug-print, `0` keeps all), `--no-cache`, `--wait`, `--wait-timeout` (default `10m`), `--json-debug`
-
-Fetching a ready skeleton requires a CAVE token and `uv` on `PATH`; cache hits and server queue-only misses do not invoke `uv`. The GPU window is provided by the companion `crantcli-skeleton-viewer` binary installed next to `crantcli` with release assets when available for your platform, or by `make install` from source. If you install the helper elsewhere, set `CRANTCLI_SKELETON_VIEWER` to its absolute path.
 
 ### `list` -- Explore the dataset
 

@@ -6,10 +6,8 @@ import (
 	"io"
 	"net/http"
 	neturl "net/url"
-	"strings"
 
 	"crantcli/internal/config"
-	"crantcli/internal/httperror"
 )
 
 // ExchangeToken exchanges an API token for a base access token.
@@ -53,25 +51,19 @@ func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, string, error
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bodyPreview, err := httperror.Preview(resp.Body)
-		if err != nil {
-			return nil, resp.StatusCode, "", fmt.Errorf("reading auth error response: %w", err)
-		}
-		return nil, resp.StatusCode, bodyPreview, fmt.Errorf("auth failed (HTTP %d)", resp.StatusCode)
-	}
-
 	body, _ := io.ReadAll(resp.Body)
-	bodyPreview := httperror.Redact(strings.TrimSpace(string(body)))
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, string(body), fmt.Errorf("auth failed (HTTP %d)", resp.StatusCode)
+	}
 
 	var auth AuthResponse
 	if err := json.Unmarshal(body, &auth); err != nil {
-		return nil, resp.StatusCode, bodyPreview, fmt.Errorf("decoding auth response: %w", err)
+		return nil, resp.StatusCode, string(body), fmt.Errorf("decoding auth response: %w", err)
 	}
 
 	if auth.AccessToken == "" || auth.DTableUUID == "" {
-		return nil, resp.StatusCode, bodyPreview, fmt.Errorf("auth response missing access_token or dtable_uuid")
+		return nil, resp.StatusCode, string(body), fmt.Errorf("auth response missing access_token or dtable_uuid")
 	}
 
-	return &auth, resp.StatusCode, bodyPreview, nil
+	return &auth, resp.StatusCode, string(body), nil
 }

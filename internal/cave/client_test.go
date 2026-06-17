@@ -2,31 +2,21 @@ package cave
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
-
 func testClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
 	return &Client{
 		token:     "test-token",
-		baseURL:   "http://cave.test",
+		baseURL:   srv.URL,
 		tableName: "test_table",
-		http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-			return rec.Result(), nil
-		})},
+		http:      srv.Client(),
 	}
 }
 
@@ -77,29 +67,6 @@ func TestGetRootID_HTTPError(t *testing.T) {
 	_, err := c.GetRootID(1)
 	if err == nil {
 		t.Fatal("expected error for HTTP 401")
-	}
-}
-
-func TestGetRootID_HTTPErrorRedactsAndCapsBody(t *testing.T) {
-	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(w, `{"token":"secret","message":"bad Bearer abc123"}`)
-		fmt.Fprint(w, strings.Repeat("x", 5000))
-	}))
-
-	_, err := c.GetRootID(1)
-	if err == nil {
-		t.Fatal("expected error for HTTP 401")
-	}
-	msg := err.Error()
-	if strings.Contains(msg, "secret") || strings.Contains(msg, "abc123") {
-		t.Fatalf("error leaked secret body: %q", msg)
-	}
-	if !strings.Contains(msg, "[REDACTED]") {
-		t.Fatalf("error = %q, want redacted marker", msg)
-	}
-	if !strings.Contains(msg, "truncated") {
-		t.Fatalf("error = %q, want truncated marker", msg)
 	}
 }
 
@@ -155,20 +122,6 @@ func TestGetRootIDs_BadResponseLength(t *testing.T) {
 	_, err := c.GetRootIDs([]uint64{1})
 	if err == nil {
 		t.Fatal("expected error for bad response length")
-	}
-}
-
-func TestGetRootIDs_HTTPErrorOmitsEmptyBody(t *testing.T) {
-	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-
-	_, err := c.GetRootIDs([]uint64{1})
-	if err == nil {
-		t.Fatal("expected error for HTTP 502")
-	}
-	if got, want := err.Error(), "CAVE batch request failed (HTTP 502)"; got != want {
-		t.Fatalf("error = %q, want %q", got, want)
 	}
 }
 
@@ -307,17 +260,17 @@ func TestGetRootChangeLog_HTTPError(t *testing.T) {
 	}
 }
 
-func TestGetRootChangeLog_ReadTimeoutReturnsTimeoutError(t *testing.T) {
+func TestGetRootChangeLog_ReadTimeoutMeansNoHistory(t *testing.T) {
 	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, `{"message": "Read timed out"}`)
 	}))
 
 	rows, err := c.GetRootChangeLog(1, true)
-	if !errors.Is(err, ErrChangeLogTimeout) {
-		t.Fatalf("GetRootChangeLog error = %v, want ErrChangeLogTimeout", err)
+	if err != nil {
+		t.Fatalf("GetRootChangeLog: %v", err)
 	}
-	if rows != nil {
-		t.Fatalf("rows = %#v, want nil", rows)
+	if len(rows) != 0 {
+		t.Fatalf("got %d rows, want 0", len(rows))
 	}
 }

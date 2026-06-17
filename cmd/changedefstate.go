@@ -86,9 +86,6 @@ func runChangeDefState(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal([]byte(raw), &state); err != nil {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}
-	if err := nglstate.ValidateUsableState(state); err != nil {
-		return fmt.Errorf("invalid Neuroglancer state: %w", err)
-	}
 
 	// Pretty-print for storage
 	pretty, err := json.MarshalIndent(state, "", "  ")
