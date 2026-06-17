@@ -2,12 +2,14 @@ package seatable
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	neturl "net/url"
 
 	"crantcli/internal/config"
+	"crantcli/internal/httpx"
 )
 
 // ExchangeToken exchanges an API token for a base access token.
@@ -45,17 +47,17 @@ func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, string, error
 	req.Header.Set("Authorization", "Bearer "+apiToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := httpx.Do(httpClient, req)
 	if err != nil {
+		var statusErr *httpx.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, statusErr.StatusCode, string(statusErr.Body), fmt.Errorf("auth failed (HTTP %d)", statusErr.StatusCode)
+		}
 		return nil, 0, "", fmt.Errorf("auth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode, string(body), fmt.Errorf("auth failed (HTTP %d)", resp.StatusCode)
-	}
-
 	var auth AuthResponse
 	if err := json.Unmarshal(body, &auth); err != nil {
 		return nil, resp.StatusCode, string(body), fmt.Errorf("decoding auth response: %w", err)

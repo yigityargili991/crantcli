@@ -1,10 +1,7 @@
 package seatable
 
-import (
-	"net/http"
-	"time"
-)
+import "crantcli/internal/httpx"
 
-var httpClient = &http.Client{
-	Timeout: 30 * time.Second,
-}
+// httpClient is the shared HTTP client used for SeaTable requests. It reuses
+// the common httpx client so the timeout is configured in one place.
+var httpClient = httpx.DefaultClient
