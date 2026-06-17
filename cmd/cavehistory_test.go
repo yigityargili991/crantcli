@@ -178,44 +178,6 @@ func TestRunCaveHistoryNoHistoryTable(t *testing.T) {
 	}
 }
 
-func TestRunCaveHistoryTimeoutMarksUnavailable(t *testing.T) {
-	client := &fakeCaveHistoryClient{
-		errByRoot: map[uint64]error{111: cave.ErrChangeLogTimeout},
-	}
-	var out, errOut bytes.Buffer
-
-	if err := runCaveHistory(&out, &errOut, client, []string{"111"}, caveHistoryOptions{Filtered: true}); err != nil {
-		t.Fatalf("runCaveHistory: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", out.String())
-	}
-	if got := errOut.String(); !strings.Contains(got, "history unavailable for root_id 111") || strings.Contains(got, "no history found") {
-		t.Fatalf("stderr = %q, want unavailable warning without no-history message", got)
-	}
-}
-
-func TestRunCaveHistoryJSONTimeoutIncludesError(t *testing.T) {
-	client := &fakeCaveHistoryClient{
-		errByRoot: map[uint64]error{111: cave.ErrChangeLogTimeout},
-	}
-	var out, errOut bytes.Buffer
-
-	if err := runCaveHistory(&out, &errOut, client, []string{"111"}, caveHistoryOptions{JSON: true, Filtered: true}); err != nil {
-		t.Fatalf("runCaveHistory: %v", err)
-	}
-	if errOut.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty for JSON output", errOut.String())
-	}
-	var results []caveHistoryResult
-	if err := json.Unmarshal(out.Bytes(), &results); err != nil {
-		t.Fatalf("JSON output did not decode: %v", err)
-	}
-	if len(results) != 1 || results[0].Error != cave.ErrChangeLogTimeout.Error() {
-		t.Fatalf("results = %#v, want timeout error field", results)
-	}
-}
-
 func TestRunCaveHistoryFailsFastWithRootID(t *testing.T) {
 	client := &fakeCaveHistoryClient{
 		rows:      map[uint64][]cave.ChangeLogRow{111: {}},

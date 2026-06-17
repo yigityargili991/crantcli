@@ -315,10 +315,7 @@ func NormalizeColorInput(colorInput string) (string, error) {
 		return normalized, nil
 	}
 
-	hex := trimmed
-	if strings.HasPrefix(hex, "#") {
-		hex = hex[1:]
-	}
+	hex := strings.TrimPrefix(trimmed, "#")
 	if len(hex) != 6 || !isHexString(hex) {
 		return "", fmt.Errorf("invalid color %q: use a named palette, 'colored', or a 6-digit hex value like #ff0000", colorInput)
 	}

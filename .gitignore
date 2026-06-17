@@ -2,10 +2,7 @@ crant_type_look
 crantinject
 dist/
 /crantcli
-/crantcli-skeleton-viewer
 /crant_type_look-*
 .DS_Store
 **/.DS_Store
-__pycache__/
-*.pyc
 /.claude

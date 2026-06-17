@@ -23,30 +23,24 @@ jobs:
             gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
           fi
 
-  build-cli:
+  release:
     needs: ensure-release
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
           - goos: linux
             goarch: amd64
-            runner: ubuntu-latest
           - goos: linux
             goarch: arm64
-            runner: ubuntu-latest
           - goos: darwin
             goarch: amd64
-            runner: macos-latest
           - goos: darwin
             goarch: arm64
-            runner: macos-latest
           - goos: windows
             goarch: amd64
-            runner: windows-latest
           - goos: windows
             goarch: arm64
-            runner: windows-latest
-    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,80 +49,26 @@ jobs:
           go-version-file: go.mod
 
       - id: build
-        name: Build CLI
-        shell: bash
+        name: Build
         env:
-          CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          mkdir -p dist
-          artifact="dist/crant_type_look-${GOOS}-${GOARCH}${ext}"
+          artifact="crant_type_look-${GOOS}-${GOARCH}${ext}"
           go build -ldflags "-s -w -X crantcli/cmd.Version=${REF_NAME}" -o "$artifact" .
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
       - name: Upload to release
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" "${{ steps.build.outputs.artifact }}" --clobber
 
-  build-skeleton-viewer:
-    needs: ensure-release
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            runner: ubuntu-latest
-          - goos: darwin
-            goarch: arm64
-            runner: macos-latest
-          - goos: windows
-            goarch: amd64
-            runner: windows-latest
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install Linux viewer build dependencies
-        if: matrix.goos == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev
-
-      - id: build
-        name: Build skeleton viewer
-        shell: bash
-        env:
-          CGO_ENABLED: "1"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          mkdir -p dist
-          helper="dist/crant_type_look-skeleton-viewer-${GOOS}-${GOARCH}${ext}"
-          go build -ldflags "-s -w" -o "$helper" ./cmd/crantcli-skeleton-viewer
-          echo "helper=$helper" >> "$GITHUB_OUTPUT"
-
-      - name: Upload to release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ github.ref_name }}" "${{ steps.build.outputs.helper }}" --clobber
-
   checksums:
-    needs: [build-cli, build-skeleton-viewer]
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - name: Generate and upload checksums

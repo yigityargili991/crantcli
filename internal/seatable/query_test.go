@@ -1,7 +1,6 @@
 package seatable
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -350,59 +349,6 @@ func TestQueryNeuronInfoPreservesMalformedPosition(t *testing.T) {
 	}
 }
 
-func TestQueryNeuronSupervoxelPreservesLargeIDs(t *testing.T) {
-	tests := []struct {
-		name            string
-		rootValue       interface{}
-		supervoxelValue interface{}
-	}{
-		{
-			name:            "json numbers",
-			rootValue:       json.Number("720575940610453042"),
-			supervoxelValue: json.Number("720575940610453043"),
-		},
-		{
-			name:            "strings",
-			rootValue:       "720575940610453042",
-			supervoxelValue: "720575940610453043",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := &Client{
-				executeSQLFunc: func(sql string) (*SQLResponse, error) {
-					return &SQLResponse{
-						Results: []map[string]interface{}{
-							{
-								"root_id":       tt.rootValue,
-								"supervoxel_id": tt.supervoxelValue,
-							},
-						},
-					}, nil
-				},
-			}
-
-			row, err := QueryNeuronSupervoxel(client, "720575940610453042")
-			if err != nil {
-				t.Fatalf("QueryNeuronSupervoxel returned error: %v", err)
-			}
-			if row.RootID != "720575940610453042" {
-				t.Fatalf("RootID = %q, want exact large ID", row.RootID)
-			}
-			if row.SupervoxelID != "720575940610453043" {
-				t.Fatalf("SupervoxelID = %q, want exact large ID", row.SupervoxelID)
-			}
-		})
-	}
-}
-
-func TestToStringPreservesJSONNumber(t *testing.T) {
-	if got := toString(json.Number("720575940610453042")); got != "720575940610453042" {
-		t.Fatalf("toString(json.Number) = %q, want exact large ID", got)
-	}
-}
-
 func TestBuildNeuronInfoRowPrefersNamedColumnsOverMappedKeys(t *testing.T) {
 	row := buildNeuronInfoRow(
 		map[string]interface{}{
@@ -472,16 +418,6 @@ func TestParsePositionValueRejectsMalformedArrays(t *testing.T) {
 				t.Fatalf("parsePositionValue(%v) = (%v, %v, %v), want zeros for rejected input", tt.pos, x, y, z)
 			}
 		})
-	}
-}
-
-func TestParsePositionValueSupportsJSONNumbers(t *testing.T) {
-	x, y, z, err := parsePositionValue([]interface{}{json.Number("1"), json.Number("2.5"), json.Number("3")})
-	if err != nil {
-		t.Fatalf("parsePositionValue returned error: %v", err)
-	}
-	if x != 1 || y != 2.5 || z != 3 {
-		t.Fatalf("parsePositionValue = (%v, %v, %v), want (1, 2.5, 3)", x, y, z)
 	}
 }
 

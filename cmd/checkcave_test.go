@@ -13,24 +13,13 @@ import (
 	"crantcli/internal/seatable"
 )
 
-type checkCAVERoundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f checkCAVERoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
-
-func newCheckCAVETestClient(handler http.Handler) *cave.Client {
-	return cave.NewTestClient("http://cave.test", &http.Client{Transport: checkCAVERoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		return rec.Result(), nil
-	})})
-}
-
 func TestCheckNeurons_SingleOK(t *testing.T) {
-	c := newCheckCAVETestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"root_id": 999}`)
 	}))
+	defer srv.Close()
+
+	c := cave.NewTestClient(srv.URL, srv.Client())
 
 	neurons := []seatable.NeuronCaveCheckRow{
 		{RootID: "999", SupervoxelID: "100"},
@@ -112,9 +101,12 @@ func TestFailOnResultErrors(t *testing.T) {
 }
 
 func TestCheckNeurons_Stale(t *testing.T) {
-	c := newCheckCAVETestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"root_id": 888}`)
 	}))
+	defer srv.Close()
+
+	c := cave.NewTestClient(srv.URL, srv.Client())
 
 	neurons := []seatable.NeuronCaveCheckRow{
 		{RootID: "999", SupervoxelID: "100"},
@@ -168,10 +160,13 @@ func TestCheckNeurons_InvalidSupervoxelID(t *testing.T) {
 }
 
 func TestCheckNeurons_CaveAPIError(t *testing.T) {
-	c := newCheckCAVETestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, "internal error")
 	}))
+	defer srv.Close()
+
+	c := cave.NewTestClient(srv.URL, srv.Client())
 
 	neurons := []seatable.NeuronCaveCheckRow{
 		{RootID: "999", SupervoxelID: "100"},
@@ -187,9 +182,12 @@ func TestCheckNeurons_CaveAPIError(t *testing.T) {
 }
 
 func TestCheckNeurons_MixedStatuses(t *testing.T) {
-	c := newCheckCAVETestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"root_id": 1000}`)
 	}))
+	defer srv.Close()
+
+	c := cave.NewTestClient(srv.URL, srv.Client())
 
 	neurons := []seatable.NeuronCaveCheckRow{
 		{RootID: "1000", SupervoxelID: "100"},
@@ -221,13 +219,16 @@ func TestCheckNeurons_BatchMode(t *testing.T) {
 		}
 	}
 
-	c := newCheckCAVETestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf := make([]byte, 8*15)
 		for i := range 15 {
 			binary.LittleEndian.PutUint64(buf[i*8:], uint64(1000+i))
 		}
 		w.Write(buf)
 	}))
+	defer srv.Close()
+
+	c := cave.NewTestClient(srv.URL, srv.Client())
 
 	results, err := checkNeurons(c, neurons)
 	if err != nil {

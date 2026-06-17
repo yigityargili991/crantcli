@@ -265,8 +265,6 @@ func TestBuildQuerySpecs_BaseFiltersPreservedInCrossProduct(t *testing.T) {
 		Side:        "left",
 		Region:      "LX",
 		Tract:       "tract1",
-		Nerve:       "nerve1",
-		Hemilineage: "hemi1",
 		Proofread:   "yes",
 	}
 	specs := buildQuerySpecs(base, []string{"classA", "classB"}, []string{"typeX"})
@@ -289,12 +287,6 @@ func TestBuildQuerySpecs_BaseFiltersPreservedInCrossProduct(t *testing.T) {
 		}
 		if f.Tract != "tract1" {
 			t.Errorf("spec %q: Tract=%q, want tract1", s.label, f.Tract)
-		}
-		if f.Nerve != "nerve1" {
-			t.Errorf("spec %q: Nerve=%q, want nerve1", s.label, f.Nerve)
-		}
-		if f.Hemilineage != "hemi1" {
-			t.Errorf("spec %q: Hemilineage=%q, want hemi1", s.label, f.Hemilineage)
 		}
 		if f.Proofread != "yes" {
 			t.Errorf("spec %q: Proofread=%q, want yes", s.label, f.Proofread)
@@ -489,51 +481,5 @@ func TestExtractRootIDsWithSubtype(t *testing.T) {
 	}
 	if _, ok := sm[""]; ok {
 		t.Error("empty root ID should not be in subtypeMap")
-	}
-}
-
-func TestUniqueRootIDsForRowsPreservesFirstSeen(t *testing.T) {
-	seen := make(map[string]struct{})
-	subtypeMap := make(map[string]string)
-	rowsA := []seatable.NeuronRow{
-		{RootID: "100", CellSubtype: "alpha", CellType: "A"},
-		{RootID: "200", CellSubtype: "beta", CellType: "A"},
-		{RootID: "100", CellSubtype: "later", CellType: "A-duplicate"},
-		{RootID: ""},
-	}
-	idsA, uniqueA, duplicatesA := uniqueRootIDsForRows(rowsA, seen, subtypeMap)
-	rowsB := []seatable.NeuronRow{
-		{RootID: "200", CellSubtype: "later-beta", CellType: "B-duplicate"},
-		{RootID: "300", CellSubtype: "gamma", CellType: "B"},
-	}
-	idsB, uniqueB, duplicatesB := uniqueRootIDsForRows(rowsB, seen, subtypeMap)
-
-	if !reflect.DeepEqual(idsA, []string{"100", "200"}) {
-		t.Fatalf("idsA = %#v, want first group unique IDs", idsA)
-	}
-	if !reflect.DeepEqual(idsB, []string{"300"}) {
-		t.Fatalf("idsB = %#v, want only new IDs from second group", idsB)
-	}
-	if duplicatesA != 1 || duplicatesB != 1 {
-		t.Fatalf("duplicates = %d/%d, want 1/1", duplicatesA, duplicatesB)
-	}
-	allRows := append(uniqueA, uniqueB...)
-	groups, labels := buildColorByGroups(allRows, "cell_type")
-	if !reflect.DeepEqual(groups, [][]string{{"100", "200"}, {"300"}}) {
-		t.Fatalf("color groups = %#v, want first-seen unique rows only", groups)
-	}
-	if !reflect.DeepEqual(labels, []string{"cell_type=A", "cell_type=B"}) {
-		t.Fatalf("labels = %#v, want A/B", labels)
-	}
-	if subtypeMap["100"] != "alpha" || subtypeMap["200"] != "beta" || subtypeMap["300"] != "gamma" {
-		t.Fatalf("subtypeMap = %#v, want first-seen subtype values", subtypeMap)
-	}
-}
-
-func TestAddCommandExposesSupportedFilterFlags(t *testing.T) {
-	for _, flag := range []string{"nerve", "hemilineage", "proofread"} {
-		if addCmd.Flags().Lookup(flag) == nil {
-			t.Fatalf("add command missing --%s", flag)
-		}
 	}
 }

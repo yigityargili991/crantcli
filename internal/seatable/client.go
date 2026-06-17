@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"crantcli/internal/config"
-	"crantcli/internal/httperror"
 )
 
 // Client holds authenticated SeaTable connection details.
@@ -67,13 +67,12 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, httperror.Format("SQL query", resp.StatusCode, resp.Body)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("SQL query failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var result SQLResponse
-	dec := json.NewDecoder(resp.Body)
-	dec.UseNumber()
-	if err := dec.Decode(&result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding SQL response: %w", err)
 	}
 	normalizeResultKeys(&result)
@@ -143,7 +142,8 @@ func (c *Client) FetchMetadata() (*MetadataResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, httperror.Format("metadata request", resp.StatusCode, resp.Body)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("metadata request failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var result MetadataResponse
