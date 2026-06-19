@@ -185,6 +185,30 @@ func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.
 	}
 }
 
+func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := [][]string{
+		{"a1", "a2"},
+		{"b1", "b2"},
+	}
+
+	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, nil, "colored", "column", false)
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	if colors["a1"] != colors["a2"] {
+		t.Fatalf("same color-by group got different colors: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+	if colors["b1"] != colors["b2"] {
+		t.Fatalf("same color-by group got different colors: b1=%v b2=%v", colors["b1"], colors["b2"])
+	}
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("different color-by groups got the same color: %v", colors["a1"])
+	}
+}
+
 func TestAddColorByFieldValue_AllFields(t *testing.T) {
 	row := seatable.NeuronRow{
 		SuperClass:   "super",

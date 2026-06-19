@@ -406,10 +406,13 @@ func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes []string) []
 }
 
 func applyAddSegmentColors(layer map[string]interface{}, allRootIDs []string, groups [][]string, subtypeMap map[string]string, normalizedColor, colorByField string, colorSub bool) {
-	// Repeated class/type flags, --color-by, and --color-sub all need
-	// group-aware base coloring. For --color-by, keep group-aware coloring even
-	// when only one field value is present so "colored" uses a palette.
-	if (len(groups) > 1 || colorByField != "" || colorSub) && normalizedColor != "" {
+	if colorByField != "" && normalizedColor != "" {
+		nglstate.SetSegmentColorByGroupValues(layer, groups, normalizedColor)
+		return
+	}
+
+	// Repeated class/type flags and --color-sub need group-aware base coloring.
+	if (len(groups) > 1 || colorSub) && normalizedColor != "" {
 		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
 	} else {
 		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)

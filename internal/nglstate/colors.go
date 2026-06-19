@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 	"strings"
@@ -161,6 +162,21 @@ var paletteNames = []string{
 	"brown", "indigo", "teal", "lime",
 }
 
+var categoricalColors = []string{
+	"#e6194b", "#3cb44b", "#4363d8", "#f58231",
+	"#911eb4", "#46f0f0", "#f032e6", "#bcf60c",
+	"#fabebe", "#008080", "#e6beff", "#9a6324",
+	"#fffac8", "#800000", "#aaffc3", "#808000",
+	"#ffd8b1", "#000075", "#a9a9a9", "#ff6f00",
+	"#00b8d4", "#c51162", "#64dd17", "#6200ea",
+	"#00c853", "#d50000", "#2962ff", "#ffd600",
+	"#00bfa5", "#aa00ff", "#ffab00", "#0091ea",
+	"#aeea00", "#dd2c00", "#304ffe", "#00b0ff",
+	"#ff4081", "#76ff03", "#ffea00", "#1b5e20",
+	"#8d6e63", "#ad1457", "#26a69a", "#5e35b1",
+	"#ef6c00", "#558b2f", "#d81b60", "#3949ab",
+}
+
 // groupPaletteDistinct returns the palette index for a group, spacing groups
 // evenly across the available palettes for maximum visual distinctiveness.
 // With N groups, palette indices are spaced by floor(P/N) positions.
@@ -228,6 +244,92 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 	}
 
 	layer["segmentColors"] = colors
+}
+
+// SetSegmentColorByGroupValues assigns one color per group. This is used for
+// --color-by fields where each group is a semantic value, such as a column.
+func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]string, colorInput string) {
+	if colorInput == "" {
+		return
+	}
+
+	colorsRaw, ok := layer["segmentColors"]
+	var colors map[string]interface{}
+	if ok {
+		colors, _ = colorsRaw.(map[string]interface{})
+	}
+	if colors == nil {
+		colors = make(map[string]interface{})
+	}
+
+	for i, group := range groups {
+		groupColor := colorInput
+		switch {
+		case colorInput == "colored":
+			groupColor = categoricalGroupColor(i)
+		case colorPalettes[colorInput] != nil:
+			palette := colorPalettes[colorInput]
+			groupColor = palette[i%len(palette)]
+		}
+		for _, id := range group {
+			colors[id] = groupColor
+		}
+	}
+
+	layer["segmentColors"] = colors
+}
+
+func categoricalGroupColor(groupIdx int) string {
+	if groupIdx < len(categoricalColors) {
+		return categoricalColors[groupIdx]
+	}
+
+	const goldenAngle = 137.508
+	hue := math.Mod(float64(groupIdx-len(categoricalColors))*goldenAngle, 360)
+	lightness := 0.48
+	if groupIdx%2 == 1 {
+		lightness = 0.62
+	}
+	return hslToHex(hue, 0.82, lightness)
+}
+
+func hslToHex(h, s, l float64) string {
+	h = math.Mod(h, 360)
+	if h < 0 {
+		h += 360
+	}
+
+	c := (1 - math.Abs(2*l-1)) * s
+	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
+	m := l - c/2
+
+	var r, g, b float64
+	switch {
+	case h < 60:
+		r, g, b = c, x, 0
+	case h < 120:
+		r, g, b = x, c, 0
+	case h < 180:
+		r, g, b = 0, c, x
+	case h < 240:
+		r, g, b = 0, x, c
+	case h < 300:
+		r, g, b = x, 0, c
+	default:
+		r, g, b = c, 0, x
+	}
+
+	return fmt.Sprintf("#%02x%02x%02x", colorByte(r+m), colorByte(g+m), colorByte(b+m))
+}
+
+func colorByte(v float64) int {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	return int(math.Round(v * 255))
 }
 
 // SetSegmentColorBySubtype assigns sub-colors to neurons within each group
