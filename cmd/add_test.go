@@ -209,6 +209,7 @@ func TestAddColorByFieldValue_AllFields(t *testing.T) {
 		{"cell_type", "type"},
 		{"cell_subtype", "subtype"},
 		{"cell_instance", "instance"},
+		{"column", "ce"},
 		{"side", "side"},
 		{"region", "region"},
 		{"tract", "tract"},
@@ -222,6 +223,31 @@ func TestAddColorByFieldValue_AllFields(t *testing.T) {
 		t.Run(tt.field, func(t *testing.T) {
 			if got := addColorByFieldValue(row, tt.field); got != tt.want {
 				t.Fatalf("addColorByFieldValue(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestColumnFromCellInstance(t *testing.T) {
+	tests := []struct {
+		name     string
+		instance string
+		want     string
+	}{
+		{"regular left", "PFN_L9", "L9"},
+		{"regular right", "PFL2_R5", "R5"},
+		{"regular compound keeps last pair", "PFL1/3_R_R1R2", "R2"},
+		{"delta7", "\u03947_L6R4", "L6R4"},
+		{"delta7 longer suffix", "\u03947_L1L10R7", "10R7"},
+		{"ascii delta7", "delta7_L6R4", "L6R4"},
+		{"short regular", "L", "L"},
+		{"empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := columnFromCellInstance(tt.instance); got != tt.want {
+				t.Fatalf("columnFromCellInstance(%q) = %q, want %q", tt.instance, got, tt.want)
 			}
 		})
 	}

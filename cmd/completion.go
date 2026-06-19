@@ -24,6 +24,8 @@ var completionFields = []string{
 	"proofread",
 }
 
+var colorByCompletions = append(append([]string{}, completionFields...), "column")
+
 var colorCompletions = []string{
 	"colored",
 	"blue",
