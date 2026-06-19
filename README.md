@@ -138,7 +138,7 @@ crantcli add --cell-type ER --replace
 crantcli add --cell-class kenyon_cell --root-ids-only
 ```
 
-**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--nerve`, `--hemilineage`, `--proofread`
+**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
 
 **Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `column`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`). `column` is derived from `cell_instance`: Δ7 instances use the final 4 characters, and other instances use the final 2.
 

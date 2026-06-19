@@ -101,6 +101,12 @@ func init() {
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
+	addCmd.Args = func(cmd *cobra.Command, args []string) error {
+		if err := cobra.NoArgs(cmd, args); err != nil {
+			return err
+		}
+		return validateAddOptions(addRegions, addBundles, addColor, addColorBy, addColorSub)
+	}
 	addCmd.ValidArgsFunction = noFileCompletion
 	registerClassificationFlagCompletions(addCmd,
 		"super-class",
@@ -341,6 +347,19 @@ func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
 		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread", colorBy)
 	}
 	return colorBy, nil
+}
+
+func validateAddOptions(regions, bundles []string, color, colorBy string, colorSub bool) error {
+	if _, err := resolveAddRegionFilters(regions, bundles); err != nil {
+		return err
+	}
+	if _, err := nglstate.NormalizeColorInput(color); err != nil {
+		return err
+	}
+	if _, err := resolveAddColorBy(colorBy, colorSub); err != nil {
+		return err
+	}
+	return nil
 }
 
 var validAddColorByFields = map[string]bool{

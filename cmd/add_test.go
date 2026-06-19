@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"crantcli/internal/seatable"
@@ -80,6 +81,67 @@ func TestResolveAddColorBy(t *testing.T) {
 			t.Fatal("expected invalid field error")
 		}
 	})
+}
+
+func TestValidateAddOptions(t *testing.T) {
+	tests := []struct {
+		name      string
+		regions   []string
+		bundles   []string
+		color     string
+		colorBy   string
+		colorSub  bool
+		wantError string
+	}{
+		{
+			name:      "region bundle conflict",
+			regions:   []string{"CX"},
+			bundles:   []string{"LX"},
+			wantError: "--region and --bundle cannot be used together",
+		},
+		{
+			name:      "invalid color by",
+			bundles:   []string{"LX"},
+			colorBy:   "not_a_field",
+			wantError: `invalid --color-by "not_a_field"`,
+		},
+		{
+			name:      "color by conflicts with color sub",
+			bundles:   []string{"LX"},
+			colorBy:   "region",
+			colorSub:  true,
+			wantError: "--color-by and --color-sub cannot be used together",
+		},
+		{
+			name:      "invalid color",
+			bundles:   []string{"LX"},
+			color:     "#bad",
+			wantError: "invalid color",
+		},
+		{
+			name:    "valid column color by",
+			regions: []string{"CX"},
+			colorBy: "column",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAddOptions(tt.regions, tt.bundles, tt.color, tt.colorBy, tt.colorSub)
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("validateAddOptions returned error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q", tt.wantError)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantError)
+			}
+		})
+	}
 }
 
 func TestValidateAddInputs(t *testing.T) {
