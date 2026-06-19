@@ -7,6 +7,7 @@ type NeuronRow struct {
 	CellClass      string   `json:"cell_class"`
 	CellType       string   `json:"cell_type"`
 	CellSubtype    string   `json:"cell_subtype"`
+	CellInstance   string   `json:"cell_instance"`
 	Side           string   `json:"side"`
 	Region         string   `json:"region"`
 	MatchedRegions []string `json:"-"`

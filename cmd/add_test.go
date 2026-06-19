@@ -187,16 +187,17 @@ func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.
 
 func TestAddColorByFieldValue_AllFields(t *testing.T) {
 	row := seatable.NeuronRow{
-		SuperClass:  "super",
-		CellClass:   "class",
-		CellType:    "type",
-		CellSubtype: "subtype",
-		Side:        "side",
-		Region:      "region",
-		Tract:       "tract",
-		Nerve:       "nerve",
-		Hemilineage: "hemilineage",
-		Proofread:   "proofread",
+		SuperClass:   "super",
+		CellClass:    "class",
+		CellType:     "type",
+		CellSubtype:  "subtype",
+		CellInstance: "instance",
+		Side:         "side",
+		Region:       "region",
+		Tract:        "tract",
+		Nerve:        "nerve",
+		Hemilineage:  "hemilineage",
+		Proofread:    "proofread",
 	}
 
 	tests := []struct {
@@ -207,6 +208,7 @@ func TestAddColorByFieldValue_AllFields(t *testing.T) {
 		{"cell_class", "class"},
 		{"cell_type", "type"},
 		{"cell_subtype", "subtype"},
+		{"cell_instance", "instance"},
 		{"side", "side"},
 		{"region", "region"},
 		{"tract", "tract"},

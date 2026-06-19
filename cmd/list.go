@@ -14,7 +14,7 @@ var listCmd = &cobra.Command{
 	Short: "List distinct values for a classification field",
 	Long: `List distinct values for a classification field from the CRANT dataset.
 
-Valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread
+Valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread
 
 Examples:
   crantcli list super_class --count

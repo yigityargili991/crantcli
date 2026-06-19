@@ -108,7 +108,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 	}
 
 	rowsRaw, err := executePagedSelect(client,
-		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
+		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
 		buildWhere(f),
 	)
 	if err != nil {
@@ -128,6 +128,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			CellClass:      toString(r["cell_class"]),
 			CellType:       toString(r["cell_type"]),
 			CellSubtype:    toString(r["cell_subtype"]),
+			CellInstance:   toString(r["cell_instance"]),
 			Side:           toString(r["side"]),
 			Region:         strings.Join(regionValues, ", "),
 			MatchedRegions: matchedSelectValues(r["region"], regionFilterIDs, regionOpts),
@@ -144,11 +145,11 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*SQLResponse, error) {
 	validColumns := map[string]bool{
 		"super_class": true, "cell_class": true, "cell_type": true,
-		"cell_subtype": true, "side": true, "region": true,
+		"cell_subtype": true, "cell_instance": true, "side": true, "region": true,
 		"tract": true, "nerve": true, "hemilineage": true, "proofread": true,
 	}
 	if !validColumns[column] {
-		return nil, fmt.Errorf("invalid column %q; valid columns: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread", column)
+		return nil, fmt.Errorf("invalid column %q; valid columns: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread", column)
 	}
 
 	if column == "region" || len(f.regionValues()) > 0 {

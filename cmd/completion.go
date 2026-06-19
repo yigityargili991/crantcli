@@ -15,6 +15,7 @@ var completionFields = []string{
 	"cell_class",
 	"cell_type",
 	"cell_subtype",
+	"cell_instance",
 	"side",
 	"region",
 	"tract",

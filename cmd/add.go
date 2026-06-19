@@ -96,7 +96,7 @@ func init() {
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
-	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread")
+	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
@@ -338,22 +338,23 @@ func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
 		return "", nil
 	}
 	if !validAddColorByFields[colorBy] {
-		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread", colorBy)
+		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread", colorBy)
 	}
 	return colorBy, nil
 }
 
 var validAddColorByFields = map[string]bool{
-	"super_class":  true,
-	"cell_class":   true,
-	"cell_type":    true,
-	"cell_subtype": true,
-	"side":         true,
-	"region":       true,
-	"tract":        true,
-	"nerve":        true,
-	"hemilineage":  true,
-	"proofread":    true,
+	"super_class":   true,
+	"cell_class":    true,
+	"cell_type":     true,
+	"cell_subtype":  true,
+	"cell_instance": true,
+	"side":          true,
+	"region":        true,
+	"tract":         true,
+	"nerve":         true,
+	"hemilineage":   true,
+	"proofread":     true,
 }
 
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
@@ -468,6 +469,8 @@ func addColorByFieldValue(row seatable.NeuronRow, field string) string {
 		return row.CellType
 	case "cell_subtype":
 		return row.CellSubtype
+	case "cell_instance":
+		return row.CellInstance
 	case "side":
 		return row.Side
 	case "region":

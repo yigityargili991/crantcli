@@ -56,6 +56,9 @@ func TestQueryNeuronsPaginatesAndFiltersRegion(t *testing.T) {
 	if rows[len(rows)-1].Region != "LX, LW" {
 		t.Fatalf("last row region = %q, want %q", rows[len(rows)-1].Region, "LX, LW")
 	}
+	if rows[len(rows)-1].CellInstance != "instance-root-match" {
+		t.Fatalf("last row cell_instance = %q, want instance-root-match", rows[len(rows)-1].CellInstance)
+	}
 }
 
 func TestQueryNeuronsFiltersMultipleRegions(t *testing.T) {
@@ -477,17 +480,18 @@ func TestResolveSelectFilterIDSupportsNamesAndIDs(t *testing.T) {
 
 func neuronSQLRow(rootID string, region []interface{}) map[string]interface{} {
 	return map[string]interface{}{
-		"root_id":      rootID,
-		"super_class":  "central",
-		"cell_class":   "cx",
-		"cell_type":    "EPG/PEG",
-		"cell_subtype": "ER1",
-		"side":         "left",
-		"region":       region,
-		"tract":        "tract",
-		"nerve":        "nerve",
-		"hemilineage":  "hemi",
-		"proofread":    "true",
+		"root_id":       rootID,
+		"super_class":   "central",
+		"cell_class":    "cx",
+		"cell_type":     "EPG/PEG",
+		"cell_subtype":  "ER1",
+		"cell_instance": "instance-" + rootID,
+		"side":          "left",
+		"region":        region,
+		"tract":         "tract",
+		"nerve":         "nerve",
+		"hemilineage":   "hemi",
+		"proofread":     "true",
 	}
 }
 
