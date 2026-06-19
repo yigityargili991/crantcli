@@ -125,6 +125,9 @@ crantcli add --region LX --color-by side --color blue
 # Query by bundle/region annotation
 crantcli add --bundle LX
 
+# Query multiple bundles and color matched neurons by bundle/region
+crantcli add --bundle RW --bundle RX --bundle RY --bundle RZ --bundle LW --bundle LX --bundle LY --bundle LZ --color-by region
+
 # Replace segments instead of appending
 crantcli add --cell-type ER --replace
 

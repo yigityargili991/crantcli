@@ -58,6 +58,39 @@ func TestQueryNeuronsPaginatesAndFiltersRegion(t *testing.T) {
 	}
 }
 
+func TestQueryNeuronsFiltersMultipleRegions(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			return &SQLResponse{Results: []map[string]interface{}{
+				neuronSQLRow("root-lx", []interface{}{"452098"}),
+				neuronSQLRow("root-lw", []interface{}{"645386"}),
+				neuronSQLRow("root-miss", []interface{}{"333131"}),
+			}}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	rows, err := QueryNeurons(client, &Filters{Regions: []string{"LX", "LW"}})
+	if err != nil {
+		t.Fatalf("QueryNeurons returned error: %v", err)
+	}
+
+	if got, want := len(rows), 2; got != want {
+		t.Fatalf("QueryNeurons returned %d rows, want %d", got, want)
+	}
+	if rows[0].RootID != "root-lx" || rows[1].RootID != "root-lw" {
+		t.Fatalf("root IDs = %q, %q; want root-lx, root-lw", rows[0].RootID, rows[1].RootID)
+	}
+	if got, want := strings.Join(rows[0].MatchedRegions, ","), "LX"; got != want {
+		t.Fatalf("first row MatchedRegions = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(rows[1].MatchedRegions, ","), "LW"; got != want {
+		t.Fatalf("second row MatchedRegions = %q, want %q", got, want)
+	}
+}
+
 func TestQueryDistinctRegionCountsResolvedNames(t *testing.T) {
 	client := &Client{
 		executeSQLFunc: func(sql string) (*SQLResponse, error) {

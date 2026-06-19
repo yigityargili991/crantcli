@@ -2,17 +2,18 @@ package seatable
 
 // NeuronRow represents a row from the CRANTb_meta table.
 type NeuronRow struct {
-	RootID      string `json:"root_id"`
-	SuperClass  string `json:"super_class"`
-	CellClass   string `json:"cell_class"`
-	CellType    string `json:"cell_type"`
-	CellSubtype string `json:"cell_subtype"`
-	Side        string `json:"side"`
-	Region      string `json:"region"`
-	Tract       string `json:"tract"`
-	Nerve       string `json:"nerve"`
-	Hemilineage string `json:"hemilineage"`
-	Proofread   string `json:"proofread"`
+	RootID         string   `json:"root_id"`
+	SuperClass     string   `json:"super_class"`
+	CellClass      string   `json:"cell_class"`
+	CellType       string   `json:"cell_type"`
+	CellSubtype    string   `json:"cell_subtype"`
+	Side           string   `json:"side"`
+	Region         string   `json:"region"`
+	MatchedRegions []string `json:"-"`
+	Tract          string   `json:"tract"`
+	Nerve          string   `json:"nerve"`
+	Hemilineage    string   `json:"hemilineage"`
+	Proofread      string   `json:"proofread"`
 }
 
 // NeuronPositionRow represents a row with position coordinates from the CRANTb_meta table.

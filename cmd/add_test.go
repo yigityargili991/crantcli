@@ -26,6 +26,26 @@ func TestResolveAddRegionFilter(t *testing.T) {
 	})
 }
 
+func TestResolveAddRegionFilters(t *testing.T) {
+	t.Run("multiple bundles alias regions", func(t *testing.T) {
+		got, err := resolveAddRegionFilters(nil, []string{" RW ", "RX", "RW", ""})
+		if err != nil {
+			t.Fatalf("resolveAddRegionFilters returned error: %v", err)
+		}
+		want := []string{"RW", "RX"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("resolveAddRegionFilters = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("conflicting repeated flags", func(t *testing.T) {
+		_, err := resolveAddRegionFilters([]string{"LX"}, []string{"LW"})
+		if err == nil {
+			t.Fatal("expected conflict error when both region and bundle are set")
+		}
+	})
+}
+
 func TestResolveAddColorBy(t *testing.T) {
 	t.Run("valid field", func(t *testing.T) {
 		got, err := resolveAddColorBy("cell_type", false)
@@ -114,6 +134,24 @@ func TestBuildColorByGroups_DeterministicOrdering(t *testing.T) {
 	wantLabels := []string{"cell_type=EPG/PEG", "cell_type=ER", "cell_type=(empty)"}
 	if !reflect.DeepEqual(labels, wantLabels) {
 		t.Fatalf("labels = %#v, want %#v", labels, wantLabels)
+	}
+}
+
+func TestBuildColorByGroupsUsesMatchedRegion(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "100", Region: "CX, LW", MatchedRegions: []string{"LW"}},
+		{RootID: "200", Region: "CX, LX", MatchedRegions: []string{"LX"}},
+	}
+
+	groups, labels := buildColorByGroups(rows, "region")
+
+	wantLabels := []string{"region=LW", "region=LX"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+	wantGroups := [][]string{{"100"}, {"200"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
 	}
 }
 
@@ -302,7 +340,7 @@ func TestBuildQuerySpecs_CrossProductDoesNotMutateBase(t *testing.T) {
 
 	buildQuerySpecs(base, []string{"classA"}, []string{"typeX", "typeY"})
 
-	if *base != original {
+	if !reflect.DeepEqual(*base, original) {
 		t.Errorf("buildQuerySpecs mutated base: got %+v, want %+v", *base, original)
 	}
 }

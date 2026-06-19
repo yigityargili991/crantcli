@@ -54,7 +54,7 @@ func TestValidateSideCheckFilters(t *testing.T) {
 			if got == nil {
 				t.Fatal("validateSideCheckFilters returned nil filters")
 			}
-			if *got != tt.want {
+			if !reflect.DeepEqual(*got, tt.want) {
 				t.Fatalf("filters = %+v, want %+v", *got, tt.want)
 			}
 		})
