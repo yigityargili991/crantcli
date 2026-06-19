@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"crantcli/internal/seatable"
@@ -20,6 +21,26 @@ func TestResolveAddRegionFilter(t *testing.T) {
 
 	t.Run("conflicting flags", func(t *testing.T) {
 		_, err := resolveAddRegionFilter("CX", "LX")
+		if err == nil {
+			t.Fatal("expected conflict error when both region and bundle are set")
+		}
+	})
+}
+
+func TestResolveAddRegionFilters(t *testing.T) {
+	t.Run("multiple bundles alias regions", func(t *testing.T) {
+		got, err := resolveAddRegionFilters(nil, []string{" RW ", "RX", "RW", ""})
+		if err != nil {
+			t.Fatalf("resolveAddRegionFilters returned error: %v", err)
+		}
+		want := []string{"RW", "RX"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("resolveAddRegionFilters = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("conflicting repeated flags", func(t *testing.T) {
+		_, err := resolveAddRegionFilters([]string{"LX"}, []string{"LW"})
 		if err == nil {
 			t.Fatal("expected conflict error when both region and bundle are set")
 		}
@@ -60,6 +81,67 @@ func TestResolveAddColorBy(t *testing.T) {
 			t.Fatal("expected invalid field error")
 		}
 	})
+}
+
+func TestValidateAddOptions(t *testing.T) {
+	tests := []struct {
+		name      string
+		regions   []string
+		bundles   []string
+		color     string
+		colorBy   string
+		colorSub  bool
+		wantError string
+	}{
+		{
+			name:      "region bundle conflict",
+			regions:   []string{"CX"},
+			bundles:   []string{"LX"},
+			wantError: "--region and --bundle cannot be used together",
+		},
+		{
+			name:      "invalid color by",
+			bundles:   []string{"LX"},
+			colorBy:   "not_a_field",
+			wantError: `invalid --color-by "not_a_field"`,
+		},
+		{
+			name:      "color by conflicts with color sub",
+			bundles:   []string{"LX"},
+			colorBy:   "region",
+			colorSub:  true,
+			wantError: "--color-by and --color-sub cannot be used together",
+		},
+		{
+			name:      "invalid color",
+			bundles:   []string{"LX"},
+			color:     "#bad",
+			wantError: "invalid color",
+		},
+		{
+			name:    "valid column color by",
+			regions: []string{"CX"},
+			colorBy: "column",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAddOptions(tt.regions, tt.bundles, tt.color, tt.colorBy, tt.colorSub)
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("validateAddOptions returned error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q", tt.wantError)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantError)
+			}
+		})
+	}
 }
 
 func TestValidateAddInputs(t *testing.T) {
@@ -117,6 +199,24 @@ func TestBuildColorByGroups_DeterministicOrdering(t *testing.T) {
 	}
 }
 
+func TestBuildColorByGroupsUsesMatchedRegion(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "100", Region: "CX, LW", MatchedRegions: []string{"LW"}},
+		{RootID: "200", Region: "CX, LX", MatchedRegions: []string{"LX"}},
+	}
+
+	groups, labels := buildColorByGroups(rows, "region")
+
+	wantLabels := []string{"region=LW", "region=LX"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+	wantGroups := [][]string{{"100"}, {"200"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+}
+
 func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.T) {
 	layer := map[string]interface{}{}
 	groups := [][]string{
@@ -147,18 +247,43 @@ func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.
 	}
 }
 
+func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := [][]string{
+		{"a1", "a2"},
+		{"b1", "b2"},
+	}
+
+	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, nil, "colored", "column", false)
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	if colors["a1"] != colors["a2"] {
+		t.Fatalf("same color-by group got different colors: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+	if colors["b1"] != colors["b2"] {
+		t.Fatalf("same color-by group got different colors: b1=%v b2=%v", colors["b1"], colors["b2"])
+	}
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("different color-by groups got the same color: %v", colors["a1"])
+	}
+}
+
 func TestAddColorByFieldValue_AllFields(t *testing.T) {
 	row := seatable.NeuronRow{
-		SuperClass:  "super",
-		CellClass:   "class",
-		CellType:    "type",
-		CellSubtype: "subtype",
-		Side:        "side",
-		Region:      "region",
-		Tract:       "tract",
-		Nerve:       "nerve",
-		Hemilineage: "hemilineage",
-		Proofread:   "proofread",
+		SuperClass:   "super",
+		CellClass:    "class",
+		CellType:     "type",
+		CellSubtype:  "subtype",
+		CellInstance: "instance",
+		Side:         "side",
+		Region:       "region",
+		Tract:        "tract",
+		Nerve:        "nerve",
+		Hemilineage:  "hemilineage",
+		Proofread:    "proofread",
 	}
 
 	tests := []struct {
@@ -169,6 +294,8 @@ func TestAddColorByFieldValue_AllFields(t *testing.T) {
 		{"cell_class", "class"},
 		{"cell_type", "type"},
 		{"cell_subtype", "subtype"},
+		{"cell_instance", "instance"},
+		{"column", "ce"},
 		{"side", "side"},
 		{"region", "region"},
 		{"tract", "tract"},
@@ -182,6 +309,31 @@ func TestAddColorByFieldValue_AllFields(t *testing.T) {
 		t.Run(tt.field, func(t *testing.T) {
 			if got := addColorByFieldValue(row, tt.field); got != tt.want {
 				t.Fatalf("addColorByFieldValue(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestColumnFromCellInstance(t *testing.T) {
+	tests := []struct {
+		name     string
+		instance string
+		want     string
+	}{
+		{"regular left", "PFN_L9", "L9"},
+		{"regular right", "PFL2_R5", "R5"},
+		{"regular compound keeps last pair", "PFL1/3_R_R1R2", "R2"},
+		{"delta7", "\u03947_L6R4", "L6R4"},
+		{"delta7 longer suffix", "\u03947_L1L10R7", "10R7"},
+		{"ascii delta7", "delta7_L6R4", "L6R4"},
+		{"short regular", "L", "L"},
+		{"empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := columnFromCellInstance(tt.instance); got != tt.want {
+				t.Fatalf("columnFromCellInstance(%q) = %q, want %q", tt.instance, got, tt.want)
 			}
 		})
 	}
@@ -302,7 +454,7 @@ func TestBuildQuerySpecs_CrossProductDoesNotMutateBase(t *testing.T) {
 
 	buildQuerySpecs(base, []string{"classA"}, []string{"typeX", "typeY"})
 
-	if *base != original {
+	if !reflect.DeepEqual(*base, original) {
 		t.Errorf("buildQuerySpecs mutated base: got %+v, want %+v", *base, original)
 	}
 }

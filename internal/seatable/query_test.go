@@ -56,6 +56,42 @@ func TestQueryNeuronsPaginatesAndFiltersRegion(t *testing.T) {
 	if rows[len(rows)-1].Region != "LX, LW" {
 		t.Fatalf("last row region = %q, want %q", rows[len(rows)-1].Region, "LX, LW")
 	}
+	if rows[len(rows)-1].CellInstance != "instance-root-match" {
+		t.Fatalf("last row cell_instance = %q, want instance-root-match", rows[len(rows)-1].CellInstance)
+	}
+}
+
+func TestQueryNeuronsFiltersMultipleRegions(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			return &SQLResponse{Results: []map[string]interface{}{
+				neuronSQLRow("root-lx", []interface{}{"452098"}),
+				neuronSQLRow("root-lw", []interface{}{"645386"}),
+				neuronSQLRow("root-miss", []interface{}{"333131"}),
+			}}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	rows, err := QueryNeurons(client, &Filters{Regions: []string{"LX", "LW"}})
+	if err != nil {
+		t.Fatalf("QueryNeurons returned error: %v", err)
+	}
+
+	if got, want := len(rows), 2; got != want {
+		t.Fatalf("QueryNeurons returned %d rows, want %d", got, want)
+	}
+	if rows[0].RootID != "root-lx" || rows[1].RootID != "root-lw" {
+		t.Fatalf("root IDs = %q, %q; want root-lx, root-lw", rows[0].RootID, rows[1].RootID)
+	}
+	if got, want := strings.Join(rows[0].MatchedRegions, ","), "LX"; got != want {
+		t.Fatalf("first row MatchedRegions = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(rows[1].MatchedRegions, ","), "LW"; got != want {
+		t.Fatalf("second row MatchedRegions = %q, want %q", got, want)
+	}
 }
 
 func TestQueryDistinctRegionCountsResolvedNames(t *testing.T) {
@@ -444,17 +480,18 @@ func TestResolveSelectFilterIDSupportsNamesAndIDs(t *testing.T) {
 
 func neuronSQLRow(rootID string, region []interface{}) map[string]interface{} {
 	return map[string]interface{}{
-		"root_id":      rootID,
-		"super_class":  "central",
-		"cell_class":   "cx",
-		"cell_type":    "EPG/PEG",
-		"cell_subtype": "ER1",
-		"side":         "left",
-		"region":       region,
-		"tract":        "tract",
-		"nerve":        "nerve",
-		"hemilineage":  "hemi",
-		"proofread":    "true",
+		"root_id":       rootID,
+		"super_class":   "central",
+		"cell_class":    "cx",
+		"cell_type":     "EPG/PEG",
+		"cell_subtype":  "ER1",
+		"cell_instance": "instance-" + rootID,
+		"side":          "left",
+		"region":        region,
+		"tract":         "tract",
+		"nerve":         "nerve",
+		"hemilineage":   "hemi",
+		"proofread":     "true",
 	}
 }
 

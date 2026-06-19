@@ -15,6 +15,7 @@ var completionFields = []string{
 	"cell_class",
 	"cell_type",
 	"cell_subtype",
+	"cell_instance",
 	"side",
 	"region",
 	"tract",
@@ -22,6 +23,8 @@ var completionFields = []string{
 	"hemilineage",
 	"proofread",
 }
+
+var colorByCompletions = append(append([]string{}, completionFields...), "column")
 
 var colorCompletions = []string{
 	"colored",
@@ -147,9 +150,9 @@ func completionFilters(cmd *cobra.Command, omitField string) *seatable.Filters {
 		filters.Side = stringFlagValue(cmd, "side")
 	}
 	if omitField != "region" {
-		filters.Region = stringFlagValue(cmd, "region")
+		filters.Region = singleStringFlagValue(cmd, "region")
 		if filters.Region == "" {
-			filters.Region = stringFlagValue(cmd, "bundle")
+			filters.Region = singleStringFlagValue(cmd, "bundle")
 		}
 	}
 	if omitField != "tract" {

@@ -13,9 +13,10 @@ import (
 var Version = "dev"
 
 var rootCmd = &cobra.Command{
-	Use:     "crantcli",
-	Short:   "Query CRANT clonal raider ant connectome neurons and inject into Neuroglancer states",
-	Version: Version,
+	Use:           "crantcli",
+	Short:         "Query CRANT clonal raider ant connectome neurons and inject into Neuroglancer states",
+	Version:       Version,
+	SilenceErrors: true,
 	Long: `crantcli queries the CRANT (Clonal Raider Ant Connectome) dataset for neuron root IDs
 by classification (super_class, cell_class, cell_type, cell_subtype) and
 injects them into a Neuroglancer state JSON.

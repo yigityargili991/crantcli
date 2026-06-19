@@ -14,14 +14,28 @@ var listCmd = &cobra.Command{
 	Short: "List distinct values for a classification field",
 	Long: `List distinct values for a classification field from the CRANT dataset.
 
-Valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread
+Valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread
 
 Examples:
   crantcli list super_class --count
   crantcli list cell_class --super-class sensory --count
   crantcli list cell_type --cell-class kenyon_cell`,
 	Annotations: map[string]string{"requiresToken": "true"},
-	Args:        cobra.ExactArgs(1),
+	Args:        validateListArgs,
+}
+
+var validListFields = map[string]bool{
+	"super_class":   true,
+	"cell_class":    true,
+	"cell_type":     true,
+	"cell_subtype":  true,
+	"cell_instance": true,
+	"side":          true,
+	"region":        true,
+	"tract":         true,
+	"nerve":         true,
+	"hemilineage":   true,
+	"proofread":     true,
 }
 
 func init() {
@@ -82,6 +96,20 @@ func init() {
 	}
 
 	rootCmd.AddCommand(listCmd)
+}
+
+func validateListArgs(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+	return validateListField(args[0])
+}
+
+func validateListField(field string) error {
+	if validListFields[field] {
+		return nil
+	}
+	return fmt.Errorf("invalid field %q; valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread", field)
 }
 
 func writeDistinctResults(w io.Writer, field string, resp *seatable.SQLResponse, withCount bool) error {

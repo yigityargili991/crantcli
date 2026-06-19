@@ -119,11 +119,17 @@ crantcli add --super-class sensory --side left --color "#ff0000"
 # Color matched neurons by a metadata field
 crantcli add --super-class sensory --color-by cell_type
 
+# Color CX neurons by derived column from cell_instance
+crantcli add --region CX --color-by column
+
 # Use a named palette across color-by groups
 crantcli add --region LX --color-by side --color blue
 
 # Query by bundle/region annotation
 crantcli add --bundle LX
+
+# Query multiple bundles and color matched neurons by bundle/region
+crantcli add --bundle RW --bundle RX --bundle RY --bundle RZ --bundle LW --bundle LX --bundle LY --bundle LZ --color-by region
 
 # Replace segments instead of appending
 crantcli add --cell-type ER --replace
@@ -132,9 +138,9 @@ crantcli add --cell-type ER --replace
 crantcli add --cell-class kenyon_cell --root-ids-only
 ```
 
-**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--nerve`, `--hemilineage`, `--proofread`
+**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
 
-**Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`).
+**Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `column`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`). `column` is derived from `cell_instance`: Δ7 instances use the final 4 characters, and other instances use the final 2.
 
 **State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use the configured or built-in default template and skip stdin/clipboard/last-session state), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--replace`, `--open`
 
@@ -238,7 +244,7 @@ crantcli list cell_type --cell-class kenyon_cell
 crantcli list cell_class --super-class sensory --count
 ```
 
-Valid fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`
+Valid fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`
 
 ### `inspect` -- View state structure
 

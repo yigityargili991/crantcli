@@ -11,7 +11,7 @@ import (
 )
 
 const queryPageSize = 1000
-const maxPagedRows = 10000
+const maxPagedRows = 100000
 
 // Filters holds optional WHERE clause filters for neuron queries.
 type Filters struct {
@@ -21,6 +21,7 @@ type Filters struct {
 	CellSubtype string
 	Side        string
 	Region      string
+	Regions     []string
 	Tract       string
 	Nerve       string
 	Hemilineage string
@@ -29,9 +30,25 @@ type Filters struct {
 
 // HasAny returns true if any filter is set.
 func (f *Filters) HasAny() bool {
+	if f == nil {
+		return false
+	}
 	return f.SuperClass != "" || f.CellClass != "" || f.CellType != "" ||
-		f.CellSubtype != "" || f.Side != "" || f.Region != "" ||
+		f.CellSubtype != "" || f.Side != "" || len(f.regionValues()) > 0 ||
 		f.Tract != "" || f.Nerve != "" || f.Hemilineage != "" || f.Proofread != ""
+}
+
+func (f *Filters) regionValues() []string {
+	if f == nil {
+		return nil
+	}
+
+	values := make([]string, 0, len(f.Regions)+1)
+	if strings.TrimSpace(f.Region) != "" {
+		values = append(values, f.Region)
+	}
+	values = append(values, f.Regions...)
+	return compactUniqueStrings(values)
 }
 
 // sanitizeIdentifier strips backtick characters from SQL identifiers (table
@@ -51,6 +68,10 @@ func escapeSQL(s string) string {
 // buildWhere constructs a WHERE clause from scalar filters.
 // Region is filtered in Go because SeaTable returns it as a multi-select array.
 func buildWhere(f *Filters) string {
+	if f == nil {
+		return ""
+	}
+
 	var conditions []string
 
 	add := func(col, val string) {
@@ -81,13 +102,13 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	regionFilterID, err := resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
+	regionFilterIDs, err := resolveSelectFilterIDs(f.regionValues(), regionOpts, regionNameToID, "region")
 	if err != nil {
 		return nil, err
 	}
 
 	rowsRaw, err := executePagedSelect(client,
-		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
+		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
 		buildWhere(f),
 	)
 	if err != nil {
@@ -96,22 +117,25 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 
 	rows := make([]NeuronRow, 0, len(rowsRaw))
 	for _, r := range rowsRaw {
-		if regionFilterID != "" && !selectValueContains(r["region"], regionFilterID) {
+		if len(regionFilterIDs) > 0 && !selectValueContainsAny(r["region"], regionFilterIDs) {
 			continue
 		}
 
+		regionValues := resolveSelectValues(r["region"], regionOpts)
 		rows = append(rows, NeuronRow{
-			RootID:      toString(r["root_id"]),
-			SuperClass:  toString(r["super_class"]),
-			CellClass:   toString(r["cell_class"]),
-			CellType:    toString(r["cell_type"]),
-			CellSubtype: toString(r["cell_subtype"]),
-			Side:        toString(r["side"]),
-			Region:      resolveSelectValue(r["region"], regionOpts),
-			Tract:       toString(r["tract"]),
-			Nerve:       toString(r["nerve"]),
-			Hemilineage: toString(r["hemilineage"]),
-			Proofread:   toString(r["proofread"]),
+			RootID:         toString(r["root_id"]),
+			SuperClass:     toString(r["super_class"]),
+			CellClass:      toString(r["cell_class"]),
+			CellType:       toString(r["cell_type"]),
+			CellSubtype:    toString(r["cell_subtype"]),
+			CellInstance:   toString(r["cell_instance"]),
+			Side:           toString(r["side"]),
+			Region:         strings.Join(regionValues, ", "),
+			MatchedRegions: matchedSelectValues(r["region"], regionFilterIDs, regionOpts),
+			Tract:          toString(r["tract"]),
+			Nerve:          toString(r["nerve"]),
+			Hemilineage:    toString(r["hemilineage"]),
+			Proofread:      toString(r["proofread"]),
 		})
 	}
 	return rows, nil
@@ -121,14 +145,14 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*SQLResponse, error) {
 	validColumns := map[string]bool{
 		"super_class": true, "cell_class": true, "cell_type": true,
-		"cell_subtype": true, "side": true, "region": true,
+		"cell_subtype": true, "cell_instance": true, "side": true, "region": true,
 		"tract": true, "nerve": true, "hemilineage": true, "proofread": true,
 	}
 	if !validColumns[column] {
-		return nil, fmt.Errorf("invalid column %q; valid columns: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread", column)
+		return nil, fmt.Errorf("invalid column %q; valid columns: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread", column)
 	}
 
-	if column == "region" || f.Region != "" {
+	if column == "region" || len(f.regionValues()) > 0 {
 		return queryDistinctWithRegion(client, column, f, withCount)
 	}
 
@@ -186,10 +210,10 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 		f = &Filters{}
 	}
 
-	regionFilterID := ""
-	if f.Region != "" {
+	regionFilterIDs := []string(nil)
+	if len(f.regionValues()) > 0 {
 		var err error
-		regionFilterID, err = resolveSelectFilterID(f.Region, regionOpts, selectOptionNameMap(regionOpts), "region")
+		regionFilterIDs, err = resolveSelectFilterIDs(f.regionValues(), regionOpts, selectOptionNameMap(regionOpts), "region")
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +226,7 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 
 	rows := make([]NeuronPositionRow, 0, len(rowsRaw))
 	for _, r := range rowsRaw {
-		if regionFilterID != "" && !selectValueContains(r["region"], regionFilterID) {
+		if len(regionFilterIDs) > 0 && !selectValueContainsAny(r["region"], regionFilterIDs) {
 			continue
 		}
 
@@ -423,14 +447,14 @@ func isRootInfoKnownField(name string) bool {
 func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow, error) {
 	columns := fmt.Sprintf("`root_id`, `%s`", sanitizeIdentifier(config.SupervoxelIDColumn))
 
-	regionFilterID := ""
-	if f.Region != "" {
+	regionFilterIDs := []string(nil)
+	if len(f.regionValues()) > 0 {
 		columns += ", `region`"
 		regionOpts, regionNameToID, err := loadRegionOptions(client)
 		if err != nil {
 			return nil, err
 		}
-		regionFilterID, err = resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
+		regionFilterIDs, err = resolveSelectFilterIDs(f.regionValues(), regionOpts, regionNameToID, "region")
 		if err != nil {
 			return nil, err
 		}
@@ -443,7 +467,7 @@ func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow,
 
 	rows := make([]NeuronCaveCheckRow, 0, len(rowsRaw))
 	for _, r := range rowsRaw {
-		if regionFilterID != "" && !selectValueContains(r["region"], regionFilterID) {
+		if len(regionFilterIDs) > 0 && !selectValueContainsAny(r["region"], regionFilterIDs) {
 			continue
 		}
 		rows = append(rows, NeuronCaveCheckRow{
@@ -459,7 +483,7 @@ func queryDistinctWithRegion(client *Client, column string, f *Filters, withCoun
 	if err != nil {
 		return nil, err
 	}
-	regionFilterID, err := resolveSelectFilterID(f.Region, regionOpts, regionNameToID, "region")
+	regionFilterIDs, err := resolveSelectFilterIDs(f.regionValues(), regionOpts, regionNameToID, "region")
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +500,7 @@ func queryDistinctWithRegion(client *Client, column string, f *Filters, withCoun
 
 	counts := make(map[string]int)
 	for _, row := range rowsRaw {
-		if regionFilterID != "" && !selectValueContains(row["region"], regionFilterID) {
+		if len(regionFilterIDs) > 0 && !selectValueContainsAny(row["region"], regionFilterIDs) {
 			continue
 		}
 
@@ -585,6 +609,23 @@ func resolveSelectFilterID(input string, idToName map[string]string, nameToID ma
 	return "", fmt.Errorf("unknown %s %q", field, input)
 }
 
+func resolveSelectFilterIDs(inputs []string, idToName map[string]string, nameToID map[string]string, field string) ([]string, error) {
+	ids := make([]string, 0, len(inputs))
+	seen := make(map[string]bool, len(inputs))
+	for _, input := range inputs {
+		id, err := resolveSelectFilterID(input, idToName, nameToID, field)
+		if err != nil {
+			return nil, err
+		}
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func selectValueContains(v interface{}, targetID string) bool {
 	if targetID == "" || v == nil {
 		return false
@@ -601,6 +642,30 @@ func selectValueContains(v interface{}, targetID string) bool {
 		}
 	}
 	return false
+}
+
+func selectValueContainsAny(v interface{}, targetIDs []string) bool {
+	for _, targetID := range targetIDs {
+		if selectValueContains(v, targetID) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchedSelectValues(v interface{}, targetIDs []string, opts map[string]string) []string {
+	matches := make([]string, 0, len(targetIDs))
+	for _, targetID := range targetIDs {
+		if !selectValueContains(v, targetID) {
+			continue
+		}
+		if name, found := opts[targetID]; found {
+			matches = append(matches, name)
+			continue
+		}
+		matches = append(matches, targetID)
+	}
+	return matches
 }
 
 // resolveSelectValue converts a single- or multiple-select value (which may be
@@ -748,6 +813,24 @@ func uniqueStrings(values []string) []string {
 	seen := make(map[string]bool, len(values))
 	result := make([]string, 0, len(values))
 	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func compactUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
 		if value == "" || seen[value] {
 			continue
 		}

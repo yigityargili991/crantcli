@@ -522,6 +522,48 @@ func TestSetSegmentColorByGroups_NamedColor_ToneContinuity(t *testing.T) {
 	}
 }
 
+func TestSetSegmentColorByGroupValues_ColoredOneColorPerGroup(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := [][]string{
+		{"a1", "a2"},
+		{"b1"},
+		{"c1", "c2"},
+	}
+
+	SetSegmentColorByGroupValues(layer, groups, "colored")
+
+	colors := layer["segmentColors"].(map[string]interface{})
+	if colors["a1"] != colors["a2"] {
+		t.Fatalf("same group got different colors: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+	if colors["c1"] != colors["c2"] {
+		t.Fatalf("same group got different colors: c1=%v c2=%v", colors["c1"], colors["c2"])
+	}
+	if colors["a1"] == colors["b1"] || colors["a1"] == colors["c1"] || colors["b1"] == colors["c1"] {
+		t.Fatalf("different groups should have distinct categorical colors: %v", colors)
+	}
+}
+
+func TestSetSegmentColorByGroupValues_ColoredManyGroupsUnique(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := make([][]string, 40)
+	for i := range groups {
+		groups[i] = []string{fmt.Sprintf("id_%d", i)}
+	}
+
+	SetSegmentColorByGroupValues(layer, groups, "colored")
+
+	colors := layer["segmentColors"].(map[string]interface{})
+	seen := make(map[interface{}]bool, len(groups))
+	for i := range groups {
+		color := colors[fmt.Sprintf("id_%d", i)]
+		if seen[color] {
+			t.Fatalf("categorical color repeated at group %d: %v", i, color)
+		}
+		seen[color] = true
+	}
+}
+
 // TestSetSegmentColorByGroups_HexColor verifies hex color assigns the same value to all IDs.
 func TestSetSegmentColorByGroups_HexColor(t *testing.T) {
 	layer := map[string]interface{}{}

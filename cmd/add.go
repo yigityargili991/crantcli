@@ -66,8 +66,8 @@ func init() {
 		addCellTypes   []string
 		addCellSubtype string
 		addSide        string
-		addRegion      string
-		addBundle      string
+		addRegions     []string
+		addBundles     []string
 		addTract       string
 		addProofread   string
 		addState       string
@@ -87,8 +87,8 @@ func init() {
 	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
 	addCmd.Flags().StringVar(&addCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
 	addCmd.Flags().StringVar(&addSide, "side", "", "Filter by side")
-	addCmd.Flags().StringVar(&addRegion, "region", "", "Filter by region")
-	addCmd.Flags().StringVar(&addBundle, "bundle", "", "Filter by bundle region annotation (alias of --region, e.g. LX)")
+	addCmd.Flags().StringArrayVar(&addRegions, "region", nil, "Filter by region (repeatable for multiple regions)")
+	addCmd.Flags().StringArrayVar(&addBundles, "bundle", nil, "Filter by bundle region annotation (repeatable alias of --region, e.g. LX)")
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
@@ -96,11 +96,17 @@ func init() {
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
-	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread")
+	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
+	addCmd.Args = func(cmd *cobra.Command, args []string) error {
+		if err := cobra.NoArgs(cmd, args); err != nil {
+			return err
+		}
+		return validateAddOptions(addRegions, addBundles, addColor, addColorBy, addColorSub)
+	}
 	addCmd.ValidArgsFunction = noFileCompletion
 	registerClassificationFlagCompletions(addCmd,
 		"super-class",
@@ -114,11 +120,11 @@ func init() {
 		"proofread",
 	)
 	mustRegisterFlagCompletion(addCmd, "color", completeStaticValues(colorCompletions))
-	mustRegisterFlagCompletion(addCmd, "color-by", completeStaticValues(completionFields))
+	mustRegisterFlagCompletion(addCmd, "color-by", completeStaticValues(colorByCompletions))
 	mustRegisterFlagCompletion(addCmd, "layer", noFileCompletion)
 
 	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		effectiveRegion, err := resolveAddRegionFilter(addRegion, addBundle)
+		effectiveRegions, err := resolveAddRegionFilters(addRegions, addBundles)
 		if err != nil {
 			return err
 		}
@@ -149,7 +155,7 @@ func init() {
 			SuperClass:  addSuperClass,
 			CellSubtype: addCellSubtype,
 			Side:        addSide,
-			Region:      effectiveRegion,
+			Regions:     effectiveRegions,
 			Tract:       addTract,
 			Proofread:   addProofread,
 		}
@@ -290,15 +296,40 @@ func extractRootIDsWithSubtype(rows []seatable.NeuronRow) ([]string, map[string]
 }
 
 func resolveAddRegionFilter(region, bundle string) (string, error) {
-	region = strings.TrimSpace(region)
-	bundle = strings.TrimSpace(bundle)
-	if region != "" && bundle != "" {
-		return "", fmt.Errorf("--region and --bundle cannot be used together")
+	regions, err := resolveAddRegionFilters([]string{region}, []string{bundle})
+	if err != nil {
+		return "", err
 	}
-	if bundle != "" {
-		return bundle, nil
+	if len(regions) == 0 {
+		return "", nil
 	}
-	return region, nil
+	return regions[0], nil
+}
+
+func resolveAddRegionFilters(regions, bundles []string) ([]string, error) {
+	regions = compactAddValues(regions)
+	bundles = compactAddValues(bundles)
+	if len(regions) > 0 && len(bundles) > 0 {
+		return nil, fmt.Errorf("--region and --bundle cannot be used together")
+	}
+	if len(bundles) > 0 {
+		return bundles, nil
+	}
+	return regions, nil
+}
+
+func compactAddValues(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
@@ -313,22 +344,37 @@ func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
 		return "", nil
 	}
 	if !validAddColorByFields[colorBy] {
-		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, side, region, tract, nerve, hemilineage, proofread", colorBy)
+		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread", colorBy)
 	}
 	return colorBy, nil
 }
 
+func validateAddOptions(regions, bundles []string, color, colorBy string, colorSub bool) error {
+	if _, err := resolveAddRegionFilters(regions, bundles); err != nil {
+		return err
+	}
+	if _, err := nglstate.NormalizeColorInput(color); err != nil {
+		return err
+	}
+	if _, err := resolveAddColorBy(colorBy, colorSub); err != nil {
+		return err
+	}
+	return nil
+}
+
 var validAddColorByFields = map[string]bool{
-	"super_class":  true,
-	"cell_class":   true,
-	"cell_type":    true,
-	"cell_subtype": true,
-	"side":         true,
-	"region":       true,
-	"tract":        true,
-	"nerve":        true,
-	"hemilineage":  true,
-	"proofread":    true,
+	"super_class":   true,
+	"cell_class":    true,
+	"cell_type":     true,
+	"cell_subtype":  true,
+	"cell_instance": true,
+	"column":        true,
+	"side":          true,
+	"region":        true,
+	"tract":         true,
+	"nerve":         true,
+	"hemilineage":   true,
+	"proofread":     true,
 }
 
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
@@ -379,10 +425,13 @@ func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes []string) []
 }
 
 func applyAddSegmentColors(layer map[string]interface{}, allRootIDs []string, groups [][]string, subtypeMap map[string]string, normalizedColor, colorByField string, colorSub bool) {
-	// Repeated class/type flags, --color-by, and --color-sub all need
-	// group-aware base coloring. For --color-by, keep group-aware coloring even
-	// when only one field value is present so "colored" uses a palette.
-	if (len(groups) > 1 || colorByField != "" || colorSub) && normalizedColor != "" {
+	if colorByField != "" && normalizedColor != "" {
+		nglstate.SetSegmentColorByGroupValues(layer, groups, normalizedColor)
+		return
+	}
+
+	// Repeated class/type flags and --color-sub need group-aware base coloring.
+	if (len(groups) > 1 || colorSub) && normalizedColor != "" {
 		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
 	} else {
 		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
@@ -443,9 +492,16 @@ func addColorByFieldValue(row seatable.NeuronRow, field string) string {
 		return row.CellType
 	case "cell_subtype":
 		return row.CellSubtype
+	case "cell_instance":
+		return row.CellInstance
+	case "column":
+		return columnFromCellInstance(row.CellInstance)
 	case "side":
 		return row.Side
 	case "region":
+		if len(row.MatchedRegions) > 0 {
+			return row.MatchedRegions[0]
+		}
 		return row.Region
 	case "tract":
 		return row.Tract
@@ -458,4 +514,23 @@ func addColorByFieldValue(row seatable.NeuronRow, field string) string {
 	default:
 		return ""
 	}
+}
+
+func columnFromCellInstance(instance string) string {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return ""
+	}
+	if strings.HasPrefix(instance, "\u03947_") || strings.HasPrefix(strings.ToLower(instance), "delta7_") {
+		return suffixRunes(instance, 4)
+	}
+	return suffixRunes(instance, 2)
+}
+
+func suffixRunes(value string, n int) string {
+	runes := []rune(value)
+	if len(runes) <= n {
+		return value
+	}
+	return string(runes[len(runes)-n:])
 }

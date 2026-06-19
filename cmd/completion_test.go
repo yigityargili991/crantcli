@@ -14,7 +14,7 @@ import (
 func TestCompleteListFieldsFiltersByPrefix(t *testing.T) {
 	comps, directive := completeListFields(nil, nil, "cell_")
 
-	want := []string{"cell_class", "cell_type", "cell_subtype"}
+	want := []string{"cell_class", "cell_type", "cell_subtype", "cell_instance"}
 	if !reflect.DeepEqual(comps, want) {
 		t.Fatalf("completeListFields() = %v, want %v", comps, want)
 	}
