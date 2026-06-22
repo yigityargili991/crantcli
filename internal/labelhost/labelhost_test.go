@@ -205,6 +205,39 @@ func TestPublishHook_BadCommandQuoting(t *testing.T) {
 	}
 }
 
+func TestPublishGistDeletesCreatedGistWhenRawURLLookupFails(t *testing.T) {
+	withManifest(t, time.Now())
+	var deleted []string
+	run = func(_ []byte, name string, args ...string) ([]byte, error) {
+		if name != "gh" {
+			t.Fatalf("unexpected command %q", name)
+		}
+		if len(args) >= 2 && args[0] == "gist" && args[1] == "create" {
+			return []byte("https://gist.github.com/user/abc123\n"), nil
+		}
+		if len(args) >= 1 && args[0] == "api" {
+			return nil, &fakeErr{"temporary api failure"}
+		}
+		if len(args) >= 3 && args[0] == "gist" && args[1] == "delete" {
+			deleted = append(deleted, args[2])
+			return nil, nil
+		}
+		t.Fatalf("unexpected gh args %v", args)
+		return nil, nil
+	}
+
+	_, err := Publish("", []byte("{}"))
+	if err == nil {
+		t.Fatal("expected raw URL lookup error")
+	}
+	if !strings.Contains(err.Error(), "reading gist raw url") {
+		t.Fatalf("error = %q, want raw URL lookup context", err.Error())
+	}
+	if !reflect.DeepEqual(deleted, []string{"abc123"}) {
+		t.Fatalf("deleted gists = %v, want [abc123]", deleted)
+	}
+}
+
 func TestParseGistID(t *testing.T) {
 	tests := []struct{ out, want string }{
 		{"https://gist.github.com/user/abc123\n", "abc123"},
@@ -225,6 +258,9 @@ func TestIsGone(t *testing.T) {
 	}
 	if isGone(&fakeErr{"connection refused"}) {
 		t.Error("transient error should not be treated as gone")
+	}
+	if isGone(&fakeErr{`hook: exec: "hook": executable file not found`}) {
+		t.Error("missing cleanup executable should not be treated as gone")
 	}
 }
 

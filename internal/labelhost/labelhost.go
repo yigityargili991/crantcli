@@ -113,14 +113,21 @@ func publishGist(info []byte) (Published, error) {
 
 	rawOut, err := run(nil, "gh", "api", "gists/"+id, "--jq", `.files["info"].raw_url`)
 	if err != nil {
-		return Published{}, fmt.Errorf("reading gist raw url: %w", err)
+		return Published{}, cleanupCreatedGist(id, fmt.Errorf("reading gist raw url: %w", err))
 	}
 	raw := strings.TrimSpace(string(rawOut))
 	if !strings.HasSuffix(raw, "/info") {
-		return Published{}, fmt.Errorf("unexpected gist raw url %q (want a .../info path)", raw)
+		return Published{}, cleanupCreatedGist(id, fmt.Errorf("unexpected gist raw url %q (want a .../info path)", raw))
 	}
 	base := strings.TrimSuffix(raw, "info")
 	return Published{URL: base + "|neuroglancer-precomputed:", ID: id, Kind: kindGist}, nil
+}
+
+func cleanupCreatedGist(id string, cause error) error {
+	if err := deleteGist(id); err != nil {
+		return fmt.Errorf("%w; additionally failed to delete created gist %s: %v", cause, id, err)
+	}
+	return cause
 }
 
 func deleteGist(id string) error {
@@ -399,6 +406,9 @@ func deleteEntry(e entry, hookCmd string) error {
 // which case dropping its manifest entry is safe.
 func isGone(err error) bool {
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "executable file not found") {
+		return false
+	}
 	return strings.Contains(msg, "not found") ||
 		strings.Contains(msg, "404") ||
 		strings.Contains(msg, "could not resolve")
