@@ -149,6 +149,9 @@ func publishHook(hookCmd string, info []byte) (Published, error) {
 	if res.URL == "" {
 		return Published{}, fmt.Errorf("publish hook returned an empty url")
 	}
+	if res.ID == "" {
+		return Published{}, fmt.Errorf("publish hook returned an empty id")
+	}
 	return Published{URL: res.URL, ID: res.ID, Kind: kindHook}, nil
 }
 

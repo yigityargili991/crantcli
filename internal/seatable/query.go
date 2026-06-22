@@ -523,14 +523,17 @@ func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow,
 }
 
 func queryDistinctWithRegion(client *Client, column string, f *Filters, withCount bool) (*SQLResponse, error) {
-	regionOpts, regionNameToID, err := loadRegionOptions(client)
+	meta, err := client.FetchMetadata()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
 	}
+	regionOpts := SelectOptionMap(meta, "region")
+	regionNameToID := SelectOptionNameMap(meta, "region")
 	regionFilterIDs, err := resolveSelectFilterIDs(f.regionValues(), regionOpts, regionNameToID, "region")
 	if err != nil {
 		return nil, err
 	}
+	columnOpts := SelectOptionMap(meta, column)
 
 	selectColumns := fmt.Sprintf("`%s`, `region`", column)
 	if column == "region" {
@@ -559,7 +562,7 @@ func queryDistinctWithRegion(client *Client, column string, f *Filters, withCoun
 			continue
 		}
 
-		value := toString(row[column])
+		value := resolveSelectValue(row[column], columnOpts)
 		if value == "" {
 			continue
 		}

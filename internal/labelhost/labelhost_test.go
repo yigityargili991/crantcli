@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -157,6 +158,20 @@ func TestPublishHook_BadOutput(t *testing.T) {
 	run = func([]byte, string, ...string) ([]byte, error) { return []byte("not json"), nil }
 	if _, err := Publish("hook", []byte("{}")); err == nil {
 		t.Fatal("expected error for non-JSON hook output")
+	}
+}
+
+func TestPublishHook_EmptyID(t *testing.T) {
+	withManifest(t, time.Now())
+	run = func([]byte, string, ...string) ([]byte, error) {
+		return []byte(`{"url":"https://host/p/|neuroglancer-precomputed:"}`), nil
+	}
+	_, err := Publish("hook", []byte("{}"))
+	if err == nil {
+		t.Fatal("expected error for empty hook id")
+	}
+	if !strings.Contains(err.Error(), "empty id") {
+		t.Fatalf("error = %q, want empty id message", err.Error())
 	}
 }
 

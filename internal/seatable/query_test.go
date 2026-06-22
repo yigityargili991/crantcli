@@ -205,6 +205,48 @@ func TestQueryDistinctSideResolvesOptionNamesSortedByName(t *testing.T) {
 	}
 }
 
+func TestQueryDistinctSideWithRegionFilterResolvesOptionNamesWithCount(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			if !strings.Contains(sql, "`side`, `region`") {
+				t.Fatalf("expected side and region to be selected for Go-side region filtering, got %q", sql)
+			}
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{"side": "553927", "region": []interface{}{"452098"}},
+					{"side": "553927", "region": []interface{}{"452098", "645386"}},
+					{"side": "884118", "region": []interface{}{"452098"}},
+					{"side": "884118", "region": []interface{}{"645386"}},
+				},
+			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	resp, err := QueryDistinct(client, "side", &Filters{Region: "LX"}, true)
+	if err != nil {
+		t.Fatalf("QueryDistinct returned error: %v", err)
+	}
+
+	if got, want := len(resp.Results), 2; got != want {
+		t.Fatalf("len(resp.Results) = %d, want %d", got, want)
+	}
+	if got := resp.Results[0]["side"]; got != "left" {
+		t.Fatalf("first side = %v, want left", got)
+	}
+	if got := resp.Results[0]["count"]; got != 2 {
+		t.Fatalf("first count = %v, want 2", got)
+	}
+	if got := resp.Results[1]["side"]; got != "right" {
+		t.Fatalf("second side = %v, want right", got)
+	}
+	if got := resp.Results[1]["count"]; got != 1 {
+		t.Fatalf("second count = %v, want 1", got)
+	}
+}
+
 func TestExecutePagedSelectAllowsExactSafetyLimit(t *testing.T) {
 	client := &Client{
 		executeSQLFunc: func(sql string) (*SQLResponse, error) {
