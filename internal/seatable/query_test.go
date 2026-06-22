@@ -127,6 +127,84 @@ func TestQueryDistinctRegionCountsResolvedNames(t *testing.T) {
 	}
 }
 
+func TestQueryDistinctSideResolvesOptionNamesWithCount(t *testing.T) {
+	var gotSQL string
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			gotSQL = sql
+			// SeaTable groups by the stored single-select option IDs.
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{"side": "553927", "count": float64(120)},
+					{"side": "884118", "count": float64(50)},
+				},
+			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	resp, err := QueryDistinct(client, "side", &Filters{}, true)
+	if err != nil {
+		t.Fatalf("QueryDistinct returned error: %v", err)
+	}
+
+	if strings.Contains(gotSQL, "OFFSET") {
+		t.Fatalf("expected single GROUP BY query for side, got paged select: %q", gotSQL)
+	}
+	if got, want := len(resp.Results), 2; got != want {
+		t.Fatalf("len(resp.Results) = %d, want %d", got, want)
+	}
+	if got := resp.Results[0]["side"]; got != "left" {
+		t.Fatalf("first side = %v, want left", got)
+	}
+	if got := resp.Results[0]["count"]; got != 120 {
+		t.Fatalf("first count = %v, want 120", got)
+	}
+	if got := resp.Results[1]["side"]; got != "right" {
+		t.Fatalf("second side = %v, want right", got)
+	}
+	if got := resp.Results[1]["count"]; got != 50 {
+		t.Fatalf("second count = %v, want 50", got)
+	}
+}
+
+func TestQueryDistinctSideResolvesOptionNamesSortedByName(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			// Returned in option-ID order; resolved names must sort alphabetically.
+			return &SQLResponse{
+				Results: []map[string]interface{}{
+					{"side": "884118"},
+					{"side": "553927"},
+				},
+			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	resp, err := QueryDistinct(client, "side", &Filters{}, false)
+	if err != nil {
+		t.Fatalf("QueryDistinct returned error: %v", err)
+	}
+
+	if got, want := len(resp.Results), 2; got != want {
+		t.Fatalf("len(resp.Results) = %d, want %d", got, want)
+	}
+	if got := resp.Results[0]["side"]; got != "left" {
+		t.Fatalf("first side = %v, want left", got)
+	}
+	if got := resp.Results[1]["side"]; got != "right" {
+		t.Fatalf("second side = %v, want right", got)
+	}
+	if _, ok := resp.Results[0]["count"]; ok {
+		t.Fatal("distinct-without-count result unexpectedly includes count")
+	}
+}
+
 func TestExecutePagedSelectAllowsExactSafetyLimit(t *testing.T) {
 	client := &Client{
 		executeSQLFunc: func(sql string) (*SQLResponse, error) {
@@ -534,6 +612,15 @@ func regionMetadata() *MetadataResponse {
 									{ID: "333131", Name: "CX"},
 									{ID: "645386", Name: "LW"},
 									{ID: "452098", Name: "LX"},
+								},
+							},
+						},
+						{
+							Name: "side",
+							Data: &ColumnData{
+								Options: []SelectOption{
+									{ID: "553927", Name: "left"},
+									{ID: "884118", Name: "right"},
 								},
 							},
 						},

@@ -107,6 +107,14 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 		return nil, err
 	}
 
+	// side is a single-select column; resolve its option IDs to names. Metadata
+	// is cached, so this does not incur an extra request.
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	sideOpts := SelectOptionMap(meta, "side")
+
 	rowsRaw, err := executePagedSelect(client,
 		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
 		buildWhere(f),
@@ -129,7 +137,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			CellType:       toString(r["cell_type"]),
 			CellSubtype:    toString(r["cell_subtype"]),
 			CellInstance:   toString(r["cell_instance"]),
-			Side:           toString(r["side"]),
+			Side:           resolveSelectValue(r["side"], sideOpts),
 			Region:         strings.Join(regionValues, ", "),
 			MatchedRegions: matchedSelectValues(r["region"], regionFilterIDs, regionOpts),
 			Tract:          toString(r["tract"]),
@@ -168,7 +176,43 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 			safeCol, safeTable, buildWhere(f), safeCol)
 	}
 
-	return client.ExecuteSQL(sql)
+	resp, err := client.ExecuteSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+
+	return resolveDistinctSelectValues(client, column, resp, withCount)
+}
+
+// resolveDistinctSelectValues maps single-select option IDs in a distinct/count
+// response to their option names (e.g. side: "553927" -> "left"), aggregating
+// counts under the resolved name. Columns without select options (plain text
+// columns) are returned unchanged, so this is a no-op for them.
+func resolveDistinctSelectValues(client *Client, column string, resp *SQLResponse, withCount bool) (*SQLResponse, error) {
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+
+	opts := SelectOptionMap(meta, column)
+	if len(opts) == 0 {
+		return resp, nil
+	}
+
+	counts := make(map[string]int)
+	for _, row := range resp.Results {
+		name := resolveSelectValue(row[column], opts)
+		if name == "" {
+			continue
+		}
+		if withCount {
+			counts[name] += toInt(row["count"])
+		} else {
+			counts[name]++
+		}
+	}
+
+	return buildDistinctResponse(column, counts, withCount), nil
 }
 
 // QueryNeuronPosition queries a single neuron's position by root ID.
@@ -802,6 +846,21 @@ func toString(v interface{}) string {
 		return strings.Join(parts, ", ")
 	default:
 		return fmt.Sprintf("%v", v)
+	}
+}
+
+// toInt coerces a SQL aggregate value (COUNT(*) decodes from JSON as float64)
+// to an int, returning 0 for unexpected types.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	default:
+		return 0
 	}
 }
 

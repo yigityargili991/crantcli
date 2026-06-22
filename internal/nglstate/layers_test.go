@@ -57,6 +57,125 @@ func TestAddSegments(t *testing.T) {
 	}
 }
 
+func TestEnsureSegmentPropertiesSource(t *testing.T) {
+	const url = "precomputed://https://host/raw/sha/|neuroglancer-precomputed:"
+	grapheneObj := map[string]interface{}{
+		"url":   "graphene://middleauth+https://x/segmentation/table/y",
+		"state": map[string]interface{}{"merge": map[string]interface{}{}},
+	}
+
+	tests := []struct {
+		name     string
+		layer    map[string]interface{}
+		expected []interface{}
+		wantErr  bool
+	}{
+		{
+			name:     "string source becomes array",
+			layer:    map[string]interface{}{"source": "graphene://x"},
+			expected: []interface{}{"graphene://x", map[string]interface{}{"url": url}},
+		},
+		{
+			name:     "object source preserved at index 0",
+			layer:    map[string]interface{}{"source": grapheneObj},
+			expected: []interface{}{grapheneObj, map[string]interface{}{"url": url}},
+		},
+		{
+			name:     "appends to existing array",
+			layer:    map[string]interface{}{"source": []interface{}{"graphene://x"}},
+			expected: []interface{}{"graphene://x", map[string]interface{}{"url": url}},
+		},
+		{
+			name:     "idempotent when url already present as object",
+			layer:    map[string]interface{}{"source": []interface{}{"graphene://x", map[string]interface{}{"url": url}}},
+			expected: []interface{}{"graphene://x", map[string]interface{}{"url": url}},
+		},
+		{
+			name:     "idempotent when url already present as string",
+			layer:    map[string]interface{}{"source": []interface{}{url}},
+			expected: []interface{}{url},
+		},
+		{
+			name:    "missing source errors",
+			layer:   map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name:    "unsupported source type errors",
+			layer:   map[string]interface{}{"source": 42},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := EnsureSegmentPropertiesSource(tt.layer, url, nil)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := tt.layer["source"]
+			if !reflect.DeepEqual(got, tt.expected) {
+				t.Errorf("got %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestEnsureSegmentPropertiesSource_EmptyURL(t *testing.T) {
+	layer := map[string]interface{}{"source": "graphene://x"}
+	if err := EnsureSegmentPropertiesSource(layer, "", nil); err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+}
+
+func TestEnsureSegmentPropertiesSource_ReplacesPriorManagedGist(t *testing.T) {
+	// Gist sources are recognized by heuristic even without priorURLs.
+	oldURL := "https://gist.githubusercontent.com/u/OLD/raw/sha/|neuroglancer-precomputed:"
+	newURL := "https://gist.githubusercontent.com/u/NEW/raw/sha/|neuroglancer-precomputed:"
+	layer := map[string]interface{}{
+		"source": []interface{}{
+			"graphene://x",
+			map[string]interface{}{"url": oldURL},
+		},
+	}
+
+	if err := EnsureSegmentPropertiesSource(layer, newURL, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v (old gist source should be replaced)", got, want)
+	}
+}
+
+func TestEnsureSegmentPropertiesSource_ReplacesPriorURL(t *testing.T) {
+	// Non-gist (hook) sources are recognized via priorURLs.
+	oldURL := "https://my-host.example/labels/v1/|neuroglancer-precomputed:"
+	newURL := "https://my-host.example/labels/v2/|neuroglancer-precomputed:"
+	layer := map[string]interface{}{
+		"source": []interface{}{
+			"graphene://x",
+			map[string]interface{}{"url": oldURL},
+		},
+	}
+
+	if err := EnsureSegmentPropertiesSource(layer, newURL, []string{oldURL}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v (old hook source should be replaced via priorURLs)", got, want)
+	}
+}
+
 func TestReplaceSegments(t *testing.T) {
 	tests := []struct {
 		name         string
