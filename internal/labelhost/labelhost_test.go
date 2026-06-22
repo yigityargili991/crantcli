@@ -153,6 +153,25 @@ func TestPublishHook(t *testing.T) {
 	}
 }
 
+func TestPublishHook_QuotedCommand(t *testing.T) {
+	withManifest(t, time.Now())
+	var gotArgs []string
+	run = func(_ []byte, name string, args ...string) ([]byte, error) {
+		gotArgs = append([]string{name}, args...)
+		return []byte(`{"url":"https://host/p/|neuroglancer-precomputed:","id":"h1"}`), nil
+	}
+
+	_, err := Publish(`python3 "/tmp/my hook.py" --label 'two words' escaped\ space`, []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"python3", "/tmp/my hook.py", "--label", "two words", "escaped space", "publish"}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Errorf("hook argv = %v, want %v", gotArgs, want)
+	}
+}
+
 func TestPublishHook_BadOutput(t *testing.T) {
 	withManifest(t, time.Now())
 	run = func([]byte, string, ...string) ([]byte, error) { return []byte("not json"), nil }
@@ -172,6 +191,17 @@ func TestPublishHook_EmptyID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "empty id") {
 		t.Fatalf("error = %q, want empty id message", err.Error())
+	}
+}
+
+func TestPublishHook_BadCommandQuoting(t *testing.T) {
+	withManifest(t, time.Now())
+	_, err := Publish(`python3 "/tmp/my hook.py`, []byte("{}"))
+	if err == nil {
+		t.Fatal("expected error for unterminated quote")
+	}
+	if !strings.Contains(err.Error(), "unterminated quote") {
+		t.Fatalf("error = %q, want unterminated quote message", err.Error())
 	}
 }
 

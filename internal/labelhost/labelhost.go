@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -134,7 +135,10 @@ type hookResult struct {
 }
 
 func publishHook(hookCmd string, info []byte) (Published, error) {
-	name, args := splitHook(hookCmd)
+	name, args, err := splitHook(hookCmd)
+	if err != nil {
+		return Published{}, err
+	}
 	if name == "" {
 		return Published{}, fmt.Errorf("empty --labels-hook command")
 	}
@@ -156,22 +160,92 @@ func publishHook(hookCmd string, info []byte) (Published, error) {
 }
 
 func deleteHook(hookCmd, id string) error {
-	name, args := splitHook(hookCmd)
+	name, args, err := splitHook(hookCmd)
+	if err != nil {
+		return err
+	}
 	if name == "" {
 		return fmt.Errorf("no --labels-hook configured to clean hook-published source %q", id)
 	}
-	_, err := run(nil, name, append(args, "clean", id)...)
+	_, err = run(nil, name, append(args, "clean", id)...)
 	return err
 }
 
 // splitHook splits a hook command string into its executable and arguments,
-// returning a fresh args slice so callers can safely append.
-func splitHook(hookCmd string) (string, []string) {
-	fields := strings.Fields(hookCmd)
-	if len(fields) == 0 {
-		return "", nil
+// honoring shell-style quotes and returning a fresh args slice so callers can
+// safely append.
+func splitHook(hookCmd string) (string, []string, error) {
+	fields, err := splitHookFields(hookCmd)
+	if err != nil {
+		return "", nil, fmt.Errorf("parsing --labels-hook: %w", err)
 	}
-	return fields[0], append([]string{}, fields[1:]...)
+	if len(fields) == 0 {
+		return "", nil, nil
+	}
+	return fields[0], append([]string{}, fields[1:]...), nil
+}
+
+func splitHookFields(s string) ([]string, error) {
+	var fields []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	haveField := false
+
+	flush := func() {
+		fields = append(fields, current.String())
+		current.Reset()
+		haveField = false
+	}
+
+	for _, r := range s {
+		if escaped {
+			current.WriteRune(r)
+			haveField = true
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			if quote == '"' && r == '\\' {
+				escaped = true
+				continue
+			}
+			current.WriteRune(r)
+			haveField = true
+			continue
+		}
+
+		switch {
+		case r == '\\':
+			escaped = true
+			haveField = true
+		case r == '\'' || r == '"':
+			quote = r
+			haveField = true
+		case unicode.IsSpace(r):
+			if haveField {
+				flush()
+			}
+		default:
+			current.WriteRune(r)
+			haveField = true
+		}
+	}
+
+	if escaped {
+		return nil, fmt.Errorf("dangling escape")
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("unterminated quote")
+	}
+	if haveField {
+		flush()
+	}
+	return fields, nil
 }
 
 // parseGistID extracts the gist ID (last path segment) from gh's output URL.
