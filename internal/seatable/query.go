@@ -96,6 +96,30 @@ func buildWhere(f *Filters) string {
 	return " WHERE " + strings.Join(conditions, " AND ")
 }
 
+func filtersWithResolvedSideFromClient(client *Client, f *Filters) (*Filters, error) {
+	if f == nil || strings.TrimSpace(f.Side) == "" {
+		return f, nil
+	}
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	return filtersWithResolvedSide(f, meta)
+}
+
+func filtersWithResolvedSide(f *Filters, meta *MetadataResponse) (*Filters, error) {
+	if f == nil || strings.TrimSpace(f.Side) == "" {
+		return f, nil
+	}
+	sideID, err := resolveSelectFilterID(f.Side, SelectOptionMap(meta, "side"), SelectOptionNameMap(meta, "side"), "side")
+	if err != nil {
+		return nil, err
+	}
+	resolved := *f
+	resolved.Side = sideID
+	return &resolved, nil
+}
+
 // QueryNeurons queries root IDs matching the given filters.
 func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 	regionOpts, regionNameToID, err := loadRegionOptions(client)
@@ -107,9 +131,21 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 		return nil, err
 	}
 
+	// side is a single-select column; resolve its option IDs to names. Metadata
+	// is cached, so this does not incur an extra request.
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	sideOpts := SelectOptionMap(meta, "side")
+	sqlFilters, err := filtersWithResolvedSide(f, meta)
+	if err != nil {
+		return nil, err
+	}
+
 	rowsRaw, err := executePagedSelect(client,
 		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
-		buildWhere(f),
+		buildWhere(sqlFilters),
 	)
 	if err != nil {
 		return nil, err
@@ -129,7 +165,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			CellType:       toString(r["cell_type"]),
 			CellSubtype:    toString(r["cell_subtype"]),
 			CellInstance:   toString(r["cell_instance"]),
-			Side:           toString(r["side"]),
+			Side:           resolveSelectValue(r["side"], sideOpts),
 			Region:         strings.Join(regionValues, ", "),
 			MatchedRegions: matchedSelectValues(r["region"], regionFilterIDs, regionOpts),
 			Tract:          toString(r["tract"]),
@@ -156,19 +192,59 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 		return queryDistinctWithRegion(client, column, f, withCount)
 	}
 
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	sqlFilters, err := filtersWithResolvedSide(f, meta)
+	if err != nil {
+		return nil, err
+	}
+
 	safeCol := sanitizeIdentifier(column)
 	safeTable := sanitizeIdentifier(config.SeaTableTable)
 
 	var sql string
 	if withCount {
 		sql = fmt.Sprintf("SELECT `%s`, COUNT(*) as count FROM `%s`%s GROUP BY `%s` ORDER BY count DESC LIMIT 10000",
-			safeCol, safeTable, buildWhere(f), safeCol)
+			safeCol, safeTable, buildWhere(sqlFilters), safeCol)
 	} else {
 		sql = fmt.Sprintf("SELECT DISTINCT `%s` FROM `%s`%s ORDER BY `%s` LIMIT 10000",
-			safeCol, safeTable, buildWhere(f), safeCol)
+			safeCol, safeTable, buildWhere(sqlFilters), safeCol)
 	}
 
-	return client.ExecuteSQL(sql)
+	resp, err := client.ExecuteSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+
+	return resolveDistinctSelectValues(meta, column, resp, withCount), nil
+}
+
+// resolveDistinctSelectValues maps single-select option IDs in a distinct/count
+// response to their option names (e.g. side: "553927" -> "left"), aggregating
+// counts under the resolved name. Columns without select options (plain text
+// columns) are returned unchanged, so this is a no-op for them.
+func resolveDistinctSelectValues(meta *MetadataResponse, column string, resp *SQLResponse, withCount bool) *SQLResponse {
+	opts := SelectOptionMap(meta, column)
+	if len(opts) == 0 {
+		return resp
+	}
+
+	counts := make(map[string]int)
+	for _, row := range resp.Results {
+		name := resolveSelectValue(row[column], opts)
+		if name == "" {
+			continue
+		}
+		if withCount {
+			counts[name] += toInt(row["count"])
+		} else {
+			counts[name]++
+		}
+	}
+
+	return buildDistinctResponse(column, counts, withCount)
 }
 
 // QueryNeuronPosition queries a single neuron's position by root ID.
@@ -219,7 +295,12 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 		}
 	}
 
-	rowsRaw, err := executePagedSelect(client, "`root_id`, `region`, `cell_type`, `side`, `position`", buildWhere(f))
+	sqlFilters, err := filtersWithResolvedSideFromClient(client, f)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsRaw, err := executePagedSelect(client, "`root_id`, `region`, `cell_type`, `side`, `position`", buildWhere(sqlFilters))
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +541,12 @@ func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow,
 		}
 	}
 
-	rowsRaw, err := executePagedSelect(client, columns, buildWhere(f))
+	sqlFilters, err := filtersWithResolvedSideFromClient(client, f)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsRaw, err := executePagedSelect(client, columns, buildWhere(sqlFilters))
 	if err != nil {
 		return nil, err
 	}
@@ -479,11 +565,18 @@ func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow,
 }
 
 func queryDistinctWithRegion(client *Client, column string, f *Filters, withCount bool) (*SQLResponse, error) {
-	regionOpts, regionNameToID, err := loadRegionOptions(client)
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	regionOpts := SelectOptionMap(meta, "region")
+	regionNameToID := SelectOptionNameMap(meta, "region")
+	regionFilterIDs, err := resolveSelectFilterIDs(f.regionValues(), regionOpts, regionNameToID, "region")
 	if err != nil {
 		return nil, err
 	}
-	regionFilterIDs, err := resolveSelectFilterIDs(f.regionValues(), regionOpts, regionNameToID, "region")
+	columnOpts := SelectOptionMap(meta, column)
+	sqlFilters, err := filtersWithResolvedSide(f, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +586,7 @@ func queryDistinctWithRegion(client *Client, column string, f *Filters, withCoun
 		selectColumns = "`region`"
 	}
 
-	rowsRaw, err := executePagedSelect(client, selectColumns, buildWhere(f))
+	rowsRaw, err := executePagedSelect(client, selectColumns, buildWhere(sqlFilters))
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +608,7 @@ func queryDistinctWithRegion(client *Client, column string, f *Filters, withCoun
 			continue
 		}
 
-		value := toString(row[column])
+		value := resolveSelectValue(row[column], columnOpts)
 		if value == "" {
 			continue
 		}
@@ -802,6 +895,21 @@ func toString(v interface{}) string {
 		return strings.Join(parts, ", ")
 	default:
 		return fmt.Sprintf("%v", v)
+	}
+}
+
+// toInt coerces a SQL aggregate value (COUNT(*) decodes from JSON as float64)
+// to an int, returning 0 for unexpected types.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	default:
+		return 0
 	}
 }
 

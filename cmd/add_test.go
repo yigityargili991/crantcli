@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"crantcli/internal/seatable"
 )
@@ -268,6 +271,66 @@ func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
 	}
 	if colors["a1"] == colors["b1"] {
 		t.Fatalf("different color-by groups got the same color: %v", colors["a1"])
+	}
+}
+
+func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	oldURL := "https://hook.example/old/|neuroglancer-precomputed:"
+	newURL := "https://hook.example/new/|neuroglancer-precomputed:"
+	manifestDir := filepath.Join(home, ".crantcli")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `[
+  {
+    "id": "old",
+    "url": "` + oldURL + `",
+    "kind": "hook",
+    "created_at": "2000-01-01T00:00:00Z"
+  }
+]`
+	if err := os.WriteFile(filepath.Join(manifestDir, "label_gists.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	script := filepath.Join(t.TempDir(), "labels-hook.sh")
+	hook := `#!/bin/sh
+set -eu
+case "$1" in
+  publish)
+    cat >/dev/null
+    printf '%s\n' '{"url":"` + newURL + `","id":"new"}'
+    ;;
+  clean)
+    exit 0
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`
+	if err := os.WriteFile(script, []byte(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	layer := map[string]interface{}{
+		"source": []interface{}{
+			"graphene://x",
+			map[string]interface{}{"url": oldURL},
+		},
+	}
+	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
+
+	if err := attachCellTypeLabels(layer, rows, time.Hour, "sh "+script); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("source = %#v, want %#v", got, want)
 	}
 }
 
