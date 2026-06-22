@@ -134,8 +134,7 @@ func TestEnsureSegmentPropertiesSource_EmptyURL(t *testing.T) {
 	}
 }
 
-func TestEnsureSegmentPropertiesSource_ReplacesPriorManagedGist(t *testing.T) {
-	// Gist sources are recognized by heuristic even without priorURLs.
+func TestEnsureSegmentPropertiesSource_PreservesUnrecordedGistSource(t *testing.T) {
 	oldURL := "https://gist.githubusercontent.com/u/OLD/raw/sha/|neuroglancer-precomputed:"
 	newURL := "https://gist.githubusercontent.com/u/NEW/raw/sha/|neuroglancer-precomputed:"
 	layer := map[string]interface{}{
@@ -149,9 +148,33 @@ func TestEnsureSegmentPropertiesSource_ReplacesPriorManagedGist(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	want := []interface{}{
+		"graphene://x",
+		map[string]interface{}{"url": oldURL},
+		map[string]interface{}{"url": newURL},
+	}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v (unrecorded gist source should be preserved)", got, want)
+	}
+}
+
+func TestEnsureSegmentPropertiesSource_ReplacesRecordedGistSource(t *testing.T) {
+	oldURL := "https://gist.githubusercontent.com/u/OLD/raw/sha/|neuroglancer-precomputed:"
+	newURL := "https://gist.githubusercontent.com/u/NEW/raw/sha/|neuroglancer-precomputed:"
+	layer := map[string]interface{}{
+		"source": []interface{}{
+			"graphene://x",
+			map[string]interface{}{"url": oldURL},
+		},
+	}
+
+	if err := EnsureSegmentPropertiesSource(layer, newURL, []string{oldURL}); err != nil {
+		t.Fatal(err)
+	}
+
 	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
 	if got := layer["source"]; !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v (old gist source should be replaced)", got, want)
+		t.Errorf("got %v, want %v (recorded gist source should be replaced)", got, want)
 	}
 }
 

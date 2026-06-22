@@ -476,16 +476,15 @@ func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRo
 		fmt.Fprintf(os.Stderr, "Publishing labels via hook: %s\n", hookCmd)
 	}
 
-	if err := labelhost.GC(ttl, hookCmd); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: label cleanup failed: %v\n", err)
-	}
-
 	info, err := segprops.BuildSegmentProperties(rows, segprops.DefaultOptions())
 	if err != nil {
 		return fmt.Errorf("building segment properties: %w", err)
 	}
 
 	prior := labelhost.RecordedURLs()
+	if err := labelhost.GC(ttl, hookCmd); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: label cleanup failed: %v\n", err)
+	}
 
 	pub, err := labelhost.Publish(hookCmd, info)
 	if err != nil {

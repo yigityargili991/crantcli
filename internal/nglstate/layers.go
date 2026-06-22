@@ -1,9 +1,6 @@
 package nglstate
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 // FindSegmentationLayer finds the first segmentation layer in the state, or
 // one matching the given name. Returns the layer map and its index. Of course, this all is tuned to our dataset
@@ -175,11 +172,10 @@ func SetSegmentColor(layer map[string]interface{}, rootIDs []string, color strin
 // to a segmentation layer so per-segment labels render in the Seg. panel. It
 // normalizes the layer's existing source (string, object, or array) into an
 // array and preserves the primary segmentation source(s) (the graphene
-// segmentation must remain first). Any previously attached label source — one
-// whose URL is listed in priorURLs, or a crantcli-managed gist source — is
-// removed first, so repeated --labels runs replace rather than accumulate stale
-// sources (which would otherwise become dead once their host is cleaned up).
-// Adding the same URL twice is a no-op.
+// segmentation must remain first). Any previously attached label source whose
+// URL is listed in priorURLs is removed first, so repeated --labels runs
+// replace rather than accumulate stale sources (which would otherwise become
+// dead once their host is cleaned up). Adding the same URL twice is a no-op.
 func EnsureSegmentPropertiesSource(layer map[string]interface{}, propertiesURL string, priorURLs []string) error {
 	if propertiesURL == "" {
 		return fmt.Errorf("properties URL is empty")
@@ -210,7 +206,7 @@ func EnsureSegmentPropertiesSource(layer map[string]interface{}, propertiesURL s
 	kept := make([]interface{}, 0, len(sources)+1)
 	for _, s := range sources {
 		u := sourceURL(s)
-		if u != propertiesURL && (prior[u] || isManagedLabelSource(u)) {
+		if u != propertiesURL && prior[u] {
 			continue
 		}
 		kept = append(kept, s)
@@ -243,14 +239,6 @@ func sourceListContainsURL(sources []interface{}, url string) bool {
 		}
 	}
 	return false
-}
-
-// isManagedLabelSource reports whether a source URL is a crantcli-managed
-// segment-properties label source (a gist-hosted properties map). These are
-// replaced, not accumulated, on each --labels run.
-func isManagedLabelSource(url string) bool {
-	return strings.Contains(url, "gist.githubusercontent.com") &&
-		strings.HasSuffix(url, "|neuroglancer-precomputed:")
 }
 
 func toInterfaceSlice(ss []string) []interface{} {
