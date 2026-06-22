@@ -247,6 +247,33 @@ func TestQueryDistinctSideWithRegionFilterResolvesOptionNamesWithCount(t *testin
 	}
 }
 
+func TestQueryDistinctResolvesSideFilterNameForSQL(t *testing.T) {
+	var gotSQL string
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			gotSQL = sql
+			return &SQLResponse{Results: []map[string]interface{}{
+				{"cell_type": "ER", "count": float64(2)},
+			}}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	_, err := QueryDistinct(client, "cell_type", &Filters{Side: "left"}, true)
+	if err != nil {
+		t.Fatalf("QueryDistinct returned error: %v", err)
+	}
+
+	if !strings.Contains(gotSQL, "`side` = '553927'") {
+		t.Fatalf("SQL = %q, want side filter resolved to option ID", gotSQL)
+	}
+	if strings.Contains(gotSQL, "`side` = 'left'") {
+		t.Fatalf("SQL = %q, should not use the user-facing side name in SQL", gotSQL)
+	}
+}
+
 func TestExecutePagedSelectAllowsExactSafetyLimit(t *testing.T) {
 	client := &Client{
 		executeSQLFunc: func(sql string) (*SQLResponse, error) {
