@@ -75,21 +75,26 @@ func contains(ss []string, want string) bool {
 	return false
 }
 
-func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
+func TestGC_KeepsAllDeleteFailuresPrunesOnlyOnSuccess(t *testing.T) {
 	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
 	withManifest(t, base)
 
 	nowFunc = func() time.Time { return base.Add(-100 * time.Hour) }
-	for _, id := range []string{"flaky", "gone", "ok"} {
+	for _, id := range []string{"flaky", "dnsdown", "http404", "ok"} {
 		if err := Record(Published{ID: id, Kind: kindGist}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	nowFunc = func() time.Time { return base }
+	// "ok" deletes cleanly; the rest fail. A 404 is treated exactly like a
+	// transient error -- kept for retry -- because GitHub also returns 404 for a
+	// live secret gist the current token can't access (wrong account / missing
+	// `gist` scope), so a 404 never proves the gist is gone.
 	stubRun(map[string]string{
-		"flaky": "dial tcp: connection refused",
-		"gone":  "HTTP 404: Not Found",
+		"flaky":   "dial tcp: connection refused",
+		"dnsdown": `Get "https://api.github.com/gists/dnsdown": dial tcp: lookup api.github.com: could not resolve host`,
+		"http404": "HTTP 404: Not Found",
 	})
 
 	if err := GC(time.Hour, ""); err != nil {
@@ -100,9 +105,44 @@ func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// "ok" deleted, "gone" dropped (404), "flaky" kept for retry.
-	if len(entries) != 1 || entries[0].ID != "flaky" {
-		t.Errorf("remaining = %v, want only flaky", entries)
+	kept := map[string]bool{}
+	for _, e := range entries {
+		kept[e.ID] = true
+	}
+	// Only "ok" (a successful delete) is pruned; every failure is retried.
+	if len(entries) != 3 || !kept["flaky"] || !kept["dnsdown"] || !kept["http404"] {
+		t.Errorf("remaining = %v, want flaky, dnsdown, http404 kept (only ok dropped)", entries)
+	}
+}
+
+// TestGC_HookNonZeroExitKeptEvenWhenMessageLooksGone locks in the hook contract:
+// a non-zero clean exit is always transient (kept for retry), even if its stderr
+// happens to contain gone-looking text like "404" or "not found". Only the gist
+// backend inspects error text.
+func TestGC_HookNonZeroExitKeptEvenWhenMessageLooksGone(t *testing.T) {
+	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	withManifest(t, base)
+
+	nowFunc = func() time.Time { return base.Add(-100 * time.Hour) }
+	if err := Record(Published{ID: "h1", Kind: kindHook}); err != nil {
+		t.Fatal(err)
+	}
+
+	nowFunc = func() time.Time { return base }
+	run = func(_ []byte, _ string, _ ...string) ([]byte, error) {
+		return nil, &fakeErr{"widget 404: not found"}
+	}
+
+	if err := GC(time.Hour, "myhook"); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := readManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "h1" {
+		t.Errorf("hook entry must be kept for retry on non-zero exit, got %v", entries)
 	}
 }
 
@@ -249,18 +289,6 @@ func TestParseGistID(t *testing.T) {
 		if got := parseGistID(tt.out); got != tt.want {
 			t.Errorf("parseGistID(%q) = %q, want %q", tt.out, got, tt.want)
 		}
-	}
-}
-
-func TestIsGone(t *testing.T) {
-	if !isGone(&fakeErr{"HTTP 404: Not Found"}) {
-		t.Error("404 should be treated as gone")
-	}
-	if isGone(&fakeErr{"connection refused"}) {
-		t.Error("transient error should not be treated as gone")
-	}
-	if isGone(&fakeErr{`hook: exec: "hook": executable file not found`}) {
-		t.Error("missing cleanup executable should not be treated as gone")
 	}
 }
 

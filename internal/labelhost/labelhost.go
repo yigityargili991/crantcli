@@ -382,8 +382,15 @@ func clean(all bool, age time.Duration, hookCmd string) (int, int, error) {
 			kept = append(kept, e)
 			continue
 		}
-		if err := deleteEntry(e, hookCmd); err != nil && !isGone(err) {
-			kept = append(kept, e) // transient failure: retry on a later run
+		// Only a successful delete proves the resource is gone. Every failure --
+		// a transient network error, or an ambiguous HTTP 404 (which GitHub also
+		// returns for a still-existing secret gist when the current token can't
+		// access it, e.g. after an account switch or a lost `gist` scope) -- keeps
+		// the entry so a later run can retry. Dropping on a 404 would orphan a
+		// live gist we simply can't see right now. Hook cleanups follow the same
+		// rule via their documented exit-code contract.
+		if err := deleteEntry(e, hookCmd); err != nil {
+			kept = append(kept, e)
 			continue
 		}
 		deleted++
@@ -400,16 +407,4 @@ func deleteEntry(e entry, hookCmd string) error {
 		return deleteHook(hookCmd, e.ID)
 	}
 	return deleteGist(e.ID)
-}
-
-// isGone reports whether a delete error means the resource no longer exists, in
-// which case dropping its manifest entry is safe.
-func isGone(err error) bool {
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "executable file not found") {
-		return false
-	}
-	return strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "404") ||
-		strings.Contains(msg, "could not resolve")
 }
