@@ -75,22 +75,26 @@ func contains(ss []string, want string) bool {
 	return false
 }
 
-func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
+func TestGC_KeepsAllDeleteFailuresPrunesOnlyOnSuccess(t *testing.T) {
 	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
 	withManifest(t, base)
 
 	nowFunc = func() time.Time { return base.Add(-100 * time.Hour) }
-	for _, id := range []string{"flaky", "dnsdown", "gone", "ok"} {
+	for _, id := range []string{"flaky", "dnsdown", "http404", "ok"} {
 		if err := Record(Published{ID: id, Kind: kindGist}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	nowFunc = func() time.Time { return base }
+	// "ok" deletes cleanly; the rest fail. A 404 is treated exactly like a
+	// transient error -- kept for retry -- because GitHub also returns 404 for a
+	// live secret gist the current token can't access (wrong account / missing
+	// `gist` scope), so a 404 never proves the gist is gone.
 	stubRun(map[string]string{
 		"flaky":   "dial tcp: connection refused",
 		"dnsdown": `Get "https://api.github.com/gists/dnsdown": dial tcp: lookup api.github.com: could not resolve host`,
-		"gone":    "HTTP 404: Not Found",
+		"http404": "HTTP 404: Not Found",
 	})
 
 	if err := GC(time.Hour, ""); err != nil {
@@ -101,14 +105,13 @@ func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// "ok" deleted, "gone" dropped (404); "flaky" and "dnsdown" kept for retry --
-	// a DNS/offline error must never be mistaken for a missing gist.
 	kept := map[string]bool{}
 	for _, e := range entries {
 		kept[e.ID] = true
 	}
-	if len(entries) != 2 || !kept["flaky"] || !kept["dnsdown"] {
-		t.Errorf("remaining = %v, want flaky and dnsdown kept", entries)
+	// Only "ok" (a successful delete) is pruned; every failure is retried.
+	if len(entries) != 3 || !kept["flaky"] || !kept["dnsdown"] || !kept["http404"] {
+		t.Errorf("remaining = %v, want flaky, dnsdown, http404 kept (only ok dropped)", entries)
 	}
 }
 
@@ -285,34 +288,6 @@ func TestParseGistID(t *testing.T) {
 	for _, tt := range tests {
 		if got := parseGistID(tt.out); got != tt.want {
 			t.Errorf("parseGistID(%q) = %q, want %q", tt.out, got, tt.want)
-		}
-	}
-}
-
-func TestIsGistGone(t *testing.T) {
-	gone := []string{
-		"HTTP 404: Not Found (https://api.github.com/gists/abc)",
-		"GraphQL: Could not resolve to a Gist with the id 'abc' (deleteGist)",
-	}
-	for _, msg := range gone {
-		if !isGistGone(&fakeErr{msg}) {
-			t.Errorf("%q should be treated as gone", msg)
-		}
-	}
-
-	// Transient failures must NOT be treated as gone -- dropping them would
-	// orphan the gist. The DNS case is the important regression: "could not
-	// resolve host" must not match the GraphQL "could not resolve to a" phrase.
-	transient := []string{
-		"connection refused",
-		`Get "https://api.github.com/gists/abc": dial tcp: lookup api.github.com: could not resolve host`,
-		"dial tcp: lookup api.github.com: no such host",
-		"HTTP 403: API rate limit exceeded",
-		`hook: exec: "hook": executable file not found`,
-	}
-	for _, msg := range transient {
-		if isGistGone(&fakeErr{msg}) {
-			t.Errorf("%q is transient and must not be treated as gone", msg)
 		}
 	}
 }

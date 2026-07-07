@@ -382,15 +382,16 @@ func clean(all bool, age time.Duration, hookCmd string) (int, int, error) {
 			kept = append(kept, e)
 			continue
 		}
+		// Only a successful delete proves the resource is gone. Every failure --
+		// a transient network error, or an ambiguous HTTP 404 (which GitHub also
+		// returns for a still-existing secret gist when the current token can't
+		// access it, e.g. after an account switch or a lost `gist` scope) -- keeps
+		// the entry so a later run can retry. Dropping on a 404 would orphan a
+		// live gist we simply can't see right now. Hook cleanups follow the same
+		// rule via their documented exit-code contract.
 		if err := deleteEntry(e, hookCmd); err != nil {
-			// A gist that 404s is already gone and safe to drop. Hook cleanups
-			// instead follow the exit-code contract: any non-zero exit is
-			// transient and must be retried, so their error text is never
-			// consulted for a "gone" verdict.
-			if e.kind() != kindGist || !isGistGone(err) {
-				kept = append(kept, e) // keep for retry on a later run
-				continue
-			}
+			kept = append(kept, e)
+			continue
 		}
 		deleted++
 	}
@@ -406,22 +407,4 @@ func deleteEntry(e entry, hookCmd string) error {
 		return deleteHook(hookCmd, e.ID)
 	}
 	return deleteGist(e.ID)
-}
-
-// isGistGone reports whether a `gh gist delete`/`gh api` error means the gist no
-// longer exists, in which case dropping its manifest entry is safe. It is kept
-// deliberately narrow: transient failures (offline, DNS, auth, rate limits) must
-// NOT match, or a GC run during an outage would silently drop entries and orphan
-// the gists on GitHub. gh reports a missing gist as an HTTP 404 ("Not Found") or
-// a GraphQL "Could not resolve to a Gist with the id ..." message -- note that
-// bare "could not resolve" also appears in "could not resolve host" (DNS), which
-// is transient, so the full phrase is required.
-func isGistGone(err error) bool {
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "executable file not found") {
-		return false // gh itself is missing: a config/PATH problem, not a gone gist
-	}
-	return strings.Contains(msg, "http 404") ||
-		strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "could not resolve to a")
 }
