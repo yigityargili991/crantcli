@@ -80,7 +80,7 @@ func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
 	withManifest(t, base)
 
 	nowFunc = func() time.Time { return base.Add(-100 * time.Hour) }
-	for _, id := range []string{"flaky", "gone", "ok"} {
+	for _, id := range []string{"flaky", "dnsdown", "gone", "ok"} {
 		if err := Record(Published{ID: id, Kind: kindGist}); err != nil {
 			t.Fatal(err)
 		}
@@ -88,8 +88,9 @@ func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
 
 	nowFunc = func() time.Time { return base }
 	stubRun(map[string]string{
-		"flaky": "dial tcp: connection refused",
-		"gone":  "HTTP 404: Not Found",
+		"flaky":   "dial tcp: connection refused",
+		"dnsdown": `Get "https://api.github.com/gists/dnsdown": dial tcp: lookup api.github.com: could not resolve host`,
+		"gone":    "HTTP 404: Not Found",
 	})
 
 	if err := GC(time.Hour, ""); err != nil {
@@ -100,9 +101,45 @@ func TestGC_KeepsOnTransientDropsOnGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// "ok" deleted, "gone" dropped (404), "flaky" kept for retry.
-	if len(entries) != 1 || entries[0].ID != "flaky" {
-		t.Errorf("remaining = %v, want only flaky", entries)
+	// "ok" deleted, "gone" dropped (404); "flaky" and "dnsdown" kept for retry --
+	// a DNS/offline error must never be mistaken for a missing gist.
+	kept := map[string]bool{}
+	for _, e := range entries {
+		kept[e.ID] = true
+	}
+	if len(entries) != 2 || !kept["flaky"] || !kept["dnsdown"] {
+		t.Errorf("remaining = %v, want flaky and dnsdown kept", entries)
+	}
+}
+
+// TestGC_HookNonZeroExitKeptEvenWhenMessageLooksGone locks in the hook contract:
+// a non-zero clean exit is always transient (kept for retry), even if its stderr
+// happens to contain gone-looking text like "404" or "not found". Only the gist
+// backend inspects error text.
+func TestGC_HookNonZeroExitKeptEvenWhenMessageLooksGone(t *testing.T) {
+	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	withManifest(t, base)
+
+	nowFunc = func() time.Time { return base.Add(-100 * time.Hour) }
+	if err := Record(Published{ID: "h1", Kind: kindHook}); err != nil {
+		t.Fatal(err)
+	}
+
+	nowFunc = func() time.Time { return base }
+	run = func(_ []byte, _ string, _ ...string) ([]byte, error) {
+		return nil, &fakeErr{"widget 404: not found"}
+	}
+
+	if err := GC(time.Hour, "myhook"); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := readManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "h1" {
+		t.Errorf("hook entry must be kept for retry on non-zero exit, got %v", entries)
 	}
 }
 
@@ -252,15 +289,31 @@ func TestParseGistID(t *testing.T) {
 	}
 }
 
-func TestIsGone(t *testing.T) {
-	if !isGone(&fakeErr{"HTTP 404: Not Found"}) {
-		t.Error("404 should be treated as gone")
+func TestIsGistGone(t *testing.T) {
+	gone := []string{
+		"HTTP 404: Not Found (https://api.github.com/gists/abc)",
+		"GraphQL: Could not resolve to a Gist with the id 'abc' (deleteGist)",
 	}
-	if isGone(&fakeErr{"connection refused"}) {
-		t.Error("transient error should not be treated as gone")
+	for _, msg := range gone {
+		if !isGistGone(&fakeErr{msg}) {
+			t.Errorf("%q should be treated as gone", msg)
+		}
 	}
-	if isGone(&fakeErr{`hook: exec: "hook": executable file not found`}) {
-		t.Error("missing cleanup executable should not be treated as gone")
+
+	// Transient failures must NOT be treated as gone -- dropping them would
+	// orphan the gist. The DNS case is the important regression: "could not
+	// resolve host" must not match the GraphQL "could not resolve to a" phrase.
+	transient := []string{
+		"connection refused",
+		`Get "https://api.github.com/gists/abc": dial tcp: lookup api.github.com: could not resolve host`,
+		"dial tcp: lookup api.github.com: no such host",
+		"HTTP 403: API rate limit exceeded",
+		`hook: exec: "hook": executable file not found`,
+	}
+	for _, msg := range transient {
+		if isGistGone(&fakeErr{msg}) {
+			t.Errorf("%q is transient and must not be treated as gone", msg)
+		}
 	}
 }
 
