@@ -751,6 +751,62 @@ func TestGroupDimensionCount(t *testing.T) {
 	}
 }
 
+// TestDedupeUnionResults verifies overlapping union groups collapse to a unique
+// set by root ID: the shared neuron stays only in its first group, allRootIDs is
+// unique in first-seen order, and rows dedupe by RootID.
+func TestDedupeUnionResults(t *testing.T) {
+	// Group 0 (class) and group 1 (a type within it) both contain "20".
+	groups := [][]string{
+		{"10", "20"},
+		{"20", "30"},
+	}
+	rows := []seatable.NeuronRow{
+		{RootID: "10", CellType: "A"},
+		{RootID: "20", CellType: "A"},
+		{RootID: "20", CellType: "A"}, // duplicate from the overlapping group
+		{RootID: "30", CellType: "B"},
+	}
+
+	gotGroups, gotIDs, gotRows := dedupeUnionResults(groups, rows)
+
+	wantGroups := [][]string{{"10", "20"}, {"30"}}
+	if !reflect.DeepEqual(gotGroups, wantGroups) {
+		t.Errorf("groups = %#v, want %#v (shared id must stay in its first group only)", gotGroups, wantGroups)
+	}
+	wantIDs := []string{"10", "20", "30"}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Errorf("allRootIDs = %#v, want %#v (unique, first-seen order)", gotIDs, wantIDs)
+	}
+	if len(gotRows) != 3 {
+		t.Fatalf("rows = %d, want 3 unique by RootID", len(gotRows))
+	}
+}
+
+// TestDedupeUnionResults_KeepsRootlessRows verifies rows without a root ID are
+// passed through (they carry no identity to dedupe on) and non-overlapping
+// groups are left intact.
+func TestDedupeUnionResults_KeepsRootlessRows(t *testing.T) {
+	groups := [][]string{{"1"}, {"2"}}
+	rows := []seatable.NeuronRow{
+		{RootID: "1"},
+		{RootID: ""},
+		{RootID: ""},
+		{RootID: "2"},
+	}
+
+	gotGroups, gotIDs, gotRows := dedupeUnionResults(groups, rows)
+
+	if !reflect.DeepEqual(gotGroups, [][]string{{"1"}, {"2"}}) {
+		t.Errorf("non-overlapping groups changed: %#v", gotGroups)
+	}
+	if !reflect.DeepEqual(gotIDs, []string{"1", "2"}) {
+		t.Errorf("allRootIDs = %#v, want [1 2]", gotIDs)
+	}
+	if len(gotRows) != 4 {
+		t.Errorf("rows = %d, want 4 (both rootless rows preserved)", len(gotRows))
+	}
+}
+
 // TestExtractRootIDs_AllEmpty verifies that a slice of rows with no root IDs returns empty.
 func TestExtractRootIDs_AllEmpty(t *testing.T) {
 	rows := []seatable.NeuronRow{

@@ -198,7 +198,6 @@ func init() {
 
 		var groups [][]string
 		var allRootIDs []string
-		var totalRows int
 		var allRows []seatable.NeuronRow
 		var subtypeMap map[string]string
 		if addColorSub {
@@ -221,13 +220,19 @@ func init() {
 				ids = extractRootIDs(rows)
 			}
 			groups = append(groups, ids)
-			allRootIDs = append(allRootIDs, ids...)
 			allRows = append(allRows, rows...)
-			totalRows += len(rows)
 			if s.label != "" {
 				fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
 			}
 		}
+
+		// Union groups (the default) can overlap when one predicate includes
+		// another (a cell_class and one of its own cell types, say), so the same
+		// neuron may appear in several groups. Collapse to a unique set by root
+		// ID before counting, coloring, output, and injection -- --replace in
+		// particular bypasses AddSegments' append-mode dedupe.
+		groups, allRootIDs, allRows = dedupeUnionResults(groups, allRows)
+		totalRows := len(allRows)
 
 		if colorByField != "" {
 			var labels []string
@@ -322,6 +327,46 @@ func extractRootIDsWithSubtype(rows []seatable.NeuronRow) ([]string, map[string]
 		}
 	}
 	return ids, subtypeMap
+}
+
+// dedupeUnionResults collapses overlapping query groups into a unique set by
+// root ID, keeping the first occurrence. Union grouping (the default) can match
+// the same neuron under several predicates -- e.g. a cell_class and one of its
+// own cell types -- so without this, root IDs repeat across groups and inflate
+// counts, --root-ids-only output, and --replace injection (AddSegments only
+// dedupes in append mode). The returned groups partition the unique root IDs so
+// per-group coloring stays consistent with the injected set. Rows without a
+// root ID carry no identity and are passed through unchanged.
+func dedupeUnionResults(groups [][]string, rows []seatable.NeuronRow) ([][]string, []string, []seatable.NeuronRow) {
+	seenID := make(map[string]bool)
+	dedupedGroups := make([][]string, len(groups))
+	var allRootIDs []string
+	for i, group := range groups {
+		kept := make([]string, 0, len(group))
+		for _, id := range group {
+			if id == "" || seenID[id] {
+				continue
+			}
+			seenID[id] = true
+			kept = append(kept, id)
+			allRootIDs = append(allRootIDs, id)
+		}
+		dedupedGroups[i] = kept
+	}
+
+	seenRow := make(map[string]bool)
+	dedupedRows := make([]seatable.NeuronRow, 0, len(rows))
+	for _, r := range rows {
+		if r.RootID != "" {
+			if seenRow[r.RootID] {
+				continue
+			}
+			seenRow[r.RootID] = true
+		}
+		dedupedRows = append(dedupedRows, r)
+	}
+
+	return dedupedGroups, allRootIDs, dedupedRows
 }
 
 func resolveAddRegionFilter(region, bundle string) (string, error) {
