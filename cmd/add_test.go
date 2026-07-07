@@ -406,7 +406,7 @@ func TestBuildQuerySpecs_CrossProduct(t *testing.T) {
 	base := &seatable.Filters{Side: "left"}
 
 	t.Run("both class and type: cross-product", func(t *testing.T) {
-		specs := buildQuerySpecs(base, []string{"kenyon_cell"}, []string{"ER", "EPG/PEG"})
+		specs := buildQuerySpecs(base, []string{"kenyon_cell"}, []string{"ER", "EPG/PEG"}, nil, false)
 		if len(specs) != 2 {
 			t.Fatalf("got %d specs, want 2", len(specs))
 		}
@@ -423,7 +423,7 @@ func TestBuildQuerySpecs_CrossProduct(t *testing.T) {
 	})
 
 	t.Run("multi class x multi type", func(t *testing.T) {
-		specs := buildQuerySpecs(base, []string{"A", "B"}, []string{"X", "Y"})
+		specs := buildQuerySpecs(base, []string{"A", "B"}, []string{"X", "Y"}, nil, false)
 		if len(specs) != 4 {
 			t.Fatalf("got %d specs, want 4", len(specs))
 		}
@@ -435,7 +435,7 @@ func TestBuildQuerySpecs_CrossProduct(t *testing.T) {
 	})
 
 	t.Run("only classes: independent groups", func(t *testing.T) {
-		specs := buildQuerySpecs(base, []string{"kenyon_cell", "olfactory"}, nil)
+		specs := buildQuerySpecs(base, []string{"kenyon_cell", "olfactory"}, nil, nil, false)
 		if len(specs) != 2 {
 			t.Fatalf("got %d specs, want 2", len(specs))
 		}
@@ -448,7 +448,7 @@ func TestBuildQuerySpecs_CrossProduct(t *testing.T) {
 	})
 
 	t.Run("only types: independent groups", func(t *testing.T) {
-		specs := buildQuerySpecs(base, nil, []string{"ER", "EPG/PEG"})
+		specs := buildQuerySpecs(base, nil, []string{"ER", "EPG/PEG"}, nil, false)
 		if len(specs) != 2 {
 			t.Fatalf("got %d specs, want 2", len(specs))
 		}
@@ -458,7 +458,7 @@ func TestBuildQuerySpecs_CrossProduct(t *testing.T) {
 	})
 
 	t.Run("neither: single group with base", func(t *testing.T) {
-		specs := buildQuerySpecs(base, nil, nil)
+		specs := buildQuerySpecs(base, nil, nil, nil, false)
 		if len(specs) != 1 {
 			t.Fatalf("got %d specs, want 1", len(specs))
 		}
@@ -482,7 +482,7 @@ func TestBuildQuerySpecs_BaseFiltersPreservedInCrossProduct(t *testing.T) {
 		Tract:       "tract1",
 		Proofread:   "yes",
 	}
-	specs := buildQuerySpecs(base, []string{"classA", "classB"}, []string{"typeX"})
+	specs := buildQuerySpecs(base, []string{"classA", "classB"}, []string{"typeX"}, nil, false)
 	if len(specs) != 2 {
 		t.Fatalf("got %d specs, want 2", len(specs))
 	}
@@ -515,7 +515,7 @@ func TestBuildQuerySpecs_CrossProductDoesNotMutateBase(t *testing.T) {
 	base := &seatable.Filters{Side: "right"}
 	original := *base
 
-	buildQuerySpecs(base, []string{"classA"}, []string{"typeX", "typeY"})
+	buildQuerySpecs(base, []string{"classA"}, []string{"typeX", "typeY"}, nil, false)
 
 	if !reflect.DeepEqual(*base, original) {
 		t.Errorf("buildQuerySpecs mutated base: got %+v, want %+v", *base, original)
@@ -525,7 +525,7 @@ func TestBuildQuerySpecs_CrossProductDoesNotMutateBase(t *testing.T) {
 // TestBuildQuerySpecs_CrossProductLabels verifies the label format for cross-product.
 func TestBuildQuerySpecs_CrossProductLabels(t *testing.T) {
 	base := &seatable.Filters{}
-	specs := buildQuerySpecs(base, []string{"classA"}, []string{"typeX", "typeY"})
+	specs := buildQuerySpecs(base, []string{"classA"}, []string{"typeX", "typeY"}, nil, false)
 	if len(specs) != 2 {
 		t.Fatalf("got %d specs, want 2", len(specs))
 	}
@@ -541,7 +541,7 @@ func TestBuildQuerySpecs_CrossProductLabels(t *testing.T) {
 // labels match the class name.
 func TestBuildQuerySpecs_ClassOnlyLabelIsClassName(t *testing.T) {
 	base := &seatable.Filters{}
-	specs := buildQuerySpecs(base, []string{"kenyon_cell", "olfactory"}, nil)
+	specs := buildQuerySpecs(base, []string{"kenyon_cell", "olfactory"}, nil, nil, false)
 	if specs[0].label != "kenyon_cell" {
 		t.Errorf("spec[0].label = %q, want kenyon_cell", specs[0].label)
 	}
@@ -554,7 +554,7 @@ func TestBuildQuerySpecs_ClassOnlyLabelIsClassName(t *testing.T) {
 // labels match the type name.
 func TestBuildQuerySpecs_TypeOnlyLabelIsTypeName(t *testing.T) {
 	base := &seatable.Filters{}
-	specs := buildQuerySpecs(base, nil, []string{"ER", "EPG/PEG"})
+	specs := buildQuerySpecs(base, nil, []string{"ER", "EPG/PEG"}, nil, false)
 	if specs[0].label != "ER" {
 		t.Errorf("spec[0].label = %q, want ER", specs[0].label)
 	}
@@ -568,8 +568,8 @@ func TestBuildQuerySpecs_TypeOnlyLabelIsTypeName(t *testing.T) {
 func TestBuildQuerySpecs_EmptySlicesEquivalentToNil(t *testing.T) {
 	base := &seatable.Filters{Side: "left"}
 
-	specsNil := buildQuerySpecs(base, nil, nil)
-	specsEmpty := buildQuerySpecs(base, []string{}, []string{})
+	specsNil := buildQuerySpecs(base, nil, nil, nil, false)
+	specsEmpty := buildQuerySpecs(base, []string{}, []string{}, nil, false)
 
 	if len(specsNil) != len(specsEmpty) {
 		t.Fatalf("nil vs empty: got %d vs %d specs", len(specsNil), len(specsEmpty))
@@ -589,7 +589,7 @@ func TestBuildQuerySpecs_EmptySlicesEquivalentToNil(t *testing.T) {
 // CellClass assigned to spec[i] is not visible in spec[j] (no shared pointer).
 func TestBuildQuerySpecs_CrossProduct_ClassAndTypeNotLeakedToOtherSpecs(t *testing.T) {
 	base := &seatable.Filters{}
-	specs := buildQuerySpecs(base, []string{"A", "B"}, []string{"X", "Y"})
+	specs := buildQuerySpecs(base, []string{"A", "B"}, []string{"X", "Y"}, nil, false)
 	if len(specs) != 4 {
 		t.Fatalf("got %d specs, want 4", len(specs))
 	}
@@ -599,6 +599,155 @@ func TestBuildQuerySpecs_CrossProduct_ClassAndTypeNotLeakedToOtherSpecs(t *testi
 		if specs[i].filters.Side == "MODIFIED" {
 			t.Errorf("spec[%d] was affected by mutation of spec[0] — filters are shared (pointer leak)", i)
 		}
+	}
+}
+
+// TestBuildQuerySpecs_SubtypeDimension verifies cell-subtype participates in the
+// cross-product like class and type.
+func TestBuildQuerySpecs_SubtypeDimension(t *testing.T) {
+	base := &seatable.Filters{}
+
+	t.Run("only subtypes: independent groups", func(t *testing.T) {
+		specs := buildQuerySpecs(base, nil, nil, []string{"PFNc", "PFNm3"}, false)
+		if len(specs) != 2 {
+			t.Fatalf("got %d specs, want 2", len(specs))
+		}
+		if specs[0].filters.CellSubtype != "PFNc" || specs[0].label != "PFNc" {
+			t.Errorf("spec[0] = subtype=%q label=%q, want PFNc/PFNc", specs[0].filters.CellSubtype, specs[0].label)
+		}
+		if specs[1].filters.CellSubtype != "PFNm3" || specs[1].label != "PFNm3" {
+			t.Errorf("spec[1] = subtype=%q label=%q, want PFNm3/PFNm3", specs[1].filters.CellSubtype, specs[1].label)
+		}
+	})
+
+	t.Run("class x type x subtype: 3-way cross-product", func(t *testing.T) {
+		specs := buildQuerySpecs(base, []string{"A"}, []string{"X"}, []string{"S1", "S2"}, false)
+		if len(specs) != 2 {
+			t.Fatalf("got %d specs, want 2", len(specs))
+		}
+		if specs[0].label != "A/X/S1" {
+			t.Errorf("spec[0].label = %q, want A/X/S1", specs[0].label)
+		}
+		f := specs[0].filters
+		if f.CellClass != "A" || f.CellType != "X" || f.CellSubtype != "S1" {
+			t.Errorf("spec[0] filters = class=%q type=%q subtype=%q, want A/X/S1", f.CellClass, f.CellType, f.CellSubtype)
+		}
+		if specs[1].label != "A/X/S2" {
+			t.Errorf("spec[1].label = %q, want A/X/S2", specs[1].label)
+		}
+	})
+}
+
+// TestBuildQuerySpecs_Union verifies that union mode turns every class/type/subtype
+// value into its own group (OR across columns) rather than intersecting them.
+func TestBuildQuerySpecs_Union(t *testing.T) {
+	base := &seatable.Filters{Side: "left"}
+
+	// Mirrors the motivating command: class LNO OR subtypes PFNc/FBt1-NOc/PFNm3 OR type PEN.
+	specs := buildQuerySpecs(base,
+		[]string{"LNO"},
+		[]string{"PEN"},
+		[]string{"PFNc", "FBt1-NOc", "PFNm3"},
+		true,
+	)
+
+	if len(specs) != 5 {
+		t.Fatalf("got %d specs, want 5 (one per value)", len(specs))
+	}
+
+	type want struct {
+		label   string
+		class   string
+		typ     string
+		subtype string
+	}
+	// Order follows dimension order: classes, then types, then subtypes.
+	wants := []want{
+		{"LNO", "LNO", "", ""},
+		{"PEN", "", "PEN", ""},
+		{"PFNc", "", "", "PFNc"},
+		{"FBt1-NOc", "", "", "FBt1-NOc"},
+		{"PFNm3", "", "", "PFNm3"},
+	}
+	for i, w := range wants {
+		f := specs[i].filters
+		if specs[i].label != w.label {
+			t.Errorf("spec[%d].label = %q, want %q", i, specs[i].label, w.label)
+		}
+		if f.CellClass != w.class || f.CellType != w.typ || f.CellSubtype != w.subtype {
+			t.Errorf("spec[%d] = class=%q type=%q subtype=%q, want class=%q type=%q subtype=%q",
+				i, f.CellClass, f.CellType, f.CellSubtype, w.class, w.typ, w.subtype)
+		}
+		// Each union group is a single-column filter — no accidental AND across columns.
+		nonEmpty := 0
+		for _, v := range []string{f.CellClass, f.CellType, f.CellSubtype} {
+			if v != "" {
+				nonEmpty++
+			}
+		}
+		if nonEmpty != 1 {
+			t.Errorf("spec[%d] sets %d classification columns, want exactly 1 (union groups must not intersect columns)", i, nonEmpty)
+		}
+		// Base scalar filters still apply to every union group.
+		if f.Side != "left" {
+			t.Errorf("spec[%d]: base filter Side=%q, want left", i, f.Side)
+		}
+	}
+}
+
+// TestBuildQuerySpecs_UnionDoesNotMutateBase guards against pointer/base leakage
+// in union mode.
+func TestBuildQuerySpecs_UnionDoesNotMutateBase(t *testing.T) {
+	base := &seatable.Filters{Side: "right"}
+	original := *base
+
+	buildQuerySpecs(base, []string{"A"}, []string{"X"}, []string{"S"}, true)
+
+	if !reflect.DeepEqual(*base, original) {
+		t.Errorf("buildQuerySpecs mutated base in union mode: got %+v, want %+v", *base, original)
+	}
+}
+
+// TestBuildQuerySpecs_UnionVsCrossProduct contrasts the two modes on the same
+// mixed-column input: cross-product intersects (one impossible group), union
+// spreads into independent groups.
+func TestBuildQuerySpecs_UnionVsCrossProduct(t *testing.T) {
+	base := &seatable.Filters{}
+
+	cross := buildQuerySpecs(base, []string{"LNO"}, []string{"PEN"}, nil, false)
+	if len(cross) != 1 {
+		t.Fatalf("cross-product: got %d specs, want 1", len(cross))
+	}
+	if cross[0].filters.CellClass != "LNO" || cross[0].filters.CellType != "PEN" {
+		t.Errorf("cross-product spec should AND class and type, got class=%q type=%q",
+			cross[0].filters.CellClass, cross[0].filters.CellType)
+	}
+
+	union := buildQuerySpecs(base, []string{"LNO"}, []string{"PEN"}, nil, true)
+	if len(union) != 2 {
+		t.Fatalf("union: got %d specs, want 2", len(union))
+	}
+}
+
+// TestGroupDimensionCount checks the threshold that gates the --intersect no-op
+// warning: --intersect only matters when two or more dimensions are combined.
+func TestGroupDimensionCount(t *testing.T) {
+	cases := []struct {
+		name                     string
+		classes, types, subtypes []string
+		want                     int
+	}{
+		{"none", nil, nil, nil, 0},
+		{"one dimension, many values", nil, []string{"ER", "PEN"}, nil, 1},
+		{"two dimensions", []string{"LNO"}, []string{"PEN"}, nil, 2},
+		{"all three", []string{"LNO"}, []string{"PEN"}, []string{"PFNc"}, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := groupDimensionCount(tc.classes, tc.types, tc.subtypes); got != tc.want {
+				t.Errorf("groupDimensionCount = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }
 

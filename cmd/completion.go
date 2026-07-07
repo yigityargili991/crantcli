@@ -144,7 +144,7 @@ func completionFilters(cmd *cobra.Command, omitField string) *seatable.Filters {
 		filters.CellType = singleStringFlagValue(cmd, "cell-type")
 	}
 	if omitField != "cell_subtype" {
-		filters.CellSubtype = stringFlagValue(cmd, "cell-subtype")
+		filters.CellSubtype = singleStringFlagValue(cmd, "cell-subtype")
 	}
 	if omitField != "side" {
 		filters.Side = stringFlagValue(cmd, "side")

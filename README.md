@@ -136,9 +136,17 @@ crantcli add --cell-type ER --replace
 
 # Just get root IDs, no state manipulation
 crantcli add --cell-class kenyon_cell --root-ids-only
+
+# Stack classifiers to load several populations together (union is the default)
+crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-type PEN --color-by cell_subtype
+
+# --intersect ANDs them into a cross-product instead (rarely needed)
+crantcli add --intersect --cell-class kenyon_cell --cell-type ER
 ```
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
+
+**Grouping:** `--cell-class`, `--cell-type`, and `--cell-subtype` are repeatable. By default every value you pass across these three flags becomes its own group — a **union** (OR), so stacking a class, a type, and a subtype loads all of those populations together as separate groups. This matches the data, where the classifiers are hierarchical (a `cell_type` belongs to one `cell_class`, a `cell_subtype` to one `cell_type`), so intersecting different levels would only ever be redundant or empty. Pass `--intersect` to instead combine the dimensions as a **cross-product** (AND within each group — e.g. `--intersect --cell-class kenyon_cell --cell-type ER` matches only ER-type kenyon cells); it has no effect unless two or more of the three flags are combined. Other filters (`--super-class`, `--side`, `--region`, `--tract`, `--proofread`) always apply to every group.
 
 **Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `column`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`). `column` is derived from `cell_instance`: Δ7 instances use the final 4 characters, and other instances use the final 2.
 
