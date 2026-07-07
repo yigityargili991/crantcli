@@ -57,8 +57,11 @@ Examples:
   # Add all neurons annotated to bundle/region LX
   crantcli add --bundle LX
 
-  # Cross-product: kenyon_cell+ER and kenyon_cell+EPG/PEG as separate groups
-  crantcli add --cell-class kenyon_cell --cell-type ER --cell-type EPG/PEG --color colored
+  # Stacking classifiers unions them: class LNO, subtypes PFNc/PFNm3, and type PEN load together
+  crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-type PEN --color-by cell_subtype
+
+  # --intersect ANDs them instead (rarely needed; classifiers are hierarchical)
+  crantcli add --intersect --cell-class kenyon_cell --cell-type ER
 
   # Sub-color by cell_subtype within each query group
   crantcli add --cell-class kenyon_cell --color-sub --color blue`,
@@ -67,34 +70,36 @@ Examples:
 
 func init() {
 	var (
-		addSuperClass  string
-		addCellClasses []string
-		addCellTypes   []string
-		addCellSubtype string
-		addSide        string
-		addRegions     []string
-		addBundles     []string
-		addTract       string
-		addProofread   string
-		addState       string
-		addGenerate    bool
-		addOutput      string
-		addLayer       string
-		addColor       string
-		addColorBy     string
-		addReplace     bool
-		addRootIDsOnly bool
-		addOpen        bool
-		addColorSub    bool
-		addLabels      bool
-		addLabelsTTL   time.Duration
-		addLabelsHook  string
+		addSuperClass   string
+		addCellClasses  []string
+		addCellTypes    []string
+		addCellSubtypes []string
+		addIntersect    bool
+		addSide         string
+		addRegions      []string
+		addBundles      []string
+		addTract        string
+		addProofread    string
+		addState        string
+		addGenerate     bool
+		addOutput       string
+		addLayer        string
+		addColor        string
+		addColorBy      string
+		addReplace      bool
+		addRootIDsOnly  bool
+		addOpen         bool
+		addColorSub     bool
+		addLabels       bool
+		addLabelsTTL    time.Duration
+		addLabelsHook   string
 	)
 
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
 	addCmd.Flags().StringArrayVar(&addCellClasses, "cell-class", nil, "Filter by cell_class (repeatable for multiple classes)")
 	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
-	addCmd.Flags().StringVar(&addCellSubtype, "cell-subtype", "", "Filter by cell_subtype")
+	addCmd.Flags().StringArrayVar(&addCellSubtypes, "cell-subtype", nil, "Filter by cell_subtype (repeatable for multiple subtypes)")
+	addCmd.Flags().BoolVar(&addIntersect, "intersect", false, "Intersect --cell-class/--cell-type/--cell-subtype as a cross-product (AND) instead of the default union (OR, each value its own group); rarely needed since these classifiers are hierarchical. Other filters (--super-class, --side, --region, ...) always apply to every group")
 	addCmd.Flags().StringVar(&addSide, "side", "", "Filter by side")
 	addCmd.Flags().StringArrayVar(&addRegions, "region", nil, "Filter by region (repeatable for multiple regions)")
 	addCmd.Flags().StringArrayVar(&addBundles, "bundle", nil, "Filter by bundle region annotation (repeatable alias of --region, e.g. LX)")
@@ -166,17 +171,19 @@ func init() {
 		}
 
 		baseFilters := &seatable.Filters{
-			SuperClass:  addSuperClass,
-			CellSubtype: addCellSubtype,
-			Side:        addSide,
-			Regions:     effectiveRegions,
-			Tract:       addTract,
-			Proofread:   addProofread,
+			SuperClass: addSuperClass,
+			Side:       addSide,
+			Regions:    effectiveRegions,
+			Tract:      addTract,
+			Proofread:  addProofread,
 		}
 
-		hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0
+		hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0 || len(addCellSubtypes) > 0
 		if err := validateAddInputs(baseFilters, hasGroupFlags); err != nil {
 			return err
+		}
+		if addIntersect && groupDimensionCount(addCellClasses, addCellTypes, addCellSubtypes) < 2 {
+			fmt.Fprintln(os.Stderr, "Warning: --intersect has no effect unless you combine two or more of --cell-class/--cell-type/--cell-subtype")
 		}
 
 		// Query SeaTable
@@ -185,11 +192,12 @@ func init() {
 			return err
 		}
 
-		specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes)
+		// Union (each value its own group) is the default; --intersect opts into
+		// the cross-product (AND). buildQuerySpecs takes a union flag.
+		specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes, addCellSubtypes, !addIntersect)
 
 		var groups [][]string
 		var allRootIDs []string
-		var totalRows int
 		var allRows []seatable.NeuronRow
 		var subtypeMap map[string]string
 		if addColorSub {
@@ -212,13 +220,19 @@ func init() {
 				ids = extractRootIDs(rows)
 			}
 			groups = append(groups, ids)
-			allRootIDs = append(allRootIDs, ids...)
 			allRows = append(allRows, rows...)
-			totalRows += len(rows)
 			if s.label != "" {
 				fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
 			}
 		}
+
+		// Union groups (the default) can overlap when one predicate includes
+		// another (a cell_class and one of its own cell types, say), so the same
+		// neuron may appear in several groups. Collapse to a unique set by root
+		// ID before counting, coloring, output, and injection -- --replace in
+		// particular bypasses AddSegments' append-mode dedupe.
+		groups, allRootIDs, allRows = dedupeUnionResults(groups, allRows)
+		totalRows := len(allRows)
 
 		if colorByField != "" {
 			var labels []string
@@ -315,6 +329,46 @@ func extractRootIDsWithSubtype(rows []seatable.NeuronRow) ([]string, map[string]
 	return ids, subtypeMap
 }
 
+// dedupeUnionResults collapses overlapping query groups into a unique set by
+// root ID, keeping the first occurrence. Union grouping (the default) can match
+// the same neuron under several predicates -- e.g. a cell_class and one of its
+// own cell types -- so without this, root IDs repeat across groups and inflate
+// counts, --root-ids-only output, and --replace injection (AddSegments only
+// dedupes in append mode). The returned groups partition the unique root IDs so
+// per-group coloring stays consistent with the injected set. Rows without a
+// root ID carry no identity and are passed through unchanged.
+func dedupeUnionResults(groups [][]string, rows []seatable.NeuronRow) ([][]string, []string, []seatable.NeuronRow) {
+	seenID := make(map[string]bool)
+	dedupedGroups := make([][]string, len(groups))
+	var allRootIDs []string
+	for i, group := range groups {
+		kept := make([]string, 0, len(group))
+		for _, id := range group {
+			if id == "" || seenID[id] {
+				continue
+			}
+			seenID[id] = true
+			kept = append(kept, id)
+			allRootIDs = append(allRootIDs, id)
+		}
+		dedupedGroups[i] = kept
+	}
+
+	seenRow := make(map[string]bool)
+	dedupedRows := make([]seatable.NeuronRow, 0, len(rows))
+	for _, r := range rows {
+		if r.RootID != "" {
+			if seenRow[r.RootID] {
+				continue
+			}
+			seenRow[r.RootID] = true
+		}
+		dedupedRows = append(dedupedRows, r)
+	}
+
+	return dedupedGroups, allRootIDs, dedupedRows
+}
+
 func resolveAddRegionFilter(region, bundle string) (string, error) {
 	regions, err := resolveAddRegionFilters([]string{region}, []string{bundle})
 	if err != nil {
@@ -409,37 +463,101 @@ type querySpec struct {
 	filters seatable.Filters
 }
 
-// buildQuerySpecs creates query groups from cell-class and cell-type flags.
-// When both are given, produces the cross-product. When only one dimension
-// is given, each value is its own group. With neither, returns a single
-// group using the base filters.
-func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes []string) []querySpec {
-	var specs []querySpec
+// specDim is one grouping dimension (cell_class, cell_type, or cell_subtype)
+// contributing its values to the query specs.
+type specDim struct {
+	values []string
+	apply  func(*seatable.Filters, string)
+}
 
-	if len(cellClasses) > 0 && len(cellTypes) > 0 {
-		for _, cc := range cellClasses {
-			for _, ct := range cellTypes {
-				f := *base
-				f.CellClass = cc
-				f.CellType = ct
-				specs = append(specs, querySpec{label: cc + "/" + ct, filters: f})
-			}
+// groupDimensionCount reports how many of the cell-class/cell-type/cell-subtype
+// dimensions carry at least one value. --intersect only changes the result when
+// two or more dimensions are combined.
+func groupDimensionCount(cellClasses, cellTypes, cellSubtypes []string) int {
+	count := 0
+	for _, values := range [][]string{cellClasses, cellTypes, cellSubtypes} {
+		if len(values) > 0 {
+			count++
 		}
+	}
+	return count
+}
+
+// buildQuerySpecs turns the cell-class/cell-type/cell-subtype flags into query
+// groups. With union set (the CLI default), every value becomes its own group
+// (OR across dimensions), so values from different columns load together as a
+// combined set. Without union (--intersect) the non-empty dimensions are
+// combined as a cross-product instead (AND within each group: e.g. class
+// kenyon_cell × type ER yields one "kenyon_cell/ER" group requiring both). Base
+// scalar filters (super_class, side, region, ...) are preserved on every group.
+// With no grouping values, returns a single group using the base filters.
+func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes, cellSubtypes []string, union bool) []querySpec {
+	dims := []specDim{
+		{cellClasses, func(f *seatable.Filters, v string) { f.CellClass = v }},
+		{cellTypes, func(f *seatable.Filters, v string) { f.CellType = v }},
+		{cellSubtypes, func(f *seatable.Filters, v string) { f.CellSubtype = v }},
+	}
+
+	var specs []querySpec
+	if union {
+		specs = buildUnionSpecs(base, dims)
 	} else {
-		for _, cc := range cellClasses {
-			f := *base
-			f.CellClass = cc
-			specs = append(specs, querySpec{label: cc, filters: f})
-		}
-		for _, ct := range cellTypes {
-			f := *base
-			f.CellType = ct
-			specs = append(specs, querySpec{label: ct, filters: f})
-		}
+		specs = buildCrossProductSpecs(base, dims)
 	}
 
 	if len(specs) == 0 {
 		specs = append(specs, querySpec{label: "", filters: *base})
+	}
+	return specs
+}
+
+// buildUnionSpecs makes each dimension value its own group (OR semantics).
+func buildUnionSpecs(base *seatable.Filters, dims []specDim) []querySpec {
+	var specs []querySpec
+	for _, d := range dims {
+		for _, v := range d.values {
+			f := *base
+			d.apply(&f, v)
+			specs = append(specs, querySpec{label: v, filters: f})
+		}
+	}
+	return specs
+}
+
+// buildCrossProductSpecs expands the non-empty dimensions into their
+// cross-product (AND within each group), labelling groups "value1/value2/...".
+func buildCrossProductSpecs(base *seatable.Filters, dims []specDim) []querySpec {
+	type partial struct {
+		labels  []string
+		filters seatable.Filters
+	}
+
+	partials := []partial{{filters: *base}}
+	for _, d := range dims {
+		if len(d.values) == 0 {
+			continue
+		}
+		next := make([]partial, 0, len(partials)*len(d.values))
+		for _, p := range partials {
+			for _, v := range d.values {
+				f := p.filters
+				d.apply(&f, v)
+				labels := append(append([]string{}, p.labels...), v)
+				next = append(next, partial{labels: labels, filters: f})
+			}
+		}
+		partials = next
+	}
+
+	// The seed partial (no dimensions applied) carries no labels; return no
+	// specs so the caller falls back to a single base-only group.
+	if len(partials) == 1 && len(partials[0].labels) == 0 {
+		return nil
+	}
+
+	specs := make([]querySpec, 0, len(partials))
+	for _, p := range partials {
+		specs = append(specs, querySpec{label: strings.Join(p.labels, "/"), filters: p.filters})
 	}
 	return specs
 }
