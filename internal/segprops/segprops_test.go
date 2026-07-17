@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 
 	"crantcli/internal/seatable"
@@ -191,6 +192,38 @@ func TestBuildSegmentProperties_Tags(t *testing.T) {
 	// Row 2: class_central_brain(0), side_right(2); no super_class.
 	if !reflect.DeepEqual(tags.Values[1], []int{0, 2}) {
 		t.Errorf("row 2 indices = %v, want [0 2]", tags.Values[1])
+	}
+}
+
+func TestDefaultOptions_TagsCellInstance(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "1", CellType: "ER", CellClass: "central", CellInstance: "ER_L1", Side: "left", SuperClass: "central"},
+	}
+	data, err := BuildSegmentProperties(rows, DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := parse(t, data)
+
+	var tags []string
+	found := false
+	for _, p := range d.Inline.Properties {
+		var m struct {
+			ID, Type string
+			Tags     []string
+		}
+		if err := json.Unmarshal(p, &m); err == nil && m.Type == "tags" {
+			tags = m.Tags
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no tags property found")
+	}
+	// cell_instance is a filterable tag under DefaultOptions, prefixed "instance_".
+	want := "instance_er_l1"
+	if !slices.Contains(tags, want) {
+		t.Errorf("tags = %v, want to contain %q", tags, want)
 	}
 }
 
