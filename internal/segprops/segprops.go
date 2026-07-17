@@ -26,13 +26,13 @@ type Options struct {
 }
 
 // DefaultOptions returns the standard label/tag configuration: a cell_type label
-// (falling back to cell_class) with cell_class, side, and super_class as
-// filterable tags.
+// (falling back to cell_class) with cell_class, cell_instance, side, and
+// super_class as filterable tags.
 func DefaultOptions() Options {
 	return Options{
 		LabelField:     "cell_type",
 		LabelFallbacks: []string{"cell_class"},
-		TagFields:      []string{"cell_class", "side", "super_class"},
+		TagFields:      []string{"cell_class", "cell_instance", "side", "super_class"},
 	}
 }
 
