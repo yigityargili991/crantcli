@@ -142,6 +142,9 @@ crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-ty
 
 # --intersect ANDs them into a cross-product instead (rarely needed)
 crantcli add --intersect --cell-class kenyon_cell --cell-type ER
+
+# Attach cell-type labels so types appear next to root IDs in the Seg. panel
+crantcli add --cell-type ER --labels
 ```
 
 **Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
@@ -151,6 +154,8 @@ crantcli add --intersect --cell-class kenyon_cell --cell-type ER
 **Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `column`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`). `column` is derived from `cell_instance`: Δ7 instances use the final 4 characters, and other instances use the final 2.
 
 **State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use the configured or built-in default template and skip stdin/clipboard/last-session state), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--replace`, `--open`
+
+**Label flags:** `--labels` (publish and attach cell-type labels), `--labels-ttl` (clean up older tracked label sources), `--labels-hook` (use a custom publisher instead of a GitHub gist)
 
 **Smart input resolution** (when no `--state` is given):
 1. stdin (piped JSON)
@@ -302,13 +307,16 @@ crantcli state-transfer -s base.json
 # Target a specific segmentation layer
 crantcli state-transfer -l "my layer"
 
+# Attach cell-type labels for matching CRANT root IDs
+crantcli state-transfer --labels
+
 # Write to file instead of clipboard
 crantcli state-transfer -o output.json
 ```
 
 IDs in the clipboard can be separated by whitespace, newlines, or commas. Duplicates are removed automatically.
 
-**Flags:** `-s`/`--state` (base state URL or file), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (segment color)
+**Flags:** `-s`/`--state` (base state URL or file), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (segment color), `--labels`, `--labels-ttl`, `--labels-hook`
 
 ### `generate` -- Output default template
 
