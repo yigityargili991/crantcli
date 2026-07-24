@@ -18,7 +18,7 @@ var changeDefStateCmd = &cobra.Command{
 source is available (no --state, piped JSON, or clipboard URL).
 
 Pass the full JSON state as an argument, or pass a path to a JSON file.`,
-	Example: `  crantcli change-def-state '{"dimensions":...}'
+	Example: `  crantcli change-def-state "$(crantcli generate)"
   crantcli change-def-state /path/to/state.json
   crantcli change-def-state --show
   crantcli change-def-state --reset`,

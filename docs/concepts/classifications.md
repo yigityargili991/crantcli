@@ -1,6 +1,6 @@
 # CRANT classifications
 
-CRANT metadata describes each neuron through related classification and annotation fields. Understanding which fields define a hierarchy—and which describe independent attributes—makes queries easier to predict.
+CRANT metadata describes each neuron through related classification and annotation fields.
 
 ## Classification hierarchy
 
@@ -13,7 +13,7 @@ super_class
             └─ cell_subtype
 ```
 
-`cell_instance` identifies a more specific instance and may encode information such as column.
+`cell_instance` identifies a more specific instance; its suffix encodes the column (`--color-by column`).
 
 Because the levels are hierarchical, combining a class with one of its own types as an intersection is often redundant. This is why repeated `cell_class`, `cell_type`, and `cell_subtype` values use union behavior by default in `add`.
 
@@ -58,7 +58,7 @@ Scalar filters such as `--side left` apply to every group.
 ```bash
 crantcli add \
   --intersect \
-  --cell-class kenyon_cell \
+  --cell-class ER \
   --cell-type ER
 ```
 
@@ -68,6 +68,6 @@ Classifier values come from the live CRANT table and may evolve. Query them inst
 
 ```bash
 crantcli list cell_class --count
-crantcli list cell_type --cell-class kenyon_cell --count
+crantcli list cell_type --cell-class ER --count
 ```
 

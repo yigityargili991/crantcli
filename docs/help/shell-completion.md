@@ -1,6 +1,6 @@
 # Shell completion
 
-Cobra can generate completion scripts for Bash, Zsh, Fish, and PowerShell.
+crantcli generates completion scripts for Bash, Zsh, Fish, and PowerShell.
 
 === "Bash"
 

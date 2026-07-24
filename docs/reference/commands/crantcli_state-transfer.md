@@ -8,9 +8,9 @@ Read root IDs from the clipboard, inject them into a Neuroglancer state,
 and copy the resulting state URL back to the clipboard.
 
 The clipboard should contain root IDs separated by whitespace, newlines,
-or commas. The command loads a base state (from --state, default template,
-or user-configured default), injects the IDs into the segmentation layer,
-and writes the resulting Neuroglancer URL to the clipboard.
+or commas. The command loads a base state (from --state, piped stdin,
+user-configured default, or built-in template), injects the IDs into the
+segmentation layer, and writes the resulting Neuroglancer URL to the clipboard.
 
 ```
 crantcli state-transfer [flags]
@@ -26,7 +26,7 @@ crantcli state-transfer [flags]
   crantcli state-transfer -s base.json
 
   # Target a specific segmentation layer
-  crantcli state-transfer -l "my layer"
+  crantcli state-transfer -l "merge-biased seg"
 
   # Attach cell-type labels to the clipboard root IDs
   crantcli state-transfer --labels

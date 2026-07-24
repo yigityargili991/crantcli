@@ -29,19 +29,19 @@ Smart input resolution (when no --state is given):
   2. Check clipboard for a Neuroglancer URL
   3. Fall back to the configured or built-in CRANT scene template`,
 	Example: `  # Smart: checks clipboard for a Neuroglancer URL, injects, and copies back
-  crantcli add --cell-class kenyon_cell
+  crantcli add --cell-type ER
 
   # Explicit file I/O
-  crantcli add --cell-class kenyon_cell -s state.json -o modified.json
+  crantcli add --cell-type ER -s state.json -o modified.json
 
   # Generate a fresh state
-  crantcli add --cell-class kenyon_cell --generate
+  crantcli add --cell-type ER --generate
 
   # Open the updated state in a browser
   crantcli add --cell-type ER --open
 
   # Print root IDs without manipulating a state
-  crantcli add --cell-class kenyon_cell --root-ids-only
+  crantcli add --cell-type ER --root-ids-only
 
   # Add multiple cell types with per-group coloring
   crantcli add --cell-type ER --cell-type EPG/PEG --color colored
@@ -59,10 +59,10 @@ Smart input resolution (when no --state is given):
   crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-type PEN --color-by cell_subtype
 
   # Intersect classifiers instead
-  crantcli add --intersect --cell-class kenyon_cell --cell-type ER
+  crantcli add --intersect --cell-class ER --cell-type ER
 
   # Sub-color by cell_subtype within each query group
-  crantcli add --cell-class kenyon_cell --color-sub --color blue`,
+  crantcli add --cell-type ER --color-sub --color blue`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -111,7 +111,7 @@ func init() {
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
-	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Just print root IDs, no state manipulation")
+	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs, no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 	addCmd.Flags().BoolVar(&addLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI")
 	addCmd.Flags().DurationVar(&addLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
@@ -486,7 +486,7 @@ func groupDimensionCount(cellClasses, cellTypes, cellSubtypes []string) int {
 // (OR across dimensions), so values from different columns load together as a
 // combined set. Without union (--intersect) the non-empty dimensions are
 // combined as a cross-product instead (AND within each group: e.g. class
-// kenyon_cell × type ER yields one "kenyon_cell/ER" group requiring both). Base
+// ER × type ER yields one "ER/ER" group requiring both). Base
 // scalar filters (super_class, side, region, ...) are preserved on every group.
 // With no grouping values, returns a single group using the base filters.
 func buildQuerySpecs(base *seatable.Filters, cellClasses, cellTypes, cellSubtypes []string, union bool) []querySpec {

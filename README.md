@@ -12,7 +12,7 @@ crantcli setup
 
 # Query a population, color it by type, and open Neuroglancer
 crantcli add \
-  --cell-class kenyon_cell \
+  --cell-type ER \
   --color-by cell_type \
   --generate \
   --open
@@ -34,7 +34,7 @@ Install a release or build from source first; see the [installation guide](docs/
 
 ```bash
 # Explore available values
-crantcli list cell_type --cell-class kenyon_cell --count
+crantcli list cell_type --cell-class ER --count
 
 # Add two populations as independently colored groups
 crantcli add --cell-type ER --cell-type EPG/PEG --color colored
@@ -56,10 +56,7 @@ The [user guide](https://yigityargili991.github.io/crantcli/) explains query gro
 
 Pre-built binaries for Linux, macOS, and Windows on amd64 and arm64 are available from [GitHub Releases](https://github.com/yigityargili991/crantcli/releases).
 
-> [!IMPORTANT]
-> The repository is currently private. Anonymous release and raw-file URLs return 404 until public launch. Collaborators can download a release while signed in, or build from an authenticated clone.
-
-Once the repository is public, the installer supports pinned versions and custom destinations:
+The installer supports pinned versions and custom destinations:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh \

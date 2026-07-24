@@ -48,7 +48,7 @@ crantcli add \
 ```bash
 crantcli add --super-class sensory --color-by cell_type
 crantcli add --region LX --color-by side --color blue
-crantcli add --cell-class kenyon_cell --color-by proofread
+crantcli add --cell-type ER --color-by proofread
 ```
 
 When you omit `--color`, `--color-by` selects the `colored` palette automatically.
@@ -69,7 +69,7 @@ Use tones within each query group to distinguish cell subtypes:
 
 ```bash
 crantcli add \
-  --cell-class kenyon_cell \
+  --cell-type ER \
   --color blue \
   --color-sub
 ```

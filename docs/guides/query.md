@@ -5,25 +5,13 @@
 ## Filter a population
 
 ```bash
-crantcli add --cell-class kenyon_cell
+crantcli add --cell-class ER
 crantcli add --cell-type ER
 crantcli add --super-class sensory --side left
 crantcli add --region CX --proofread true
 ```
 
-Supported query filters:
-
-| Filter | Repeatable | Purpose |
-| --- | :---: | --- |
-| `--super-class` | | Broad functional class |
-| `--cell-class` | ✓ | Cell class and query group |
-| `--cell-type` | ✓ | Cell type and query group |
-| `--cell-subtype` | ✓ | Cell subtype and query group |
-| `--side` | | Side annotation |
-| `--region` | ✓ | Region annotation |
-| `--bundle` | ✓ | Readable alias for `--region` |
-| `--tract` | | Tract annotation |
-| `--proofread` | | Proofreading status |
+The query filters are `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, and `--proofread`; `--cell-class`, `--cell-type`, `--cell-subtype`, `--region`, and `--bundle` are repeatable. See [crantcli add](../reference/commands/crantcli_add.md) for the full flag list.
 
 `--region` and `--bundle` express the same filter and cannot be combined in one command.
 
@@ -58,7 +46,7 @@ Use `--intersect` when values from two or more classifier levels must all match:
 ```bash
 crantcli add \
   --intersect \
-  --cell-class kenyon_cell \
+  --cell-class ER \
   --cell-type ER
 ```
 
@@ -81,7 +69,7 @@ crantcli add --cell-type ER --replace
 Select a specific segmentation layer when a state contains several:
 
 ```bash
-crantcli add --cell-type ER --layer "proofreadable seg"
+crantcli add --cell-type ER --layer "merge-biased seg"
 ```
 
 ## Return root IDs only
@@ -89,7 +77,7 @@ crantcli add --cell-type ER --layer "proofreadable seg"
 Skip state manipulation:
 
 ```bash
-crantcli add --cell-class kenyon_cell --root-ids-only
+crantcli add --cell-type ER --root-ids-only
 ```
 
 The IDs are printed one per line and copied to the clipboard when possible.

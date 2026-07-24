@@ -14,7 +14,7 @@ import (
 var lookupColumnCmd = &cobra.Command{
 	Use:         "lookup-column [root_id]",
 	Short:       "Find the closest EPG/PEG neuron's column (region) by position",
-	Long:        `Finds the closest EPG/PEG neuron to the given root ID (or position) by 3D Euclidean distance and prints its resolved region value plus the nearest EPG/PEG root ID.`,
+	Long:        `Find the closest EPG/PEG neuron to the given root ID (or position) by 3D Euclidean distance and print its resolved region value plus the nearest EPG/PEG root ID.`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.MaximumNArgs(1),
 }

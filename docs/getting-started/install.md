@@ -2,15 +2,9 @@
 
 Pre-built binaries are published for macOS, Linux, and Windows on the [GitHub Releases page](https://github.com/yigityargili991/crantcli/releases).
 
-!!! warning "Pre-launch repository access"
-    This repository is currently private. Anonymous release and raw-file URLs
-    return 404 until public launch. Collaborators can download a release while
-    signed in to GitHub, or build from an authenticated clone.
-
 ## macOS and Linux
 
-Once the repository is public, the installer downloads the latest release to
-`~/.local/bin/crantcli`:
+The installer downloads the latest release to `~/.local/bin/crantcli`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | sh

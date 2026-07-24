@@ -1,6 +1,6 @@
 # State resolution
 
-Commands that edit or inspect a Neuroglancer state use one predictable input order.
+Commands that edit or inspect a Neuroglancer state resolve the input state in the same order.
 
 ## Explicit input
 
@@ -21,7 +21,7 @@ Without `--state`, resolution proceeds in this order:
 
 1. non-empty JSON from piped standard input;
 2. a Neuroglancer URL on the clipboard;
-3. the user-configured default state;
+3. the default state configured with `change-def-state`;
 4. the built-in CRANT scene.
 
 ```text
@@ -41,7 +41,7 @@ If a command edits segments and `--layer` is absent, it selects the first segmen
 crantcli add \
   --cell-type ER \
   --state scene.json \
-  --layer "proofreadable seg"
+  --layer "proofreadable seg — SP inputs colored"
 ```
 
 ## Output resolution

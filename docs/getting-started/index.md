@@ -6,8 +6,6 @@
 2. **Neuroglancer states** hold the scene you want to inspect.
 3. **CAVE** tells you whether a stored root ID is still current after proofreading.
 
-You can install the CLI and open a first scene in a few minutes.
-
 ## The shortest path
 
 ```bash
@@ -15,10 +13,10 @@ You can install the CLI and open a first scene in a few minutes.
 crantcli setup
 
 # 2. Start from the built-in scene and open the result
-crantcli add --cell-class kenyon_cell --generate --open
+crantcli add --cell-type ER --generate --open
 ```
 
-The third command queries CRANT, adds matching root IDs to the segmentation layer, writes a Neuroglancer URL, and opens it in your browser.
+The `add` command queries CRANT, adds matching root IDs to the segmentation layer, copies the updated Neuroglancer URL to the clipboard, and opens it in your browser.
 
 ## Choose the next step
 

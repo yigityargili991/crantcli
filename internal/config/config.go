@@ -169,8 +169,7 @@ func RunSetupPrompt() error {
 		return fmt.Errorf("no SeaTable token configured and stdin is not a terminal; set CRANTTABLE_TOKEN or run 'crantcli setup'")
 	}
 
-	fmt.Println("Let's get set up yeah?")
-	fmt.Println("Please copy your SeaTable token here to use crantcli:")
+	fmt.Println("SeaTable token:")
 	fmt.Print("> ")
 
 	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -188,7 +187,7 @@ func RunSetupPrompt() error {
 		return err
 	}
 
-	fmt.Println("Token saved! You're all set.")
+	fmt.Println("SeaTable token saved.")
 	return nil
 }
 
@@ -217,6 +216,6 @@ func RunCAVESetupPrompt() error {
 		return err
 	}
 
-	fmt.Println("CAVE token saved!")
+	fmt.Println("CAVE token saved.")
 	return nil
 }

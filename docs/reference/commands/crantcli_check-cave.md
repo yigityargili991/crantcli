@@ -26,8 +26,8 @@ crantcli check-cave [root_id...] [flags]
   # Check all neurons in the table
   crantcli check-cave --all
 
-  # Check only kenyon cells
-  crantcli check-cave --all --cell-class kenyon_cell
+  # Check only ER neurons
+  crantcli check-cave --all --cell-type ER
 
   # Only print stale entries (exit code 1 if any found)
   crantcli check-cave --all --quiet

@@ -21,19 +21,19 @@ crantcli add [flags]
 
 ```bash
   # Smart: checks clipboard for a Neuroglancer URL, injects, and copies back
-  crantcli add --cell-class kenyon_cell
+  crantcli add --cell-type ER
 
   # Explicit file I/O
-  crantcli add --cell-class kenyon_cell -s state.json -o modified.json
+  crantcli add --cell-type ER -s state.json -o modified.json
 
   # Generate a fresh state
-  crantcli add --cell-class kenyon_cell --generate
+  crantcli add --cell-type ER --generate
 
   # Open the updated state in a browser
   crantcli add --cell-type ER --open
 
   # Print root IDs without manipulating a state
-  crantcli add --cell-class kenyon_cell --root-ids-only
+  crantcli add --cell-type ER --root-ids-only
 
   # Add multiple cell types with per-group coloring
   crantcli add --cell-type ER --cell-type EPG/PEG --color colored
@@ -51,10 +51,10 @@ crantcli add [flags]
   crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-type PEN --color-by cell_subtype
 
   # Intersect classifiers instead
-  crantcli add --intersect --cell-class kenyon_cell --cell-type ER
+  crantcli add --intersect --cell-class ER --cell-type ER
 
   # Sub-color by cell_subtype within each query group
-  crantcli add --cell-class kenyon_cell --color-sub --color blue
+  crantcli add --cell-type ER --color-sub --color blue
 ```
 
 ## Options
@@ -79,7 +79,7 @@ crantcli add [flags]
       --proofread string           Filter by proofread status
       --region stringArray         Filter by region (repeatable for multiple regions)
       --replace                    Replace existing segments instead of appending
-      --root-ids-only              Just print root IDs, no state manipulation
+      --root-ids-only              Print root IDs, no state manipulation
       --side string                Filter by side
   -s, --state string               Neuroglancer state (URL or file path)
       --super-class string         Filter by super_class

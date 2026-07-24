@@ -16,7 +16,7 @@ crantcli change-def-state <json-state> [flags]
 ## Examples
 
 ```bash
-  crantcli change-def-state '{"dimensions":...}'
+  crantcli change-def-state "$(crantcli generate)"
   crantcli change-def-state /path/to/state.json
   crantcli change-def-state --show
   crantcli change-def-state --reset

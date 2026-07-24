@@ -20,11 +20,11 @@ crantcli check-cave --all
 Or use filter flags without `--all`:
 
 ```bash
-crantcli check-cave --cell-class kenyon_cell
+crantcli check-cave --cell-type ER
 crantcli check-cave --region LX --proofread true
 ```
 
-Available filters include `super-class`, `cell-class`, `cell-type`, `cell-subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and `proofread`.
+Filters: `super-class`, `cell-class`, `cell-type`, `cell-subtype`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`.
 
 Root ID arguments cannot be combined with `--all` or filter flags.
 

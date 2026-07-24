@@ -27,7 +27,7 @@ Piped JSON is read before the clipboard.
 crantcli inspect --state result.json
 ```
 
-`inspect` reports each layer’s name, type, source, segment count, and color-entry count.
+`inspect` reports each layer’s name, type, and source, plus segment and color-entry counts for segmentation layers.
 
 ## Transfer known IDs from the clipboard
 
@@ -78,5 +78,7 @@ With `--output`, the result is always JSON written to that file. Without it:
 | File or piped JSON | Formatted JSON on standard output |
 
 If clipboard writing fails, URL output falls back to standard output.
+
+`state-transfer` is the exception: without `--output` it always copies a URL to the clipboard, whatever the input source.
 
 [Learn the full resolution order](../concepts/state-resolution.md)

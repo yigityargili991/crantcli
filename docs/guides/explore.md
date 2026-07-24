@@ -24,8 +24,8 @@ Filters let you explore one branch of the classification:
 # Cell classes inside the sensory super-class
 crantcli list cell_class --super-class sensory --count
 
-# Cell types inside the Kenyon-cell class
-crantcli list cell_type --cell-class kenyon_cell --count
+# Cell types inside the ER class
+crantcli list cell_type --cell-class ER --count
 
 # Regions represented by one cell type
 crantcli list region --cell-type EPG/PEG --count
@@ -41,9 +41,9 @@ nerve         hemilineage    proofread
 
 Region option IDs are resolved to their readable names in the output.
 
-## Let the shell help
+## Shell completion
 
-Shell completion can suggest commands, flags, fields, colors, and—when credentials and network access are available—classification values.
+Completion suggests commands, flags, fields, colors, and—when credentials and network access are available—classification values.
 
 ```bash
 source <(crantcli completion zsh)

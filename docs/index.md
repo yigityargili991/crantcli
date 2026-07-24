@@ -37,7 +37,7 @@ With `crantcli` installed, store your access tokens and open a first scene:
 ```bash
 crantcli setup
 crantcli add \
-  --cell-class kenyon_cell \
+  --cell-type ER \
   --generate \
   --color-by cell_type \
   --open

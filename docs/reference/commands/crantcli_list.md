@@ -17,7 +17,7 @@ crantcli list <field> [flags]
 ```bash
   crantcli list super_class --count
   crantcli list cell_class --super-class sensory --count
-  crantcli list cell_type --cell-class kenyon_cell
+  crantcli list cell_type --cell-class ER
 ```
 
 ## Options

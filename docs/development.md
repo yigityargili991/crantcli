@@ -9,12 +9,7 @@ make build
 make test
 ```
 
-The same checks can be run directly:
-
-```bash
-go vet ./...
-go test ./...
-```
+CI runs `go vet ./...` and `go test ./...`.
 
 ## Work on the documentation
 

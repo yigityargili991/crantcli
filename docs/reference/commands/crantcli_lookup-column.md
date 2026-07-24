@@ -4,7 +4,7 @@ Find the closest EPG/PEG neuron's column (region) by position
 
 ## Synopsis
 
-Finds the closest EPG/PEG neuron to the given root ID (or position) by 3D Euclidean distance and prints its resolved region value plus the nearest EPG/PEG root ID.
+Find the closest EPG/PEG neuron to the given root ID (or position) by 3D Euclidean distance and print its resolved region value plus the nearest EPG/PEG root ID.
 
 ```
 crantcli lookup-column [root_id] [flags]

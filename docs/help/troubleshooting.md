@@ -37,7 +37,7 @@ For a non-interactive shell:
 export CRANTTABLE_TOKEN="..."
 ```
 
-If an environment token appears to be ignored, remember that credentials written by `setup` take precedence.
+Credentials written by `setup` take precedence over `CRANTTABLE_TOKEN`.
 
 ## CAVE commands report a missing token
 
@@ -58,8 +58,10 @@ Install a compatible helper:
 sudo apt install wl-clipboard
 
 # X11
-sudo apt install xclip
+sudo apt install xclip   # or xsel
 ```
+
+The helper is used only when `WAYLAND_DISPLAY` (Wayland) or `DISPLAY` (X11) is set.
 
 File-based workflows avoid the clipboard:
 
@@ -73,7 +75,7 @@ Without `--layer`, `crantcli` uses the first segmentation layer. Inspect the sta
 
 ```bash
 crantcli inspect --state scene.json
-crantcli add --cell-type ER --state scene.json --layer "proofreadable seg"
+crantcli add --cell-type ER --state scene.json --layer "proofreadable seg — SP inputs colored"
 ```
 
 ## `--labels` cannot find or authenticate `gh`

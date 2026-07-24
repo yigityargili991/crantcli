@@ -123,6 +123,7 @@ nav:
 validation:
   nav:
     not_found: warn
+    omitted_files: warn
   links:
     not_found: warn
     anchors: warn

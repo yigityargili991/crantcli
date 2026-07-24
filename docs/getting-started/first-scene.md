@@ -1,10 +1,10 @@
 # Build your first scene
 
-Start from the built-in CRANT scene, find all Kenyon cells, color them by cell type, and open the result:
+Start from the built-in CRANT scene, find all ER neurons, color them by cell type, and open the result:
 
 ```bash
 crantcli add \
-  --cell-class kenyon_cell \
+  --cell-type ER \
   --color-by cell_type \
   --generate \
   --open
@@ -42,7 +42,7 @@ crantcli inspect --state er-state.json
 ## Get IDs without editing a scene
 
 ```bash
-crantcli add --cell-class kenyon_cell --root-ids-only
+crantcli add --cell-type ER --root-ids-only
 ```
 
 Root IDs are printed and copied to the clipboard when clipboard access is available.
