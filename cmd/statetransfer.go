@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"crantcli/internal/clipboard"
+	"crantcli/internal/config"
 	"crantcli/internal/nglstate"
+	"crantcli/internal/seatable"
 
 	"github.com/spf13/cobra"
 )
@@ -32,25 +35,43 @@ Examples:
   # Target a specific segmentation layer
   crantcli state-transfer -l "my layer"
 
+  # Attach cell-type labels to the clipboard root IDs
+  crantcli state-transfer --labels
+
   # Write to file instead of clipboard
   crantcli state-transfer -o output.json`,
 }
 
 func init() {
 	var (
-		stState  string
-		stOutput string
-		stLayer  string
-		stColor  string
+		stState      string
+		stOutput     string
+		stLayer      string
+		stColor      string
+		stLabels     bool
+		stLabelsTTL  time.Duration
+		stLabelsHook string
 	)
 
 	stateTransferCmd.Flags().StringVarP(&stState, "state", "s", "", "Base Neuroglancer state (URL or file path; default: template)")
 	stateTransferCmd.Flags().StringVarP(&stOutput, "output", "o", "", "Output file path (default: clipboard)")
 	stateTransferCmd.Flags().StringVarP(&stLayer, "layer", "l", "", "Target segmentation layer name")
 	stateTransferCmd.Flags().StringVar(&stColor, "color", "", "Segment color: named color, 'colored' for random, or hex (#ff0000)")
+	stateTransferCmd.Flags().BoolVar(&stLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI")
+	stateTransferCmd.Flags().DurationVar(&stLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
+	stateTransferCmd.Flags().StringVar(&stLabelsHook, "labels-hook", os.Getenv("CRANT_LABELS_HOOK"), "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
 	stateTransferCmd.ValidArgsFunction = noFileCompletion
 	mustRegisterFlagCompletion(stateTransferCmd, "color", completeStaticValues(colorCompletions))
 	mustRegisterFlagCompletion(stateTransferCmd, "layer", noFileCompletion)
+	mustRegisterFlagCompletion(stateTransferCmd, "labels-ttl", noFileCompletion)
+	mustRegisterFlagCompletion(stateTransferCmd, "labels-hook", noFileCompletion)
+
+	stateTransferCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if !stLabels || config.GetAPIToken() != "" {
+			return nil
+		}
+		return config.RunSetupPrompt()
+	}
 
 	stateTransferCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		// Read IDs from clipboard
@@ -91,6 +112,26 @@ func init() {
 
 		nglstate.AddSegments(layer, ids, true)
 		nglstate.SetSegmentColor(layer, ids, normalizedColor)
+
+		if stLabels {
+			client, err := seatable.NewClient()
+			if err != nil {
+				return err
+			}
+			rows, err := seatable.QueryNeuronsByRootIDs(client, ids)
+			if err != nil {
+				return fmt.Errorf("querying labels for clipboard root IDs: %w", err)
+			}
+			if len(rows) == 0 {
+				return fmt.Errorf("no CRANT metadata found for clipboard root IDs")
+			}
+			if len(rows) < len(ids) {
+				fmt.Fprintf(os.Stderr, "Warning: found CRANT metadata for %d of %d clipboard root IDs\n", len(rows), len(ids))
+			}
+			if err := attachCellTypeLabels(layer, rows, stLabelsTTL, stLabelsHook); err != nil {
+				return err
+			}
+		}
 
 		// Write output
 		// Force clipboard/URL output when no --output flag is given,

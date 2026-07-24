@@ -19,6 +19,7 @@ type Filters struct {
 	CellClass   string
 	CellType    string
 	CellSubtype string
+	RootIDs     []string
 	Side        string
 	Region      string
 	Regions     []string
@@ -34,7 +35,7 @@ func (f *Filters) HasAny() bool {
 		return false
 	}
 	return f.SuperClass != "" || f.CellClass != "" || f.CellType != "" ||
-		f.CellSubtype != "" || f.Side != "" || len(f.regionValues()) > 0 ||
+		f.CellSubtype != "" || len(f.RootIDs) > 0 || f.Side != "" || len(f.regionValues()) > 0 ||
 		f.Tract != "" || f.Nerve != "" || f.Hemilineage != "" || f.Proofread != ""
 }
 
@@ -89,6 +90,14 @@ func buildWhere(f *Filters) string {
 	add("nerve", f.Nerve)
 	add("hemilineage", f.Hemilineage)
 	add("proofread", f.Proofread)
+
+	if rootIDs := compactUniqueStrings(f.RootIDs); len(rootIDs) > 0 {
+		quoted := make([]string, len(rootIDs))
+		for i, rootID := range rootIDs {
+			quoted[i] = "'" + escapeSQL(rootID) + "'"
+		}
+		conditions = append(conditions, "`root_id` IN ("+strings.Join(quoted, ", ")+")")
+	}
 
 	if len(conditions) == 0 {
 		return ""
@@ -175,6 +184,14 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 		})
 	}
 	return rows, nil
+}
+
+// QueryNeuronsByRootIDs returns the metadata rows matching the given root IDs.
+func QueryNeuronsByRootIDs(client *Client, rootIDs []string) ([]NeuronRow, error) {
+	if len(compactUniqueStrings(rootIDs)) == 0 {
+		return nil, nil
+	}
+	return QueryNeurons(client, &Filters{RootIDs: rootIDs})
 }
 
 // QueryDistinct returns distinct values for a given column, optionally with counts.

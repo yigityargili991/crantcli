@@ -12,7 +12,7 @@ import (
 
 var labelsCmd = &cobra.Command{
 	Use:   "labels",
-	Short: "Manage cell-type label sources created by 'add --labels'",
+	Short: "Manage cell-type label sources created by commands using --labels",
 }
 
 func init() {
@@ -25,7 +25,8 @@ func init() {
 	cleanCmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Delete label sources (gists or hook-published) tracked by crantcli",
-		Long: `Delete cell-type label sources that 'add --labels' created and tracked.
+		Long: `Delete cell-type label sources that 'add --labels' or
+'state-transfer --labels' created and tracked.
 
 By default, deletes tracked sources older than --older-than. Use --all to delete
 every tracked source regardless of age. Hook-published sources are cleaned via

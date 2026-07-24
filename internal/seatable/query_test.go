@@ -94,6 +94,55 @@ func TestQueryNeuronsFiltersMultipleRegions(t *testing.T) {
 	}
 }
 
+func TestQueryNeuronsByRootIDsFiltersExactIDs(t *testing.T) {
+	var gotSQL string
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			gotSQL = sql
+			return &SQLResponse{Results: []map[string]interface{}{
+				neuronSQLRow("222", []interface{}{"452098"}),
+			}}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	rows, err := QueryNeuronsByRootIDs(client, []string{" 111 ", "222", "111", "3'3"})
+	if err != nil {
+		t.Fatalf("QueryNeuronsByRootIDs returned error: %v", err)
+	}
+
+	wantWhere := "`root_id` IN ('111', '222', '3''3')"
+	if !strings.Contains(gotSQL, wantWhere) {
+		t.Fatalf("SQL = %q, want exact root ID filter %q", gotSQL, wantWhere)
+	}
+	if len(rows) != 1 || rows[0].RootID != "222" || rows[0].CellType != "EPG/PEG" {
+		t.Fatalf("rows = %#v, want metadata for root ID 222", rows)
+	}
+}
+
+func TestQueryNeuronsByRootIDsEmptySkipsQuery(t *testing.T) {
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			t.Fatalf("unexpected SQL query: %s", sql)
+			return nil, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			t.Fatal("unexpected metadata query")
+			return nil, nil
+		},
+	}
+
+	rows, err := QueryNeuronsByRootIDs(client, []string{"", " "})
+	if err != nil {
+		t.Fatalf("QueryNeuronsByRootIDs returned error: %v", err)
+	}
+	if rows != nil {
+		t.Fatalf("rows = %#v, want nil", rows)
+	}
+}
+
 func TestQueryDistinctRegionCountsResolvedNames(t *testing.T) {
 	client := &Client{
 		executeSQLFunc: func(sql string) (*SQLResponse, error) {
