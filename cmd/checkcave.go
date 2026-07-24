@@ -32,10 +32,8 @@ var checkCaveCmd = &cobra.Command{
 chunkedgraph by looking up each neuron's supervoxel_id.
 
 Supervoxel IDs are stable, but root IDs can change when proofreading edits
-(merges/splits) happen in CAVE. This command detects stale root IDs.
-
-Examples:
-  # Check a single root ID
+(merges/splits) happen in CAVE. This command detects stale root IDs.`,
+	Example: `  # Check a single root ID
   crantcli check-cave 720575940610453042
 
   # Check multiple root IDs

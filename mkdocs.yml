@@ -1,0 +1,130 @@
+site_name: crantcli
+site_description: Query CRANT neurons, build Neuroglancer scenes, and verify CAVE root IDs from the terminal.
+site_url: https://yigityargili991.github.io/crantcli/
+repo_name: yigityargili991/crantcli
+repo_url: https://github.com/yigityargili991/crantcli
+edit_uri: edit/main/docs/
+copyright: Built for the Clonal Raider Ant Connectome community.
+
+theme:
+  name: material
+  language: en
+  font: false
+  icon:
+    logo: material/graph-outline
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: crant
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+plugins:
+  - search
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yigityargili991/crantcli
+      name: crantcli on GitHub
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Overview: getting-started/index.md
+      - Install: getting-started/install.md
+      - Configure access: getting-started/configure.md
+      - Build your first scene: getting-started/first-scene.md
+  - Guides:
+      - Explore the dataset: guides/explore.md
+      - Query and group neurons: guides/query.md
+      - Color a scene: guides/color.md
+      - Work with states: guides/states.md
+      - Check CAVE freshness: guides/cave.md
+      - Add cell-type labels: guides/labels.md
+  - Concepts:
+      - CRANT classifications: concepts/classifications.md
+      - Root IDs and CAVE: concepts/root-ids.md
+      - State resolution: concepts/state-resolution.md
+  - Command reference:
+      - Overview: reference/index.md
+      - crantcli: reference/commands/crantcli.md
+      - add: reference/commands/crantcli_add.md
+      - cave-history: reference/commands/crantcli_cave-history.md
+      - change-def-state: reference/commands/crantcli_change-def-state.md
+      - check-cave: reference/commands/crantcli_check-cave.md
+      - completion: reference/commands/crantcli_completion.md
+      - generate: reference/commands/crantcli_generate.md
+      - inspect: reference/commands/crantcli_inspect.md
+      - labels: reference/commands/crantcli_labels.md
+      - labels clean: reference/commands/crantcli_labels_clean.md
+      - list: reference/commands/crantcli_list.md
+      - lookup-column: reference/commands/crantcli_lookup-column.md
+      - root-info: reference/commands/crantcli_root-info.md
+      - setup: reference/commands/crantcli_setup.md
+      - side-check: reference/commands/crantcli_side-check.md
+      - state-transfer: reference/commands/crantcli_state-transfer.md
+      - Completion shells:
+          - Bash: reference/commands/crantcli_completion_bash.md
+          - Fish: reference/commands/crantcli_completion_fish.md
+          - PowerShell: reference/commands/crantcli_completion_powershell.md
+          - Zsh: reference/commands/crantcli_completion_zsh.md
+  - Help:
+      - Troubleshooting: help/troubleshooting.md
+      - Shell completion: help/shell-completion.md
+  - Contribute:
+      - Development: development.md
+
+validation:
+  nav:
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+    absolute_links: relative_to_docs

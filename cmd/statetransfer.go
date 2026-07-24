@@ -23,10 +23,8 @@ and copy the resulting state URL back to the clipboard.
 The clipboard should contain root IDs separated by whitespace, newlines,
 or commas. The command loads a base state (from --state, default template,
 or user-configured default), injects the IDs into the segmentation layer,
-and writes the resulting Neuroglancer URL to the clipboard.
-
-Examples:
-  # Copy some root IDs, then:
+and writes the resulting Neuroglancer URL to the clipboard.`,
+	Example: `  # Copy some root IDs, then:
   crantcli state-transfer
 
   # Use a specific base state
@@ -59,7 +57,7 @@ func init() {
 	stateTransferCmd.Flags().StringVar(&stColor, "color", "", "Segment color: named color, 'colored' for random, or hex (#ff0000)")
 	stateTransferCmd.Flags().BoolVar(&stLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI")
 	stateTransferCmd.Flags().DurationVar(&stLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
-	stateTransferCmd.Flags().StringVar(&stLabelsHook, "labels-hook", os.Getenv("CRANT_LABELS_HOOK"), "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
+	stateTransferCmd.Flags().StringVar(&stLabelsHook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
 	stateTransferCmd.ValidArgsFunction = noFileCompletion
 	mustRegisterFlagCompletion(stateTransferCmd, "color", completeStaticValues(colorCompletions))
 	mustRegisterFlagCompletion(stateTransferCmd, "layer", noFileCompletion)
@@ -128,7 +126,7 @@ func init() {
 			if len(rows) < len(ids) {
 				fmt.Fprintf(os.Stderr, "Warning: found CRANT metadata for %d of %d clipboard root IDs\n", len(rows), len(ids))
 			}
-			if err := attachCellTypeLabels(layer, rows, stLabelsTTL, stLabelsHook); err != nil {
+			if err := attachCellTypeLabels(layer, rows, stLabelsTTL, resolveLabelsHook(stLabelsHook)); err != nil {
 				return err
 			}
 		}

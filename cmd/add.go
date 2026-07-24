@@ -24,25 +24,23 @@ var addCmd = &cobra.Command{
 their root IDs into a Neuroglancer state.
 
 Smart input resolution (when no --state is given):
+
   1. Check stdin for piped JSON
   2. Check clipboard for a Neuroglancer URL
-  3. Check last state URL produced by this tool
-  4. Fall back to the default CRANT scene template
-
-Examples:
-  # Smart: checks clipboard for Neuroglancer URL, injects, copies back
+  3. Fall back to the configured or built-in CRANT scene template`,
+	Example: `  # Smart: checks clipboard for a Neuroglancer URL, injects, and copies back
   crantcli add --cell-class kenyon_cell
 
   # Explicit file I/O
   crantcli add --cell-class kenyon_cell -s state.json -o modified.json
 
-  # Generate fresh state
+  # Generate a fresh state
   crantcli add --cell-class kenyon_cell --generate
 
-  # Open updated state in browser
+  # Open the updated state in a browser
   crantcli add --cell-type ER --open
 
-  # Just get root IDs (no state manipulation)
+  # Print root IDs without manipulating a state
   crantcli add --cell-class kenyon_cell --root-ids-only
 
   # Add multiple cell types with per-group coloring
@@ -51,16 +49,16 @@ Examples:
   # Add sensory neurons and color by cell_type
   crantcli add --super-class sensory --color-by cell_type
 
-  # Show cell types next to root IDs in the Seg. panel (needs the gh CLI)
+  # Show cell types next to root IDs in the Seg. panel (requires the gh CLI)
   crantcli add --cell-type ER --labels
 
   # Add all neurons annotated to bundle/region LX
   crantcli add --bundle LX
 
-  # Stacking classifiers unions them: class LNO, subtypes PFNc/PFNm3, and type PEN load together
+  # Stack classifiers as a union
   crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-type PEN --color-by cell_subtype
 
-  # --intersect ANDs them instead (rarely needed; classifiers are hierarchical)
+  # Intersect classifiers instead
   crantcli add --intersect --cell-class kenyon_cell --cell-type ER
 
   # Sub-color by cell_subtype within each query group
@@ -106,7 +104,7 @@ func init() {
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
-	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Generate from default template instead of clipboard/session state")
+	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Use the configured or built-in default state instead of the clipboard")
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
@@ -117,7 +115,7 @@ func init() {
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
 	addCmd.Flags().BoolVar(&addLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI")
 	addCmd.Flags().DurationVar(&addLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
-	addCmd.Flags().StringVar(&addLabelsHook, "labels-hook", os.Getenv("CRANT_LABELS_HOOK"), "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
+	addCmd.Flags().StringVar(&addLabelsHook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
 	addCmd.Args = func(cmd *cobra.Command, args []string) error {
 		if err := cobra.NoArgs(cmd, args); err != nil {
 			return err
@@ -280,7 +278,7 @@ func init() {
 		applyAddSegmentColors(layer, allRootIDs, groups, subtypeMap, normalizedColor, colorByField, addColorSub)
 
 		if addLabels {
-			if err := attachCellTypeLabels(layer, allRows, addLabelsTTL, addLabelsHook); err != nil {
+			if err := attachCellTypeLabels(layer, allRows, addLabelsTTL, resolveLabelsHook(addLabelsHook)); err != nil {
 				return err
 			}
 		}

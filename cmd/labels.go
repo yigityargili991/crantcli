@@ -38,12 +38,12 @@ references it.`,
 	}
 	cleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every tracked label source regardless of age")
 	cleanCmd.Flags().DurationVar(&cleanOlderThan, "older-than", 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
-	cleanCmd.Flags().StringVar(&cleanHook, "labels-hook", os.Getenv("CRANT_LABELS_HOOK"), "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
+	cleanCmd.Flags().StringVar(&cleanHook, "labels-hook", "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
 	mustRegisterFlagCompletion(cleanCmd, "older-than", noFileCompletion)
 	mustRegisterFlagCompletion(cleanCmd, "labels-hook", noFileCompletion)
 
 	cleanCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		deleted, kept, err := labelhost.Clean(cleanAll, cleanOlderThan, cleanHook)
+		deleted, kept, err := labelhost.Clean(cleanAll, cleanOlderThan, resolveLabelsHook(cleanHook))
 		if err != nil {
 			return err
 		}
@@ -53,4 +53,11 @@ references it.`,
 
 	labelsCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(labelsCmd)
+}
+
+func resolveLabelsHook(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	return os.Getenv("CRANT_LABELS_HOOK")
 }

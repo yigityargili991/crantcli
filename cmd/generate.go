@@ -12,7 +12,7 @@ import (
 var generateCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "Output the default CRANT scene template",
-	Long:  "Output the default CRANT Neuroglancer scene template to stdout or clipboard.",
+	Long:  "Output the default CRANT Neuroglancer scene template to stdout.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprint(os.Stdout, string(nglstate.DefaultScene))
 		return err

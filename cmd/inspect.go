@@ -14,10 +14,8 @@ var inspectCmd = &cobra.Command{
 	Short: "Show info about a Neuroglancer state",
 	Long: `Show layers, types, and segment counts for a Neuroglancer state.
 
-Uses smart input: reads from --state flag, stdin, clipboard, or default template.
-
-Examples:
-  crantcli inspect              # reads from clipboard
+Uses smart input: reads from --state flag, stdin, clipboard, or default template.`,
+	Example: `  crantcli inspect              # reads from clipboard
   crantcli inspect -s state.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := nglstate.LoadState(inspectState, false)

@@ -33,6 +33,12 @@ Run 'crantcli setup' to configure your SeaTable API token.`,
 	},
 }
 
+// RootCommand exposes the configured command tree to documentation tooling.
+// Application code should continue to call Execute.
+func RootCommand() *cobra.Command {
+	return rootCmd
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		if !errors.Is(err, errStaleFound) {

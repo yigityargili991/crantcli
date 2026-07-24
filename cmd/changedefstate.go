@@ -15,12 +15,10 @@ var changeDefStateCmd = &cobra.Command{
 	Use:   "change-def-state <json-state>",
 	Short: "Set the default Neuroglancer state",
 	Long: `Set or update the default Neuroglancer JSON state used when no other state
-source is available (no --state, no clipboard, no session cache).
+source is available (no --state, piped JSON, or clipboard URL).
 
-Pass the full JSON state as an argument, or pass a path to a JSON file.
-
-Examples:
-  crantcli change-def-state '{"dimensions":...}'
+Pass the full JSON state as an argument, or pass a path to a JSON file.`,
+	Example: `  crantcli change-def-state '{"dimensions":...}'
   crantcli change-def-state /path/to/state.json
   crantcli change-def-state --show
   crantcli change-def-state --reset`,

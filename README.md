@@ -1,363 +1,100 @@
 # crantcli
 
-A CLI tool for the [CRANT](https://github.com/flyconnectome/crant) (Clonal Raider Ant Connectome) dataset. Query neurons by classification, inject root IDs into [Neuroglancer](https://github.com/google/neuroglancer) scenes, check root ID freshness and edit history against [CAVE](https://caveclient.readthedocs.io/), and open visualizations in your browser -- all from the terminal.
+Query neurons in the [Clonal Raider Ant Connectome](https://github.com/flyconnectome/crant), add matching root IDs to [Neuroglancer](https://github.com/google/neuroglancer) scenes, and check whether those roots are still current in CAVE.
 
+[Documentation](docs/index.md) · [Installation](docs/getting-started/install.md) · [Guides](docs/guides/query.md) · [Command reference](docs/reference/index.md)
 
-## Quick Start
+## Quick start
 
 ```bash
-# Configure your SeaTable and CAVE tokens
+# Configure SeaTable and CAVE access
 crantcli setup
 
-# Query neurons and inject into a Neuroglancer state (reads/writes clipboard)
-crantcli add --cell-class kenyon_cell
+# Query a population, color it by type, and open Neuroglancer
+crantcli add \
+  --cell-class kenyon_cell \
+  --color-by cell_type \
+  --generate \
+  --open
+```
 
-# Open the result directly in your browser
-crantcli add --cell-type ER --open
+Install a release or build from source first; see the [installation guide](docs/getting-started/install.md).
 
-# Check if a root ID is still current in CAVE
-crantcli check-cave 720575940610453042
+## What it does
 
-# Show CAVE edit history for a root ID
-crantcli cave-history 720575940610453042
+- Explores CRANT classes, types, regions, and counts.
+- Builds and colors Neuroglancer scenes from CRANT queries.
+- Works with clipboard URLs, JSON files, pipes, or the built-in scene.
+- Checks stored root IDs against CAVE and refreshes stale scene segments.
+- Shows CAVE edit history and combined root metadata.
+- Adds CRANT cell-type labels to Neuroglancer segments.
+- Generates completion for Bash, Zsh, Fish, and PowerShell.
 
-# Show all available info for a root ID
+## A few useful commands
+
+```bash
+# Explore available values
+crantcli list cell_type --cell-class kenyon_cell --count
+
+# Add two populations as independently colored groups
+crantcli add --cell-type ER --cell-type EPG/PEG --color colored
+
+# Work with explicit files instead of the clipboard
+crantcli add --cell-type ER --state base.json --output result.json
+
+# Check and refresh stale root IDs
+crantcli check-cave --all
+crantcli check-cave --all --refresh-state --state scene.json --output refreshed.json
+
+# Inspect everything known about one root
 crantcli root-info 720575940610453042
 ```
 
-## Installation
+The [user guide](https://yigityargili991.github.io/crantcli/) explains query grouping, coloring, state resolution, CAVE freshness, labels, and troubleshooting. Flag-level pages are generated from the Cobra command tree.
 
-### From releases
+## Install
 
-Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are published on the [Releases](https://github.com/yigityargili991/crantcli/releases) page. Assets are named `crant_type_look-<os>-<arch>` (with `.exe` on Windows).
+Pre-built binaries for Linux, macOS, and Windows on amd64 and arm64 are available from [GitHub Releases](https://github.com/yigityargili991/crantcli/releases).
 
-**macOS / Linux** -- install the latest release to `~/.local/bin/crantcli`:
+> [!IMPORTANT]
+> The repository is currently private. Anonymous release and raw-file URLs return 404 until public launch. Collaborators can download a release while signed in, or build from an authenticated clone.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | sh
-```
-
-To pin a version or choose a different install directory:
+Once the repository is public, the installer supports pinned versions and custom destinations:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | CRANTCLI_VERSION=v0.10.1 sh
-curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | CRANTCLI_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh \
+  | CRANTCLI_VERSION=vX.Y.Z sh
+
+curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh \
+  | CRANTCLI_INSTALL_DIR=/usr/local/bin sh
 ```
 
-Make sure the install directory is on your `PATH`, then verify the install:
+Replace `vX.Y.Z` with a published release tag.
 
-```bash
-crantcli --version
-```
-
-Manual install is also supported. Pick the asset matching `uname -s` (Darwin/Linux) and `uname -m` (arm64/x86_64). Apple Silicon example:
-
-```bash
-curl -L -o crantcli https://github.com/yigityargili991/crantcli/releases/latest/download/crant_type_look-darwin-arm64
-chmod +x crantcli
-mv crantcli ~/.local/bin/    # or another directory on PATH
-crantcli --version
-```
-
-On macOS, if Gatekeeper blocks the binary on first run, clear the quarantine attribute:
-
-```bash
-xattr -d com.apple.quarantine "$(which crantcli)"
-```
-
-**Windows** -- download `crant_type_look-windows-amd64.exe` (or `-arm64.exe`) from the Releases page, rename it to `crantcli.exe`, and put it on your `PATH`.
-
-**Linux clipboard helper** -- the clipboard-driven workflows (`add` without `-s`, `state-transfer`, `inspect`) need one of: `wl-clipboard` (Wayland; preferred), `xclip`, or `xsel` (X11). Install via your distro -- e.g. `sudo apt install wl-clipboard` or `sudo apt install xclip`.
-
-### From source
-
-Requires Go 1.25.5+.
+To build from source:
 
 ```bash
 git clone https://github.com/yigityargili991/crantcli.git
 cd crantcli
-make build      # produces ./crantcli
-make install    # installs to $GOBIN (see `go env GOBIN`, defaults to $GOPATH/bin)
+make build
 ```
 
-## Shell completion
-
-`crantcli` can generate shell completion scripts through Cobra:
-
-```bash
-# Bash
-source <(crantcli completion bash)
-
-# Zsh
-source <(crantcli completion zsh)
-
-# Fish
-crantcli completion fish | source
-```
-
-The completion hooks include command names, flags, valid `list` fields, color names, and CRANT classifier values for flags like `--cell-class`, `--cell-type`, `--region`, and `--proofread`. Data-backed classifier completions require a configured SeaTable token and network access.
-
-## Commands
-
-### `add` -- Query and inject neurons
-
-The main command. Queries the CRANT dataset and injects matching root IDs into a Neuroglancer state.
-
-```bash
-# Smart mode: reads state from clipboard, injects, copies back
-crantcli add --cell-class kenyon_cell
-
-# Explicit file I/O
-crantcli add --cell-class kenyon_cell -s state.json -o modified.json
-
-# Start from the default CRANT scene template
-crantcli add --cell-class kenyon_cell --generate
-
-# Combine filters
-crantcli add --super-class sensory --side left --color "#ff0000"
-
-# Color matched neurons by a metadata field
-crantcli add --super-class sensory --color-by cell_type
-
-# Color CX neurons by derived column from cell_instance
-crantcli add --region CX --color-by column
-
-# Use a named palette across color-by groups
-crantcli add --region LX --color-by side --color blue
-
-# Query by bundle/region annotation
-crantcli add --bundle LX
-
-# Query multiple bundles and color matched neurons by bundle/region
-crantcli add --bundle RW --bundle RX --bundle RY --bundle RZ --bundle LW --bundle LX --bundle LY --bundle LZ --color-by region
-
-# Replace segments instead of appending
-crantcli add --cell-type ER --replace
-
-# Just get root IDs, no state manipulation
-crantcli add --cell-class kenyon_cell --root-ids-only
-
-# Stack classifiers to load several populations together (union is the default)
-crantcli add --cell-class LNO --cell-subtype PFNc --cell-subtype PFNm3 --cell-type PEN --color-by cell_subtype
-
-# --intersect ANDs them into a cross-product instead (rarely needed)
-crantcli add --intersect --cell-class kenyon_cell --cell-type ER
-
-# Attach cell-type labels so types appear next to root IDs in the Seg. panel
-crantcli add --cell-type ER --labels
-```
-
-**Filter flags:** `--super-class`, `--cell-class`, `--cell-type`, `--cell-subtype`, `--side`, `--region`, `--bundle`, `--tract`, `--proofread`
-
-**Grouping:** `--cell-class`, `--cell-type`, and `--cell-subtype` are repeatable. By default every value you pass across these three flags becomes its own group — a **union** (OR), so stacking a class, a type, and a subtype loads all of those populations together as separate groups. This matches the data, where the classifiers are hierarchical (a `cell_type` belongs to one `cell_class`, a `cell_subtype` to one `cell_type`), so intersecting different levels would only ever be redundant or empty. Pass `--intersect` to instead combine the dimensions as a **cross-product** (AND within each group — e.g. `--intersect --cell-class kenyon_cell --cell-type ER` matches only ER-type kenyon cells); it has no effect unless two or more of the three flags are combined. Other filters (`--super-class`, `--side`, `--region`, `--tract`, `--proofread`) always apply to every group.
-
-**Color flags:** `--color` (named palette, `colored`, or 6-digit hex), `--color-by` (group colors by `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `column`, `side`, `region`, `tract`, `nerve`, `hemilineage`, or `proofread`), `--color-sub` (sub-color by `cell_subtype` within each query group). When `--color-by` is supplied without `--color`, it defaults to palette cycling (`colored`). `column` is derived from `cell_instance`: Δ7 instances use the final 4 characters, and other instances use the final 2.
-
-**State flags:** `-s`/`--state` (URL or file), `-g`/`--generate` (use the configured or built-in default template and skip stdin/clipboard/last-session state), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--replace`, `--open`
-
-**Label flags:** `--labels` (publish and attach cell-type labels), `--labels-ttl` (clean up older tracked label sources), `--labels-hook` (use a custom publisher instead of a GitHub gist)
-
-**Smart input resolution** (when no `--state` is given):
-1. stdin (piped JSON)
-2. Clipboard (Neuroglancer URL)
-3. Last state URL from a previous session
-4. Default CRANT scene template
-
-`--generate` bypasses smart input and starts from the configured default state, or from the built-in CRANT scene template when no custom default is configured.
-
-### `check-cave` -- Verify root ID freshness
-
-Check whether root IDs stored in SeaTable still match the current CAVE chunkedgraph. Supervoxel IDs are stable, but root IDs change when proofreading edits (merges/splits) happen. This command detects stale entries.
-
-```bash
-# Check a single root ID
-crantcli check-cave 720575940610453042
-
-# Check multiple root IDs
-crantcli check-cave 720575940610453042 720575940631928371
-
-# Check all neurons in the table
-crantcli check-cave --all
-
-# Check a filtered subset
-crantcli check-cave --all --cell-class kenyon_cell
-
-# Only print stale entries (exit code 1 if any found)
-crantcli check-cave --all --quiet
-
-# Print stale mappings as old_root_id<TAB>current_cave_root_id
-crantcli check-cave --all --mapping
-
-# Replace stale segment IDs in a Neuroglancer state
-crantcli check-cave --all --refresh-state -s state.json -o refreshed.json
-
-# Refresh only the selected segmentation layer
-crantcli check-cave --all --refresh-state -s state.json -o refreshed.json -l "proofreadable seg"
-```
-
-**Filter flags:** Same as `add` (`--super-class`, `--cell-class`, `--cell-type`, etc.)
-
-**Flags:** `--all` (check all neurons), `-q`/`--quiet` (only print stale entries), `--mapping` (print stale `old_root_id<TAB>current_cave_root_id` pairs), `--refresh-state` (replace stale segment IDs in a Neuroglancer state), `-s`/`--state` (state URL or file for refresh), `-o`/`--output` (refreshed state file), `-l`/`--layer` (target segmentation layer)
-
-`--refresh-state` uses the same smart state loading and output behavior as the state-editing commands: with `-s` it reads a URL or JSON file, and with `-o` it writes JSON to a file. Without `-o`, output follows the loaded state source (clipboard/URL sources are written back as a Neuroglancer URL; file/stdin sources are written as JSON to stdout). Refresh mode writes the updated state instead of the normal check table. If you combine `--mapping` and `--refresh-state`, provide `-o` so mapping output and state JSON do not share stdout.
-
-Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
-
-### `cave-history` -- Show CAVE edit history
-
-Show tabular CAVE changelog rows for one or more root IDs. By default, history is filtered to edits that affect the final state of the queried root.
-
-```bash
-# Show readable history table
-crantcli cave-history 720575940610453042
-
-# Check multiple roots
-crantcli cave-history 720575940610453042 720575940631928371
-
-# Print stable JSON output
-crantcli cave-history 720575940610453042 --json
-
-# Include broader split/merge history
-crantcli cave-history 720575940610453042 --unfiltered
-```
-
-**Flags:** `--json` (print JSON result objects), `--unfiltered` (request unfiltered CAVE history)
-
-Requires a CAVE token (configured via `crantcli setup` or the `CAVE_TOKEN` / `CAVE_TOKEN_FILE` environment variables).
-
-### `root-info` -- Show all available root metadata
-
-Show CRANT metadata, CAVE current-root status, edit history summary, recent history rows, and nearest EPG/PEG column context for one root ID.
-
-```bash
-# Readable summary
-crantcli root-info 720575940610453042
-
-# Stable JSON output
-crantcli root-info 720575940610453042 --json
-
-# Show more recent history rows
-crantcli root-info 720575940610453042 --history-limit 10
-
-# Include broader split/merge history
-crantcli root-info 720575940610453042 --unfiltered
-```
-
-**Flags:** `--json` (print JSON result object), `--history-limit` (number of recent CAVE history rows, default `5`), `--unfiltered` (request unfiltered split/merge history)
-
-Requires SeaTable and CAVE tokens (configured via `crantcli setup` or environment variables).
-
-### `list` -- Explore the dataset
-
-List distinct values for any classification field, optionally with neuron counts. `region` values are printed as resolved region names rather than raw SeaTable option IDs.
-
-```bash
-crantcli list super_class --count
-crantcli list cell_type --cell-class kenyon_cell
-crantcli list cell_class --super-class sensory --count
-```
-
-Valid fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`
-
-### `inspect` -- View state structure
-
-Display layers, segment counts, and color assignments in a Neuroglancer state.
-
-```bash
-crantcli inspect                # reads from clipboard
-crantcli inspect -s state.json
-```
-
-### `lookup-column` -- Find the closest EPG/PEG column
-
-Finds the closest EPG/PEG neuron to a given root ID (or position) by 3D Euclidean distance and prints its resolved `region` value plus the nearest EPG/PEG root ID.
-
-```bash
-# Look up by root ID
-crantcli lookup-column 720575940610453042
-
-# Provide position directly
-crantcli lookup-column --pos 31870.5,26635.5,1502.5
-```
-
-**Flags:** `--pos` (comma-separated `x,y,z` coordinates; skips the root ID lookup)
-
-### `side-check` -- Check side annotations against nearest EPG/PEG
-
-Checks neurons selected by exactly one classifier against the nearest valid `EPG/PEG` neuron by 3D Euclidean distance. Prints one selected `root_id` per line when side is missing, position is missing or malformed, or side matches the nearest valid `EPG/PEG`.
-
-```bash
-crantcli side-check --cell-type PFN
-crantcli side-check --cell-class some_class
-```
-
-**Flags:** `--cell-type`, `--cell-class` (provide exactly one)
-
-### `state-transfer` -- Build state from clipboard IDs
-
-Read root IDs from the clipboard, inject them into a Neuroglancer state, and copy the resulting state URL back to the clipboard. Useful when you have a list of root IDs from another source and want to quickly visualize them.
-
-```bash
-# Copy some root IDs to clipboard, then:
-crantcli state-transfer
-
-# Use a specific base state
-crantcli state-transfer -s base.json
-
-# Target a specific segmentation layer
-crantcli state-transfer -l "my layer"
-
-# Attach cell-type labels for matching CRANT root IDs
-crantcli state-transfer --labels
-
-# Write to file instead of clipboard
-crantcli state-transfer -o output.json
-```
-
-IDs in the clipboard can be separated by whitespace, newlines, or commas. Duplicates are removed automatically.
-
-**Flags:** `-s`/`--state` (base state URL or file), `-o`/`--output` (file path), `-l`/`--layer` (target layer name), `--color` (segment color), `--labels`, `--labels-ttl`, `--labels-hook`
-
-### `generate` -- Output default template
-
-Print the built-in CRANT scene template to stdout.
-
-```bash
-crantcli generate > my_scene.json
-```
-
-### `change-def-state` -- Set the default Neuroglancer state
-
-Set or update the default Neuroglancer JSON state used when no other state source is available.
-
-```bash
-crantcli change-def-state /path/to/state.json
-crantcli change-def-state --show
-crantcli change-def-state --reset
-```
-
-**Flags:** `--show` (display current default state), `--reset` (reset to built-in template)
-
-### `setup` -- Configure credentials
-
-Interactively set your SeaTable API token and optional CAVE token. Stored in `~/.crantcli/` as base64-encoded local files; this is obfuscation for local storage, not encryption.
-
-```bash
-crantcli setup
-```
-
-Tokens can also be provided via environment variables. Explicit environment configuration takes precedence over stored credentials: direct token variable, then token-file variable, then the local file written by `crantcli setup`. Token files should contain the raw token text.
-- **SeaTable:** `CRANTTABLE_TOKEN` or `CRANTTABLE_TOKEN_FILE`
-- **CAVE:** `CAVE_TOKEN` or `CAVE_TOKEN_FILE`
-
-## Testing
+## Develop
 
 ```bash
 make test
-# or
-go test ./...
+make build
 ```
+
+Documentation contributors can install `requirements-docs.txt`, then run:
+
+```bash
+make docs-serve
+make docs-check
+```
+
+See the [development guide](docs/development.md) for the documentation workflow.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)
