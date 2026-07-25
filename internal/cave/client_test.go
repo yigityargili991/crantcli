@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,24 @@ func TestGetRootID_HTTPError(t *testing.T) {
 	_, err := c.GetRootID(1)
 	if err == nil {
 		t.Fatal("expected error for HTTP 401")
+	}
+}
+
+func TestGetRootID_HTTPErrorDoesNotLeakToken(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, "rejected "+r.Header.Get("Authorization"))
+	}))
+
+	_, err := c.GetRootID(1)
+	if err == nil {
+		t.Fatal("expected error for HTTP 401")
+	}
+	if strings.Contains(err.Error(), "test-token") {
+		t.Fatalf("CAVE error leaks token: %v", err)
+	}
+	if strings.Contains(err.Error(), "rejected") {
+		t.Fatalf("CAVE error exposes credentialed response body: %v", err)
 	}
 }
 

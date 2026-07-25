@@ -8,6 +8,9 @@ $RepoUrl = "https://github.com/yigityargili991/crantcli"
 $Repository = "yigityargili991/crantcli"
 $AssetPrefix = "crant_type_look"
 $BinaryName = "crantcli.exe"
+$OriginalCrantCliGithubToken = [Environment]::GetEnvironmentVariable("CRANTCLI_GITHUB_TOKEN", "Process")
+$GithubToken = $OriginalCrantCliGithubToken
+[Environment]::SetEnvironmentVariable("CRANTCLI_GITHUB_TOKEN", $null, "Process")
 
 function Write-InstallerMessage {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -22,8 +25,7 @@ function Invoke-InstallerDownload {
         [Parameter(Mandatory = $true)][string]$Version
     )
 
-    $githubToken = [Environment]::GetEnvironmentVariable("CRANTCLI_GITHUB_TOKEN", "Process")
-    if (-not [string]::IsNullOrWhiteSpace($githubToken)) {
+    if (-not [string]::IsNullOrWhiteSpace($GithubToken)) {
         $gh = Get-Command gh -ErrorAction SilentlyContinue
         if ($null -eq $gh) {
             throw "gh is required when CRANTCLI_GITHUB_TOKEN is set"
@@ -44,7 +46,7 @@ function Invoke-InstallerDownload {
 
         $originalGhToken = [Environment]::GetEnvironmentVariable("GH_TOKEN", "Process")
         try {
-            $env:GH_TOKEN = $githubToken
+            $env:GH_TOKEN = $GithubToken
             & $gh.Source @arguments | Out-Null
             $exitCode = $LASTEXITCODE
         }
@@ -232,7 +234,7 @@ function Install-CrantCli {
             if (Test-InstallerDownload -Uri "$releaseBase/$asset.sigstore.json" -OutFile $bundle -Version $version) {
                 & $cosign.Source verify-blob --bundle $bundle `
                     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" `
-                    --certificate-identity-regexp "https://github\.com/yigityargili991/crantcli/" `
+                    --certificate-identity-regexp "^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$" `
                     $downloadedBinary | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     throw "cosign signature verification failed for $asset"
@@ -262,5 +264,10 @@ function Install-CrantCli {
     }
 }
 
-Install-CrantCli
+try {
+    Install-CrantCli
+}
+finally {
+    [Environment]::SetEnvironmentVariable("CRANTCLI_GITHUB_TOKEN", $OriginalCrantCliGithubToken, "Process")
+}
 }

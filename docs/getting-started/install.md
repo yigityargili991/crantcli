@@ -2,6 +2,9 @@
 
 Pre-built binaries are published for macOS, Linux, and Windows on the [GitHub Releases page](https://github.com/yigityargili991/crantcli/releases).
 
+Linux binaries are statically linked and support Debian, Ubuntu, Arch Linux, and
+compatible distributions on amd64 and arm64.
+
 ## macOS and Linux
 
 The installer downloads the latest release to `~/.local/bin/crantcli`:

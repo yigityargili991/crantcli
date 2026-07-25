@@ -32,6 +32,9 @@ func TestRequiresTokenErrorsWithoutToken(t *testing.T) {
 	t.Setenv("HOME", tempHome)
 	t.Setenv("CRANTTABLE_TOKEN", "")
 	t.Setenv("CRANTTABLE_TOKEN_FILE", "")
+	originalGetAPIToken := getAPIToken
+	getAPIToken = func() string { return "" }
+	t.Cleanup(func() { getAPIToken = originalGetAPIToken })
 
 	_, _, err := executeRootForTest(t, "list", "cell_type")
 	if err == nil {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -81,6 +82,40 @@ func TestDo_StatusError(t *testing.T) {
 	}
 	if string(se.Body) != "upstream failure" {
 		t.Errorf("Body = %q, want %q", se.Body, "upstream failure")
+	}
+}
+
+func TestDo_StatusErrorRedactsRequestCredentials(t *testing.T) {
+	const token = "super-secret-token-12345"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, "rejected "+r.Header.Get("Authorization")+" and "+token)
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	_, err = Do(srv.Client(), req)
+	if err == nil {
+		t.Fatal("expected error for HTTP 401")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("error leaks request credential: %v", err)
+	}
+	if got := err.Error(); got != "HTTP 401" {
+		t.Fatalf("credentialed request error = %q, want status only", got)
+	}
+
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("error = %T, want *StatusError", err)
+	}
+	if strings.Contains(string(statusErr.Body), token) {
+		t.Fatalf("status body leaks request credential: %q", statusErr.Body)
 	}
 }
 

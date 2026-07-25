@@ -52,6 +52,7 @@ jobs:
       - id: build
         name: Build
         env:
+          CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           REF_NAME: ${{ github.ref_name }}
@@ -60,6 +61,7 @@ jobs:
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           artifact="crant_type_look-${GOOS}-${GOARCH}${ext}"
           go build -ldflags "-s -w -X crantcli/cmd.Version=${REF_NAME}" -o "$artifact" .
+          go version -m "$artifact" | grep 'CGO_ENABLED=0'
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
       - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
@@ -77,6 +79,8 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
       - name: Generate and upload checksums
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -85,5 +89,6 @@ jobs:
           mkdir -p dist
           gh release download "$REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'crant_type_look-*' --dir dist
           cd dist
-          sha256sum crant_type_look-* > checksums.txt
-          gh release upload "$REF_NAME" checksums.txt --repo "$GITHUB_REPOSITORY" --clobber
+          cp ../LICENSE ../THIRD_PARTY_NOTICES.md .
+          sha256sum crant_type_look-* LICENSE THIRD_PARTY_NOTICES.md > checksums.txt
+          gh release upload "$REF_NAME" checksums.txt LICENSE THIRD_PARTY_NOTICES.md --repo "$GITHUB_REPOSITORY" --clobber

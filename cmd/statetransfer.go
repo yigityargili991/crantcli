@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"crantcli/internal/clipboard"
-	"crantcli/internal/config"
 	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
 
@@ -69,7 +68,7 @@ func init() {
 	mustRegisterFlagCompletion(stateTransferCmd, "labels-hook", noFileCompletion)
 
 	stateTransferCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		if !stLabels || config.GetAPIToken() != "" {
+		if !stLabels || getAPIToken() != "" {
 			return nil
 		}
 		return fmt.Errorf("--labels needs a SeaTable token; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")

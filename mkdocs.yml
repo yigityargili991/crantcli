@@ -4,7 +4,7 @@ site_url: https://yigityargili991.github.io/crantcli/
 repo_name: yigityargili991/crantcli
 repo_url: https://github.com/yigityargili991/crantcli
 edit_uri: edit/main/docs/
-copyright: Built for the Clonal Raider Ant Connectome community.
+copyright: 'Built for the Clonal Raider Ant Connectome community. Typeface: <a href="https://typeof.net/Iosevka/">Iosevka</a> by Renzhi Li, licensed under the <a href="https://openfontlicense.org/">SIL Open Font License 1.1</a>.'
 
 theme:
   name: material

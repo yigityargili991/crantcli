@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+
+	"crantcli/internal/procenv"
 )
 
 // OpenURL opens a URL in the system default browser.
@@ -23,6 +25,7 @@ func OpenURL(rawURL string) error {
 	default:
 		return fmt.Errorf("opening browser is not supported on %s", runtime.GOOS)
 	}
+	cmd.Env = procenv.Sanitized()
 
 	// Run (not Start) so the helper is reaped and launch errors surface; the
 	// platform openers return immediately after handing off to the browser.

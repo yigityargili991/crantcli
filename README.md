@@ -18,9 +18,11 @@ crantcli add \
   --open
 ```
 
-Tokens are stored under `~/.crantcli/` with 0600 permissions as base64-encoded
-files. Base64 is obfuscation, not encryption — the file permissions are what
-protect the tokens, and crantcli re-tightens them if they are ever loosened.
+Tokens entered through `crantcli setup` are stored in the operating system's
+secure credential manager: Keychain on macOS, Credential Manager on Windows,
+and Secret Service on Linux. On Linux systems without Secret Service, crantcli
+uses a private `0600` file inside an owner-only `~/.crantcli/` directory.
+Existing file-based credentials are migrated automatically when possible.
 
 Install a release or build from source first; see the [installation guide](docs/getting-started/install.md).
 
@@ -123,4 +125,5 @@ See the [development guide](docs/development.md) for the documentation workflow.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Release assets also include
+[third-party notices](THIRD_PARTY_NOTICES.md) for bundled dependencies.

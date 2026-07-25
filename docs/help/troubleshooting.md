@@ -39,6 +39,21 @@ export CRANTTABLE_TOKEN="..."
 
 Credentials written by `setup` take precedence over `CRANTTABLE_TOKEN`.
 
+## The system credential store is unavailable
+
+On macOS, unlock Keychain. On Windows, confirm Credential Manager is available.
+On Linux desktops, unlock or start a Secret Service provider such as GNOME
+Keyring or KWallet.
+
+Headless Linux systems automatically use an owner-only credential file. macOS
+and Windows fail closed instead; use a mounted secret file when interactive
+credential storage is unavailable:
+
+```bash
+export CRANTTABLE_TOKEN_FILE="/run/secrets/cranttable"
+export CAVE_TOKEN_FILE="/run/secrets/cave"
+```
+
 ## CAVE commands report a missing token
 
 Run `crantcli setup` again and enter the optional CAVE token, or set:
@@ -108,4 +123,3 @@ fi
 ## A piped command ignores the clipboard or `--generate`
 
 Non-empty piped JSON has the highest priority when `--state` is absent. Remove the pipe or provide `--state` explicitly.
-

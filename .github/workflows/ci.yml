@@ -11,7 +11,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,7 +45,6 @@ jobs:
         env:
           CRANTCLI_INSTALL_DIR: ${{ runner.temp }}\crantcli-bin
           CRANTCLI_SKIP_CHECKSUM: "0"
-          CRANTCLI_GITHUB_TOKEN: ${{ github.token }}
         run: |
           Get-Content -Raw ./install.ps1 | Invoke-Expression
 
@@ -68,11 +71,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test installer logic
+        run: sh ./tests/install_unix.sh
+
       - name: Smoke test published release
         env:
           CRANTCLI_INSTALL_DIR: ${{ runner.temp }}/crantcli-bin
           CRANTCLI_SKIP_CHECKSUM: "0"
-          CRANTCLI_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
           cat ./install.sh | sh
@@ -82,3 +87,19 @@ jobs:
           version=$("$installed" --version)
           test -n "$version"
           printf '%s\n' "$version"
+
+  linux-distro-installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:bookworm-slim
+          - ubuntu:24.04
+          - archlinux:latest
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test installer logic
+        run: sh ./tests/install_unix.sh

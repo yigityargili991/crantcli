@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"crantcli/internal/procenv"
 )
 
 const (
@@ -51,6 +53,16 @@ var run = func(stdin []byte, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	if strings.EqualFold(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)), "gh") {
+		cmd.Env = procenv.Sanitized(
+			"GH_TOKEN",
+			"GITHUB_TOKEN",
+			"GH_ENTERPRISE_TOKEN",
+			"GITHUB_ENTERPRISE_TOKEN",
+		)
+	} else {
+		cmd.Env = procenv.Sanitized()
+	}
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

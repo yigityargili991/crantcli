@@ -12,6 +12,8 @@ import (
 
 var Version = "dev"
 
+var getAPIToken = config.GetAPIToken
+
 var rootCmd = &cobra.Command{
 	Use:           "crantcli",
 	Short:         "Query CRANT clonal raider ant connectome neurons and inject into Neuroglancer states",
@@ -26,7 +28,7 @@ Run 'crantcli setup' to configure your SeaTable API token.`,
 		if cmd.Annotations["requiresToken"] != "true" {
 			return nil
 		}
-		if token := config.GetAPIToken(); token != "" {
+		if token := getAPIToken(); token != "" {
 			return nil
 		}
 		// Do not silently write credentials from a read-only query command:

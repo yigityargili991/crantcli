@@ -6,6 +6,8 @@ repo_slug="yigityargili991/crantcli"
 asset_prefix="crant_type_look"
 binary_name="crantcli"
 version="${CRANTCLI_VERSION:-latest}"
+github_token="${CRANTCLI_GITHUB_TOKEN:-}"
+unset CRANTCLI_GITHUB_TOKEN
 tmp_dir=""
 
 log() {
@@ -35,16 +37,16 @@ download() {
 	url=$1
 	output=$2
 
-	if [ -n "${CRANTCLI_GITHUB_TOKEN:-}" ]; then
+	if [ -n "$github_token" ]; then
 		if ! command_exists gh; then
 			die "gh is required when CRANTCLI_GITHUB_TOKEN is set"
 		fi
 		download_asset_name=${url##*/}
 		if [ "$version" = latest ]; then
-			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download \
+			GH_TOKEN=$github_token gh release download \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output"
 		else
-			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download "$version" \
+			GH_TOKEN=$github_token gh release download "$version" \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output"
 		fi
 	elif command_exists curl; then
@@ -60,16 +62,16 @@ download_optional() {
 	url=$1
 	output=$2
 
-	if [ -n "${CRANTCLI_GITHUB_TOKEN:-}" ]; then
+	if [ -n "$github_token" ]; then
 		if ! command_exists gh; then
 			return 1
 		fi
 		download_asset_name=${url##*/}
 		if [ "$version" = latest ]; then
-			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download \
+			GH_TOKEN=$github_token gh release download \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output" >/dev/null 2>&1
 		else
-			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download "$version" \
+			GH_TOKEN=$github_token gh release download "$version" \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output" >/dev/null 2>&1
 		fi
 	elif command_exists curl; then
@@ -175,7 +177,7 @@ if command_exists cosign; then
 	if download_optional "$bundle_url" "$tmp_dir/$asset.sigstore.json"; then
 		if cosign verify-blob --bundle "$tmp_dir/$asset.sigstore.json" \
 			--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-			--certificate-identity-regexp "https://github\.com/yigityargili991/crantcli/" \
+			--certificate-identity-regexp "^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$" \
 			"$tmp_dir/$asset" >/dev/null 2>&1; then
 			log "Verified cosign signature for $asset"
 		else

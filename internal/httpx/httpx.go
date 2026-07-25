@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"crantcli/internal/textout"
@@ -31,16 +32,41 @@ const (
 type StatusError struct {
 	StatusCode int
 	Body       []byte
+	hideBody   bool
 }
 
 // Error implements the error interface. The body is server-controlled, so
 // control characters are neutralized before it reaches logs or a terminal.
 func (e *StatusError) Error() string {
+	if e.hideBody {
+		return fmt.Sprintf("HTTP %d", e.StatusCode)
+	}
 	body := bytes.TrimSpace(e.Body)
 	if len(body) == 0 {
 		return fmt.Sprintf("HTTP %d", e.StatusCode)
 	}
 	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, textout.Sanitize(string(body)))
+}
+
+func requestHasCredentials(req *http.Request) bool {
+	return req.Header.Get("Authorization") != "" ||
+		req.Header.Get("Proxy-Authorization") != ""
+}
+
+func redactRequestCredentials(body []byte, req *http.Request) []byte {
+	redacted := bytes.Clone(body)
+	for _, header := range []string{"Authorization", "Proxy-Authorization"} {
+		for _, value := range req.Header.Values(header) {
+			if value == "" {
+				continue
+			}
+			redacted = bytes.ReplaceAll(redacted, []byte(value), []byte("[REDACTED]"))
+			if _, credential, ok := strings.Cut(value, " "); ok && credential != "" {
+				redacted = bytes.ReplaceAll(redacted, []byte(credential), []byte("[REDACTED]"))
+			}
+		}
+	}
+	return redacted
 }
 
 // Do sends req using the given client, falling back to DefaultClient when nil.
@@ -61,7 +87,11 @@ func Do(client *http.Client, req *http.Request) (*http.Response, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, MaxErrorBody))
 		resp.Body.Close()
-		return nil, &StatusError{StatusCode: resp.StatusCode, Body: body}
+		return nil, &StatusError{
+			StatusCode: resp.StatusCode,
+			Body:       redactRequestCredentials(body, req),
+			hideBody:   requestHasCredentials(req),
+		}
 	}
 
 	return resp, nil

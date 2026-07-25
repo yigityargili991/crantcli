@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"crantcli/internal/procenv"
 )
 
 // clipTool is one Linux clipboard helper. env names the session var
@@ -45,7 +47,9 @@ const cmdTimeout = 30 * time.Second
 
 func commandCtx(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	return exec.CommandContext(ctx, name, args...), cancel
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = procenv.Sanitized()
+	return cmd, cancel
 }
 
 // limitWriter caps how much a clipboard helper may write to stdout.
