@@ -9,6 +9,24 @@ import (
 	"testing"
 )
 
+func TestEmbeddedDefaultScene(t *testing.T) {
+	var scene struct {
+		Layers []json.RawMessage `json:"layers"`
+		Layout struct {
+			Type string `json:"type"`
+		} `json:"layout"`
+	}
+	if err := json.Unmarshal(DefaultScene, &scene); err != nil {
+		t.Fatalf("embedded default scene is invalid JSON: %v", err)
+	}
+	if got, want := len(scene.Layers), 23; got != want {
+		t.Fatalf("embedded default scene has %d layers, want %d", got, want)
+	}
+	if got, want := scene.Layout.Type, "3d"; got != want {
+		t.Fatalf("embedded default scene layout = %q, want %q", got, want)
+	}
+}
+
 func TestLoadState_PrefersExistingFileEvenIfNameLooksLikeURL(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "neuroglancer_state.json")
