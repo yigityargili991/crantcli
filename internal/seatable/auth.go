@@ -20,7 +20,7 @@ func ExchangeToken(apiToken string) (*AuthResponse, error) {
 func exchangeToken(apiToken, server string) (*AuthResponse, error) {
 	// Flow 1: API token (Base API-Token) -> app access token.
 	appURL := server + "/api/v2.1/dtable/app-access-token/"
-	auth, status, _, err := exchangeTokenAtURL(apiToken, appURL)
+	auth, status, err := exchangeTokenAtURL(apiToken, appURL)
 	if err == nil {
 		return auth, nil
 	}
@@ -32,7 +32,7 @@ func exchangeToken(apiToken, server string) (*AuthResponse, error) {
 		neturl.PathEscape(config.SeaTableWorkspace),
 		neturl.PathEscape(config.SeaTableBase),
 	)
-	auth2, status2, _, err2 := exchangeTokenAtURL(apiToken, workspaceURL)
+	auth2, status2, err2 := exchangeTokenAtURL(apiToken, workspaceURL)
 	if err2 == nil {
 		return auth2, nil
 	}
@@ -46,10 +46,10 @@ func exchangeToken(apiToken, server string) (*AuthResponse, error) {
 	)
 }
 
-func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, string, error) {
+func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("creating auth request: %w", err)
+		return nil, 0, fmt.Errorf("creating auth request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiToken)
 	req.Header.Set("Accept", "application/json")
@@ -58,21 +58,21 @@ func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, string, error
 	if err != nil {
 		var statusErr *httpx.StatusError
 		if errors.As(err, &statusErr) {
-			return nil, statusErr.StatusCode, string(statusErr.Body), fmt.Errorf("auth failed (HTTP %d)", statusErr.StatusCode)
+			return nil, statusErr.StatusCode, fmt.Errorf("auth failed (HTTP %d)", statusErr.StatusCode)
 		}
-		return nil, 0, "", fmt.Errorf("auth request failed: %w", err)
+		return nil, 0, fmt.Errorf("auth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, httpx.MaxErrorBody))
 	var auth AuthResponse
 	if err := json.Unmarshal(body, &auth); err != nil {
-		return nil, resp.StatusCode, string(body), fmt.Errorf("decoding auth response: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("decoding auth response: %w", err)
 	}
 
 	if auth.AccessToken == "" || auth.DTableUUID == "" {
-		return nil, resp.StatusCode, string(body), fmt.Errorf("auth response missing access_token or dtable_uuid")
+		return nil, resp.StatusCode, fmt.Errorf("auth response missing access_token or dtable_uuid")
 	}
 
-	return &auth, resp.StatusCode, string(body), nil
+	return &auth, resp.StatusCode, nil
 }

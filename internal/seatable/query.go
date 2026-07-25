@@ -52,12 +52,6 @@ func (f *Filters) regionValues() []string {
 	return compactUniqueStrings(values)
 }
 
-// sanitizeIdentifier strips backtick characters from SQL identifiers (table
-// and column names) to prevent SQL injection through backtick-quoted names.
-func sanitizeIdentifier(name string) string {
-	return strings.ReplaceAll(name, "`", "")
-}
-
 // escapeSQL escapes single quotes and backslashes in a string for safe SQL
 // value interpolation (MySQL-style escaping used by SeaTable).
 func escapeSQL(s string) string {
@@ -218,16 +212,13 @@ func QueryDistinct(client *Client, column string, f *Filters, withCount bool) (*
 		return nil, err
 	}
 
-	safeCol := sanitizeIdentifier(column)
-	safeTable := sanitizeIdentifier(config.SeaTableTable)
-
 	var sql string
 	if withCount {
 		sql = fmt.Sprintf("SELECT `%s`, COUNT(*) as count FROM `%s`%s GROUP BY `%s` ORDER BY count DESC LIMIT 10000",
-			safeCol, safeTable, buildWhere(sqlFilters), safeCol)
+			column, config.SeaTableTable, buildWhere(sqlFilters), column)
 	} else {
 		sql = fmt.Sprintf("SELECT DISTINCT `%s` FROM `%s`%s ORDER BY `%s` LIMIT 10000",
-			safeCol, safeTable, buildWhere(sqlFilters), safeCol)
+			column, config.SeaTableTable, buildWhere(sqlFilters), column)
 	}
 
 	resp, err := client.ExecuteSQL(sql)
@@ -267,7 +258,7 @@ func resolveDistinctSelectValues(meta *MetadataResponse, column string, resp *SQ
 // QueryNeuronPosition queries a single neuron's position by root ID.
 func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]string) (*NeuronPositionRow, error) {
 	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `side`, `position` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
-		sanitizeIdentifier(config.SeaTableTable), escapeSQL(rootID))
+		config.SeaTableTable, escapeSQL(rootID))
 
 	resp, err := client.ExecuteSQL(sql)
 	if err != nil {
@@ -370,8 +361,8 @@ func selectOptionNameMap(idToName map[string]string) map[string]string {
 // QueryNeuronSupervoxel looks up the supervoxel_id for a single root ID.
 func QueryNeuronSupervoxel(client *Client, rootID string) (*NeuronCaveCheckRow, error) {
 	sql := fmt.Sprintf("SELECT `root_id`, `%s` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
-		sanitizeIdentifier(config.SupervoxelIDColumn),
-		sanitizeIdentifier(config.SeaTableTable),
+		config.SupervoxelIDColumn,
+		config.SeaTableTable,
 		escapeSQL(rootID))
 
 	resp, err := client.ExecuteSQL(sql)
@@ -393,7 +384,7 @@ func QueryNeuronSupervoxel(client *Client, rootID string) (*NeuronCaveCheckRow, 
 // needed for root-info, preserving unknown columns as display strings.
 func QueryNeuronInfo(client *Client, rootID string) (*NeuronInfoRow, error) {
 	sql := fmt.Sprintf("SELECT * FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
-		sanitizeIdentifier(config.SeaTableTable),
+		config.SeaTableTable,
 		escapeSQL(rootID))
 
 	resp, err := client.ExecuteSQL(sql)
@@ -543,7 +534,7 @@ func isRootInfoKnownField(name string) bool {
 
 // QueryNeuronsForCaveCheck returns root_id and supervoxel_id for neurons matching filters.
 func QueryNeuronsForCaveCheck(client *Client, f *Filters) ([]NeuronCaveCheckRow, error) {
-	columns := fmt.Sprintf("`root_id`, `%s`", sanitizeIdentifier(config.SupervoxelIDColumn))
+	columns := fmt.Sprintf("`root_id`, `%s`", config.SupervoxelIDColumn)
 
 	regionFilterIDs := []string(nil)
 	if len(f.regionValues()) > 0 {
@@ -676,7 +667,7 @@ func executePagedSelect(client *Client, columns string, where string) ([]map[str
 
 	for offset := 0; ; offset += queryPageSize {
 		sql := fmt.Sprintf("SELECT %s FROM `%s`%s ORDER BY _id LIMIT %d OFFSET %d",
-			columns, sanitizeIdentifier(config.SeaTableTable), where, queryPageSize, offset)
+			columns, config.SeaTableTable, where, queryPageSize, offset)
 		resp, err := client.ExecuteSQL(sql)
 		if err != nil {
 			return nil, err

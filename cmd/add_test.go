@@ -11,25 +11,6 @@ import (
 	"crantcli/internal/seatable"
 )
 
-func TestResolveAddRegionFilter(t *testing.T) {
-	t.Run("bundle aliases region", func(t *testing.T) {
-		got, err := resolveAddRegionFilter("", "LX")
-		if err != nil {
-			t.Fatalf("resolveAddRegionFilter returned error: %v", err)
-		}
-		if got != "LX" {
-			t.Fatalf("resolveAddRegionFilter = %q, want %q", got, "LX")
-		}
-	})
-
-	t.Run("conflicting flags", func(t *testing.T) {
-		_, err := resolveAddRegionFilter("CX", "LX")
-		if err == nil {
-			t.Fatal("expected conflict error when both region and bundle are set")
-		}
-	})
-}
-
 func TestResolveAddRegionFilters(t *testing.T) {
 	t.Run("multiple bundles alias regions", func(t *testing.T) {
 		got, err := resolveAddRegionFilters(nil, []string{" RW ", "RX", "RW", ""})
@@ -844,32 +825,32 @@ func TestExtractRootIDsWithSubtype_NilRows(t *testing.T) {
 	}
 }
 
-// TestResolveAddRegionFilter_EdgeCases covers trimming and empty combinations.
-func TestResolveAddRegionFilter_EdgeCases(t *testing.T) {
+// TestResolveAddRegionFilters_EdgeCases covers trimming and empty combinations.
+func TestResolveAddRegionFilters_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name    string
-		region  string
-		bundle  string
-		want    string
+		regions []string
+		bundles []string
+		want    []string
 		wantErr bool
 	}{
-		{"both empty", "", "", "", false},
-		{"region only", "CX", "", "CX", false},
-		{"bundle only", "", "LX", "LX", false},
-		{"both set", "CX", "LX", "", true},
-		{"region whitespace only", "  ", "", "", false},
-		{"bundle whitespace only", "", "  ", "", false},
-		{"region with spaces trimmed", "  CX  ", "", "CX", false},
-		{"bundle with spaces trimmed", "", "  LX  ", "LX", false},
+		{"both empty", nil, nil, []string{}, false},
+		{"region only", []string{"CX"}, nil, []string{"CX"}, false},
+		{"bundle only", nil, []string{"LX"}, []string{"LX"}, false},
+		{"both set", []string{"CX"}, []string{"LX"}, nil, true},
+		{"region whitespace only", []string{"  "}, nil, []string{}, false},
+		{"bundle whitespace only", nil, []string{"  "}, []string{}, false},
+		{"region with spaces trimmed", []string{"  CX  "}, nil, []string{"CX"}, false},
+		{"bundle with spaces trimmed", nil, []string{"  LX  "}, []string{"LX"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveAddRegionFilter(tt.region, tt.bundle)
+			got, err := resolveAddRegionFilters(tt.regions, tt.bundles)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
 			}
 		})
 	}

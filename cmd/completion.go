@@ -73,13 +73,13 @@ func completeDistinctField(field string) cobra.CompletionFunc {
 func completeDistinctValues(field string, filters *seatable.Filters, toComplete string) ([]string, cobra.ShellCompDirective) {
 	client, err := completionClient()
 	if err != nil {
-		return unavailableCompletionHelp(err), cobra.ShellCompDirectiveNoFileComp
+		return unavailableCompletionHelp(), cobra.ShellCompDirectiveNoFileComp
 	}
 
 	if filters == nil || !filters.HasAny() {
 		values, err := completionSelectOptions(client, field)
 		if err != nil {
-			return unavailableCompletionHelp(err), cobra.ShellCompDirectiveNoFileComp
+			return unavailableCompletionHelp(), cobra.ShellCompDirectiveNoFileComp
 		}
 		if len(values) > 0 {
 			return filterCompletionValues(values, toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -88,7 +88,7 @@ func completeDistinctValues(field string, filters *seatable.Filters, toComplete 
 
 	resp, err := completionQueryDistinct(client, field, filters, false)
 	if err != nil {
-		return unavailableCompletionHelp(err), cobra.ShellCompDirectiveNoFileComp
+		return unavailableCompletionHelp(), cobra.ShellCompDirectiveNoFileComp
 	}
 
 	seen := make(map[string]bool, len(resp.Results))
@@ -124,10 +124,7 @@ func selectOptionsForCompletion(client *seatable.Client, field string) ([]string
 	return values, nil
 }
 
-func unavailableCompletionHelp(err error) []string {
-	if err == nil {
-		return nil
-	}
+func unavailableCompletionHelp() []string {
 	return cobra.AppendActiveHelp(nil, "data completions unavailable; run 'crantcli setup' or check your network")
 }
 

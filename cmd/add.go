@@ -314,7 +314,12 @@ func init() {
 }
 
 func extractRootIDs(rows []seatable.NeuronRow) []string {
-	ids, _ := extractRootIDsWithSubtype(rows)
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.RootID != "" {
+			ids = append(ids, r.RootID)
+		}
+	}
 	return ids
 }
 
@@ -368,17 +373,6 @@ func dedupeUnionResults(groups [][]string, rows []seatable.NeuronRow) ([][]strin
 	}
 
 	return dedupedGroups, allRootIDs, dedupedRows
-}
-
-func resolveAddRegionFilter(region, bundle string) (string, error) {
-	regions, err := resolveAddRegionFilters([]string{region}, []string{bundle})
-	if err != nil {
-		return "", err
-	}
-	if len(regions) == 0 {
-		return "", nil
-	}
-	return regions[0], nil
 }
 
 func resolveAddRegionFilters(regions, bundles []string) ([]string, error) {

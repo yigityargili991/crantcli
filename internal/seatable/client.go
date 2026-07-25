@@ -48,10 +48,7 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 
 	url := fmt.Sprintf("%s/api-gateway/api/v2/dtables/%s/sql/", config.SeaTableServer, c.dtableUUID)
 
-	payload, err := json.Marshal(map[string]string{"sql": sql})
-	if err != nil {
-		return nil, fmt.Errorf("marshaling SQL payload: %w", err)
-	}
+	payload, _ := json.Marshal(map[string]string{"sql": sql})
 
 	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewReader(payload))
 	if err != nil {

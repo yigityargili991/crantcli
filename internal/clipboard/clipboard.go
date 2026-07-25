@@ -137,7 +137,3 @@ func findAvailable(tools []clipTool) *clipTool {
 	}
 	return nil
 }
-
-func Clear() error {
-	return Write("")
-}
