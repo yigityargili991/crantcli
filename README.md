@@ -125,5 +125,6 @@ See the [development guide](docs/development.md) for the documentation workflow.
 
 ## License
 
-[MIT](LICENSE). Release assets also include
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project attribution.
+Release assets also include
 [third-party notices](THIRD_PARTY_NOTICES.md) for bundled dependencies.

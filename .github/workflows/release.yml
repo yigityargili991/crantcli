@@ -89,6 +89,6 @@ jobs:
           mkdir -p dist
           gh release download "$REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'crant_type_look-*' --dir dist
           cd dist
-          cp ../LICENSE ../THIRD_PARTY_NOTICES.md .
-          sha256sum crant_type_look-* LICENSE THIRD_PARTY_NOTICES.md > checksums.txt
-          gh release upload "$REF_NAME" checksums.txt LICENSE THIRD_PARTY_NOTICES.md --repo "$GITHUB_REPOSITORY" --clobber
+          cp ../LICENSE ../NOTICE ../THIRD_PARTY_NOTICES.md .
+          sha256sum crant_type_look-* LICENSE NOTICE THIRD_PARTY_NOTICES.md > checksums.txt
+          gh release upload "$REF_NAME" checksums.txt LICENSE NOTICE THIRD_PARTY_NOTICES.md --repo "$GITHUB_REPOSITORY" --clobber
