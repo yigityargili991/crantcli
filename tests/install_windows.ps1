@@ -182,3 +182,7 @@ finally {
         Remove-Item -LiteralPath $testRoot -Recurse -Force
     }
 }
+
+# Expected negative-path checks leave the native cosign shim's exit code at 1.
+# A successful test script must reset the process result for CI runners.
+exit 0
