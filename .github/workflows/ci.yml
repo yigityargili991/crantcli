@@ -22,3 +22,63 @@ jobs:
       - run: go vet ./...
 
       - run: go test ./...
+
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test with Windows PowerShell
+        shell: powershell
+        run: ./tests/install_windows.ps1
+
+      - name: Test with PowerShell
+        shell: pwsh
+        run: ./tests/install_windows.ps1
+
+      - name: Smoke test published release
+        shell: pwsh
+        env:
+          CRANTCLI_INSTALL_DIR: ${{ runner.temp }}\crantcli-bin
+          CRANTCLI_SKIP_CHECKSUM: "0"
+          CRANTCLI_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          Get-Content -Raw ./install.ps1 | Invoke-Expression
+
+          $installed = Join-Path $env:CRANTCLI_INSTALL_DIR "crantcli.exe"
+          if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) {
+            throw "installer did not create $installed"
+          }
+          if (($env:Path -split ";") -notcontains $env:CRANTCLI_INSTALL_DIR) {
+            throw "installer did not add its destination to the current PATH"
+          }
+
+          $version = & $installed --version
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) {
+            throw "installed crantcli did not report its version"
+          }
+          Write-Host $version
+
+  unix-installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke test published release
+        env:
+          CRANTCLI_INSTALL_DIR: ${{ runner.temp }}/crantcli-bin
+          CRANTCLI_SKIP_CHECKSUM: "0"
+          CRANTCLI_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          cat ./install.sh | sh
+
+          installed="$CRANTCLI_INSTALL_DIR/crantcli"
+          test -x "$installed"
+          version=$("$installed" --version)
+          test -n "$version"
+          printf '%s\n' "$version"
