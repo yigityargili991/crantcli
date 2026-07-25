@@ -42,6 +42,9 @@ theme:
 plugins:
   - search
 
+hooks:
+  - hooks/perf.py
+
 markdown_extensions:
   - abbr
   - admonition
