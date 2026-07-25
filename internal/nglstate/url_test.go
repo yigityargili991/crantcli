@@ -15,6 +15,8 @@ func TestIsNeuroglancerURL(t *testing.T) {
 		{"http://example.com/neuroglancer/#!{}", true},
 		{"https://example.com/#!{}", true},
 		{"just some text", false},
+		{"/tmp/neuroglancer_state.json", false},
+		{`C:\tmp\spelunker_state.json`, false},
 		{"https://example.com/no-fragment", false},
 		{"", false},
 	}

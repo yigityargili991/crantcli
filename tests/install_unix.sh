@@ -117,7 +117,7 @@ run_install() {
 	sh "$repository_root/install.sh"
 
 	asset="crant_type_look-$expected_os-$expected_arch"
-	cmp "$fixtures/$asset" "$install_dir/crantcli" >/dev/null ||
+	test "$(sha256_file "$fixtures/$asset")" = "$(sha256_file "$install_dir/crantcli")" ||
 		fail "$asset was not installed"
 	test -x "$install_dir/crantcli" || fail "$asset is not executable"
 

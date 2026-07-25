@@ -11,6 +11,7 @@ import (
 func TestRunChangeDefStateStoresJSONArgument(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	resetChangeDefStateFlags(t)
 
 	err := runChangeDefState(changeDefStateCmd, []string{`{"zoom":4,"layers":[]}`})
@@ -34,6 +35,7 @@ func TestRunChangeDefStateStoresJSONArgument(t *testing.T) {
 func TestRunChangeDefStateReadsFileAndResets(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	resetChangeDefStateFlags(t)
 
 	inputPath := filepath.Join(t.TempDir(), "input.json")
@@ -65,6 +67,7 @@ func TestRunChangeDefStateReadsFileAndResets(t *testing.T) {
 func TestRunChangeDefStateValidatesInput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	resetChangeDefStateFlags(t)
 
 	if err := runChangeDefState(changeDefStateCmd, nil); err == nil {

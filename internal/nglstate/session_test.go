@@ -3,6 +3,7 @@ package nglstate
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -37,8 +38,10 @@ func TestDefaultStateLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat default state: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("default state permissions = 0o%o, want 0600", perm)
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("default state permissions = 0o%o, want 0600", perm)
+		}
 	}
 
 	if err := WriteDefaultState(nil); err != nil {

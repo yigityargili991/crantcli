@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -256,6 +257,10 @@ func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
 }
 
 func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test hook is a POSIX shell script")
+	}
+
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 

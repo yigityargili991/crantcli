@@ -70,6 +70,7 @@ function Test-Install {
     )
 
     $assetArchitecture = $Architecture.ToLowerInvariant()
+    $asset = "crant_type_look-windows-$assetArchitecture.exe"
     $installDirectory = Join-Path $testRoot "install-$assetArchitecture"
     $env:PROCESSOR_ARCHITECTURE = $Architecture
     $env:PROCESSOR_ARCHITEW6432 = $null

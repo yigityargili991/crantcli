@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -149,8 +150,10 @@ func TestWriteStateToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat output state: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("output state permissions = 0o%o, want 0600", perm)
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("output state permissions = 0o%o, want 0600", perm)
+		}
 	}
 }
 

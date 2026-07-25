@@ -9,10 +9,15 @@ import (
 
 // IsNeuroglancerURL checks if a string looks like a Neuroglancer URL.
 func IsNeuroglancerURL(s string) bool {
-	return strings.Contains(s, "neuroglancer") ||
-		strings.Contains(s, "spelunker") ||
-		strings.Contains(s, "cave-explorer") ||
-		(strings.HasPrefix(s, "http") && strings.Contains(s, "#!"))
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	location := strings.ToLower(u.Host + u.Path)
+	return strings.Contains(location, "neuroglancer") ||
+		strings.Contains(location, "spelunker") ||
+		strings.Contains(location, "cave-explorer") ||
+		strings.HasPrefix(u.Fragment, "!")
 }
 
 // DecodeURL extracts the JSON state from a Neuroglancer URL fragment.

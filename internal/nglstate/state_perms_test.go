@@ -3,10 +3,15 @@ package nglstate
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestWriteToFilePerm0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose POSIX permission bits")
+	}
+
 	path := filepath.Join(t.TempDir(), "out.json")
 	state := map[string]interface{}{"layers": []interface{}{}}
 

@@ -36,14 +36,22 @@ type LoadResult struct {
 }
 
 // LoadState loads a Neuroglancer state using smart resolution:
-// 1. If stateArg is a file path, read it
-// 2. If stateArg is a URL, decode it
+// 1. If stateArg is a Neuroglancer URL, decode it
+// 2. If stateArg is a file path, read it
 // 3. If stateArg is empty, try stdin (if not a terminal)
 // 4. If stdin is empty, try clipboard for a Neuroglancer URL
 // 5. If generate is true or nothing found, use default template
 func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	// Explicit --state argument
 	if stateArg != "" {
+		if IsNeuroglancerURL(stateArg) {
+			state, err := DecodeURL(stateArg)
+			if err != nil {
+				return nil, fmt.Errorf("decoding URL: %w", err)
+			}
+			return &LoadResult{State: state, Source: SourceURL, OriginalURL: stateArg}, nil
+		}
+
 		// Prefer existing files, even if the filename contains URL-like substrings
 		// such as "neuroglancer".
 		data, readErr := os.ReadFile(stateArg)
@@ -56,14 +64,6 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		}
 		if !os.IsNotExist(readErr) {
 			return nil, fmt.Errorf("reading state file %q: %w", stateArg, readErr)
-		}
-
-		if IsNeuroglancerURL(stateArg) {
-			state, err := DecodeURL(stateArg)
-			if err != nil {
-				return nil, fmt.Errorf("decoding URL: %w", err)
-			}
-			return &LoadResult{State: state, Source: SourceURL, OriginalURL: stateArg}, nil
 		}
 
 		return nil, fmt.Errorf("reading state file %q: %w", stateArg, readErr)
