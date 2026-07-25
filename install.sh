@@ -2,6 +2,7 @@
 set -eu
 
 repo_url="https://github.com/yigityargili991/crantcli"
+repo_slug="yigityargili991/crantcli"
 asset_prefix="crant_type_look"
 binary_name="crantcli"
 version="${CRANTCLI_VERSION:-latest}"
@@ -34,7 +35,19 @@ download() {
 	url=$1
 	output=$2
 
-	if command_exists curl; then
+	if [ -n "${CRANTCLI_GITHUB_TOKEN:-}" ]; then
+		if ! command_exists gh; then
+			die "gh is required when CRANTCLI_GITHUB_TOKEN is set"
+		fi
+		download_asset_name=${url##*/}
+		if [ "$version" = latest ]; then
+			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download \
+				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output"
+		else
+			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download "$version" \
+				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output"
+		fi
+	elif command_exists curl; then
 		curl -fsSL "$url" -o "$output"
 	elif command_exists wget; then
 		wget -q "$url" -O "$output"
@@ -47,7 +60,19 @@ download_optional() {
 	url=$1
 	output=$2
 
-	if command_exists curl; then
+	if [ -n "${CRANTCLI_GITHUB_TOKEN:-}" ]; then
+		if ! command_exists gh; then
+			return 1
+		fi
+		download_asset_name=${url##*/}
+		if [ "$version" = latest ]; then
+			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download \
+				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output" >/dev/null 2>&1
+		else
+			GH_TOKEN=$CRANTCLI_GITHUB_TOKEN gh release download "$version" \
+				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output" >/dev/null 2>&1
+		fi
+	elif command_exists curl; then
 		curl -fsSL "$url" -o "$output" >/dev/null 2>&1
 	elif command_exists wget; then
 		wget -q "$url" -O "$output" >/dev/null 2>&1

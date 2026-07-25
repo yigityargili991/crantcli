@@ -60,6 +60,18 @@ The [user guide](https://yigityargili991.github.io/crantcli/) explains query gro
 
 Pre-built binaries for Linux, macOS, and Windows on amd64 and arm64 are available from [GitHub Releases](https://github.com/yigityargili991/crantcli/releases).
 
+macOS and Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
+```
+
 The installer supports pinned versions and custom destinations:
 
 ```bash
@@ -68,6 +80,14 @@ curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/insta
 
 curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh \
   | CRANTCLI_INSTALL_DIR=/usr/local/bin sh
+```
+
+In PowerShell, set the equivalent variables before running the one-liner:
+
+```powershell
+$env:CRANTCLI_VERSION = "vX.Y.Z"
+$env:CRANTCLI_INSTALL_DIR = "C:\Tools\crantcli"
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
 ```
 
 Replace `vX.Y.Z` with a published release tag.

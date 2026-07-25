@@ -53,10 +53,32 @@ You can avoid clipboard dependencies by providing `--state` and `--output` files
 
 ## Windows
 
-1. Download `crant_type_look-windows-amd64.exe` or `crant_type_look-windows-arm64.exe` from [Releases](https://github.com/yigityargili991/crantcli/releases).
-2. Rename it to `crantcli.exe`.
-3. Move it into a directory on your `PATH`.
-4. Run `crantcli --version` in PowerShell.
+Run this in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
+```
+
+The installer selects the correct x64 or ARM64 release, verifies its checksum,
+installs it to `%LOCALAPPDATA%\Programs\crantcli`, and adds that directory to
+your user `PATH`. The command is available immediately in the same PowerShell
+session:
+
+```powershell
+crantcli --version
+```
+
+Pin a release or choose another destination before running the installer:
+
+```powershell
+$env:CRANTCLI_VERSION = "vX.Y.Z"
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
+
+$env:CRANTCLI_INSTALL_DIR = "C:\Tools\crantcli"
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
+```
+
+Replace `vX.Y.Z` with a tag from the [Releases page](https://github.com/yigityargili991/crantcli/releases).
 
 ## Build from source
 
