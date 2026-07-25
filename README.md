@@ -1,6 +1,13 @@
 # crantcli
 
-Query neurons in the [Clonal Raider Ant Connectome](https://github.com/flyconnectome/crant), add matching root IDs to [Neuroglancer](https://github.com/google/neuroglancer) scenes, and check whether those roots are still current in CAVE.
+[![CI](https://img.shields.io/github/actions/workflow/status/yigityargili991/crantcli/ci.yml?branch=main&style=flat-square&label=CI&logo=github)](https://github.com/yigityargili991/crantcli/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/yigityargili991/crantcli?style=flat-square&logo=codecov)](https://codecov.io/gh/yigityargili991/crantcli)
+[![Go version](https://img.shields.io/github/go-mod/go-version/yigityargili991/crantcli?style=flat-square&logo=go)](https://github.com/yigityargili991/crantcli/blob/main/go.mod)
+[![Release](https://img.shields.io/github/v/release/yigityargili991/crantcli?style=flat-square&logo=github)](https://github.com/yigityargili991/crantcli/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/yigityargili991/crantcli/total?style=flat-square&logo=github)](https://github.com/yigityargili991/crantcli/releases)
+[![License](https://img.shields.io/github/license/yigityargili991/crantcli?style=flat-square)](LICENSE)
+
+Query neurons in the [Clonal Raider Ant Connectome](https://github.com/Social-Evolution-and-Behavior/crantpy), add matching root IDs to [Neuroglancer](https://github.com/google/neuroglancer) scenes, and check whether those roots are still current in CAVE.
 
 [Documentation](docs/index.md) · [Installation](docs/getting-started/install.md) · [Guides](docs/guides/query.md) · [Command reference](docs/reference/index.md)
 
