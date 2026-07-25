@@ -78,7 +78,7 @@ func (c *Client) GetRootID(supervoxelID uint64) (uint64, error) {
 	}
 	defer resp.Body.Close()
 
-	dec := json.NewDecoder(resp.Body)
+	dec := json.NewDecoder(io.LimitReader(resp.Body, httpx.MaxResponseBody))
 	dec.UseNumber()
 
 	var result map[string]json.Number
@@ -127,7 +127,7 @@ func (c *Client) GetRootIDs(supervoxelIDs []uint64) ([]uint64, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpx.MaxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("reading CAVE batch response: %w", err)
 	}
@@ -142,6 +142,11 @@ func (c *Client) GetRootIDs(supervoxelIDs []uint64) ([]uint64, error) {
 	}
 	return rootIDs, nil
 }
+
+// ErrHistoryUnavailable is returned when the CAVE server cannot compute a
+// root's changelog (it answers HTTP 500 "Read timed out" for histories that
+// are too large). It is distinct from a root that genuinely has no edits.
+var ErrHistoryUnavailable = errors.New("CAVE history unavailable (server timed out computing it)")
 
 // GetRootChangeLog returns the tabular CAVE edit history for a root ID.
 func (c *Client) GetRootChangeLog(rootID uint64, filtered bool) ([]ChangeLogRow, error) {
@@ -162,18 +167,19 @@ func (c *Client) GetRootChangeLog(rootID uint64, filtered bool) ([]ChangeLogRow,
 	resp, err := httpx.Do(c.http, req)
 	if err != nil {
 		// CAVE sometimes returns HTTP 500 "Read timed out" when a root's
-		// history is too large to compute; treat that as "no history".
+		// history is too large to compute; surface that distinctly rather
+		// than pretending the root has no edits.
 		var statusErr *httpx.StatusError
 		if errors.As(err, &statusErr) &&
 			statusErr.StatusCode == http.StatusInternalServerError &&
 			bytes.Contains(statusErr.Body, []byte("Read timed out")) {
-			return nil, nil
+			return nil, ErrHistoryUnavailable
 		}
 		return nil, fmt.Errorf("CAVE changelog request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpx.MaxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("reading CAVE changelog response: %w", err)
 	}

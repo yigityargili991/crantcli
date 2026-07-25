@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"crantcli/internal/seatable"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -104,7 +105,7 @@ func init() {
 }
 
 func formatLookupColumnOutput(neuron *seatable.NeuronPositionRow) string {
-	return fmt.Sprintf("%s\t%s", neuron.Region, neuron.RootID)
+	return fmt.Sprintf("%s\t%s", textout.Sanitize(neuron.Region), textout.Sanitize(neuron.RootID))
 }
 
 func parsePos(s string) (float64, float64, float64, error) {

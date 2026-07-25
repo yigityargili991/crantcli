@@ -196,3 +196,33 @@ func TestRunCaveHistoryFailsFastWithRootID(t *testing.T) {
 		t.Fatalf("calls = %#v, want fail-fast after second root", client.calls)
 	}
 }
+
+// SEC-001 regression: CAVE user names are attacker-controllable display
+// strings and must be sanitized in table output.
+func TestWriteCaveHistoryTable_SanitizesUserName(t *testing.T) {
+	client := &fakeCaveHistoryClient{
+		rows: map[uint64][]cave.ChangeLogRow{
+			111: {
+				{
+					OperationID:     7,
+					Timestamp:       1700000000000,
+					UserID:          5,
+					AfterRootIDs:    []uint64{12},
+					UserName:        "Ada\x1b[1m\x1b]52;c;eVil\x07",
+					UserAffiliation: "Lab\nforged",
+				},
+			},
+		},
+	}
+	var out, errOut bytes.Buffer
+
+	if err := runCaveHistory(&out, &errOut, client, []string{"111"}, caveHistoryOptions{Filtered: true}); err != nil {
+		t.Fatalf("runCaveHistory: %v", err)
+	}
+	if strings.ContainsRune(out.String(), '\x1b') || strings.Contains(out.String(), "Lab\nforged") {
+		t.Fatalf("output contains control characters: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Ada") {
+		t.Fatalf("output lost printable content: %q", out.String())
+	}
+}

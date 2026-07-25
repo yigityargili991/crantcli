@@ -18,6 +18,10 @@ crantcli add \
   --open
 ```
 
+Tokens are stored under `~/.crantcli/` with 0600 permissions as base64-encoded
+files. Base64 is obfuscation, not encryption — the file permissions are what
+protect the tokens, and crantcli re-tightens them if they are ever loosened.
+
 Install a release or build from source first; see the [installation guide](docs/getting-started/install.md).
 
 ## What it does
@@ -67,6 +71,11 @@ curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/insta
 ```
 
 Replace `vX.Y.Z` with a published release tag.
+
+The installer fails closed: if the release checksums cannot be downloaded or no
+SHA-256 tool is available, it refuses to install (set `CRANTCLI_SKIP_CHECKSUM=1`
+to override). Releases are also signed keylessly with cosign; if `cosign` is
+installed, the installer verifies the signature automatically.
 
 To build from source:
 

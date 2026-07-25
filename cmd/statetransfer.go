@@ -18,12 +18,16 @@ var stateTransferCmd = &cobra.Command{
 	Use:   "state-transfer",
 	Short: "Build a Neuroglancer state from IDs in the clipboard",
 	Long: `Read root IDs from the clipboard, inject them into a Neuroglancer state,
-and copy the resulting state URL back to the clipboard.
+and copy the resulting state URL back to the clipboard (overwriting it).
 
 The clipboard should contain root IDs separated by whitespace, newlines,
 or commas. The command loads a base state (from --state, piped stdin,
 user-configured default, or built-in template), injects the IDs into the
-segmentation layer, and writes the resulting Neuroglancer URL to the clipboard.`,
+segmentation layer, and writes the resulting Neuroglancer URL to the clipboard.
+
+Note: with --labels, the clipboard root IDs are sent to SeaTable to look up
+their cell types, and the matching metadata is published as an unlisted gist
+(or via --labels-hook/$CRANT_LABELS_HOOK).`,
 	Example: `  # Copy some root IDs, then:
   crantcli state-transfer
 
@@ -55,7 +59,7 @@ func init() {
 	stateTransferCmd.Flags().StringVarP(&stOutput, "output", "o", "", "Output file path (default: clipboard)")
 	stateTransferCmd.Flags().StringVarP(&stLayer, "layer", "l", "", "Target segmentation layer name")
 	stateTransferCmd.Flags().StringVar(&stColor, "color", "", "Segment color: named color, 'colored' for random, or hex (#ff0000)")
-	stateTransferCmd.Flags().BoolVar(&stLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI")
+	stateTransferCmd.Flags().BoolVar(&stLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK")
 	stateTransferCmd.Flags().DurationVar(&stLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
 	stateTransferCmd.Flags().StringVar(&stLabelsHook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
 	stateTransferCmd.ValidArgsFunction = noFileCompletion
@@ -68,7 +72,7 @@ func init() {
 		if !stLabels || config.GetAPIToken() != "" {
 			return nil
 		}
-		return config.RunSetupPrompt()
+		return fmt.Errorf("--labels needs a SeaTable token; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")
 	}
 
 	stateTransferCmd.RunE = func(cmd *cobra.Command, args []string) error {

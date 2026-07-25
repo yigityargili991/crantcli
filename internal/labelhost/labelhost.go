@@ -15,6 +15,7 @@ package labelhost
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,10 +41,16 @@ type Published struct {
 	Kind string // kindGist or kindHook
 }
 
+// runTimeout bounds every helper subprocess (gh, hook commands) so a hung
+// child cannot block the CLI forever.
+const runTimeout = 60 * time.Second
+
 // run executes a command (with optional stdin) and returns stdout. Overridable
 // in tests.
 var run = func(stdin []byte, name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -51,6 +58,9 @@ var run = func(stdin []byte, name string, args ...string) ([]byte, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("%s: timed out after %s", name, runTimeout)
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = strings.TrimSpace(stdout.String())
@@ -131,7 +141,8 @@ func cleanupCreatedGist(id string, cause error) error {
 }
 
 func deleteGist(id string) error {
-	_, err := run(nil, "gh", "gist", "delete", id, "--yes")
+	// "--" keeps a manifest-sourced id from being parsed as flags.
+	_, err := run(nil, "gh", "gist", "delete", "--yes", "--", id)
 	return err
 }
 
@@ -372,6 +383,10 @@ func clean(all bool, age time.Duration, hookCmd string) (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	// Nothing tracked: stay strictly read-only (no manifest write).
+	if len(entries) == 0 {
+		return 0, 0, nil
+	}
 
 	cutoff := nowFunc().Add(-age)
 	kept := make([]entry, 0, len(entries))
@@ -396,6 +411,10 @@ func clean(all bool, age time.Duration, hookCmd string) (int, int, error) {
 		deleted++
 	}
 
+	// Only rewrite the manifest when the tracked set actually changed.
+	if deleted == 0 {
+		return 0, len(kept), nil
+	}
 	if err := writeManifest(kept); err != nil {
 		return deleted, len(kept), err
 	}

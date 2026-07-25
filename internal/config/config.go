@@ -59,11 +59,30 @@ func readStoredTokenAtPath(path string) string {
 	if err != nil {
 		return ""
 	}
+	enforceTokenFilePerms(path)
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
 	if err != nil {
 		return ""
 	}
 	return string(decoded)
+}
+
+// enforceTokenFilePerms repairs credential files that are readable by group or
+// others (e.g. after a manual copy or a restore with loose umask) and warns,
+// since a base64 token file is only as protected as its permissions.
+func enforceTokenFilePerms(path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	if info.Mode().Perm()&0o077 == 0 {
+		return
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %s is accessible by other users (permissions %o) and could not be fixed: %v\n", path, info.Mode().Perm(), err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Warning: %s was accessible by other users (permissions %o); tightened to 0600\n", path, info.Mode().Perm())
 }
 
 // ReadStoredToken reads a base64-encoded token from ~/.crantcli/credentials.
@@ -166,7 +185,7 @@ func GetCAVEToken() string {
 // Returns an error if stdin is not a terminal.
 func RunSetupPrompt() error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("no SeaTable token configured and stdin is not a terminal; set CRANTTABLE_TOKEN or run 'crantcli setup'")
+		return fmt.Errorf("stdin is not a terminal; set CRANTTABLE_TOKEN or CRANTTABLE_TOKEN_FILE instead")
 	}
 
 	fmt.Println("SeaTable token:")

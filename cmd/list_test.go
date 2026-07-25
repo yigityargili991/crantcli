@@ -56,3 +56,24 @@ func TestListInvalidFieldValidatesBeforeTokenSetup(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty because root command silences Cobra duplicate errors", errOut)
 	}
 }
+
+// SEC-001 regression: server-provided values must not reach the terminal with
+// control characters intact.
+func TestWriteDistinctResults_SanitizesValues(t *testing.T) {
+	resp := &seatable.SQLResponse{
+		Results: []map[string]interface{}{
+			{"cell_type": "evil\x1b]52;c;SGFjZ2Vk\x07\x1b[31m", "count": 3},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := writeDistinctResults(&buf, "cell_type", resp, true); err != nil {
+		t.Fatalf("writeDistinctResults returned error: %v", err)
+	}
+	if strings.ContainsRune(buf.String(), '\x1b') {
+		t.Fatalf("output contains ESC: %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "evil") {
+		t.Fatalf("output lost printable content: %q", buf.String())
+	}
+}

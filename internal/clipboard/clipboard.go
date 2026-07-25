@@ -1,11 +1,13 @@
 package clipboard
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // clipTool is one Linux clipboard helper. env names the session var
@@ -33,64 +35,91 @@ var linuxWriteTools = []clipTool{
 
 var errNoLinuxClipboardTool = fmt.Errorf("clipboard: no usable tool found (install wl-clipboard for Wayland or xclip/xsel for X11; WAYLAND_DISPLAY or DISPLAY must be set)")
 
+// maxClipboardBytes bounds clipboard reads so a hostile or runaway selection
+// owner cannot exhaust memory.
+const maxClipboardBytes = 64 << 20
+
+// cmdTimeout bounds clipboard helper subprocesses so a hung helper cannot
+// block the CLI forever.
+const cmdTimeout = 30 * time.Second
+
+func commandCtx(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	return exec.CommandContext(ctx, name, args...), cancel
+}
+
+// limitWriter caps how much a clipboard helper may write to stdout.
+type limitWriter struct {
+	buf strings.Builder
+	max int
+}
+
+func (w *limitWriter) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.max {
+		return 0, fmt.Errorf("clipboard content exceeds %d bytes", w.max)
+	}
+	return w.buf.Write(p)
+}
+
 func Read() (string, error) {
-	var cmd *exec.Cmd
-	var toolName string
+	var name string
+	var args []string
 	switch runtime.GOOS {
 	case "darwin":
-		toolName = "pbpaste"
-		cmd = exec.Command(toolName)
+		name = "pbpaste"
 	case "linux":
 		tool := findAvailable(linuxReadTools)
 		if tool == nil {
 			return "", errNoLinuxClipboardTool
 		}
-		toolName = tool.name
-		cmd = exec.Command(tool.name, tool.args...)
+		name = tool.name
+		args = tool.args
 	case "windows":
-		toolName = "powershell"
-		cmd = exec.Command(toolName, "-command", "Get-Clipboard")
+		name = "powershell"
+		args = []string{"-command", "Get-Clipboard"}
 	default:
 		return "", fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
 	}
 
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("reading clipboard via %s: %w", toolName, err)
+	cmd, cancel := commandCtx(name, args...)
+	defer cancel()
+	out := &limitWriter{max: maxClipboardBytes}
+	cmd.Stdout = out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("reading clipboard via %s: %w", name, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(out.buf.String()), nil
 }
 
 func Write(content string) error {
-	var cmd *exec.Cmd
-	var toolName string
+	var name string
+	var args []string
 	switch runtime.GOOS {
 	case "darwin":
-		toolName = "pbcopy"
-		cmd = exec.Command(toolName)
+		name = "pbcopy"
 	case "linux":
 		tool := findAvailable(linuxWriteTools)
 		if tool == nil {
 			return errNoLinuxClipboardTool
 		}
-		toolName = tool.name
-		args := tool.args
+		name = tool.name
+		args = tool.args
 		// wl-copy with empty stdin daemonizes to serve the (empty) selection and
 		// never returns. --clear releases the selection without spawning a daemon.
 		if tool.name == "wl-copy" && content == "" {
 			args = []string{"--clear"}
 		}
-		cmd = exec.Command(tool.name, args...)
 	case "windows":
-		toolName = "clip"
-		cmd = exec.Command(toolName)
+		name = "clip"
 	default:
 		return fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
 	}
 
+	cmd, cancel := commandCtx(name, args...)
+	defer cancel()
 	cmd.Stdin = strings.NewReader(content)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("writing clipboard via %s: %w", toolName, err)
+		return fmt.Errorf("writing clipboard via %s: %w", name, err)
 	}
 	return nil
 }

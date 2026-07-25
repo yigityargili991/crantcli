@@ -1,6 +1,7 @@
 package labelhost
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -57,7 +58,7 @@ func TestReadManifest_MissingFile(t *testing.T) {
 func stubRun(failIDs map[string]string) {
 	run = func(_ []byte, name string, args ...string) ([]byte, error) {
 		if len(args) > 0 && args[0] == "gist" && contains(args, "delete") {
-			id := args[len(args)-2] // gh gist delete <id> --yes
+			id := args[len(args)-1] // gh gist delete --yes -- <id>
 			if msg, bad := failIDs[id]; bad {
 				return nil, &fakeErr{msg}
 			}
@@ -259,7 +260,7 @@ func TestPublishGistDeletesCreatedGistWhenRawURLLookupFails(t *testing.T) {
 			return nil, &fakeErr{"temporary api failure"}
 		}
 		if len(args) >= 3 && args[0] == "gist" && args[1] == "delete" {
-			deleted = append(deleted, args[2])
+			deleted = append(deleted, args[len(args)-1])
 			return nil, nil
 		}
 		t.Fatalf("unexpected gh args %v", args)
@@ -295,3 +296,62 @@ func TestParseGistID(t *testing.T) {
 type fakeErr struct{ msg string }
 
 func (e *fakeErr) Error() string { return e.msg }
+
+// SEC-004 regression: cleaning with nothing tracked (or nothing deleted) must
+// not create or rewrite the manifest file.
+func TestCleanNoopWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "label_gists.json")
+	manifestPathFunc = func() string { return manifest }
+	t.Cleanup(func() { manifestPathFunc = defaultManifestPath })
+
+	deleted, kept, err := Clean(true, time.Hour, "")
+	if err != nil {
+		t.Fatalf("Clean: %v", err)
+	}
+	if deleted != 0 || kept != 0 {
+		t.Fatalf("deleted=%d kept=%d, want 0/0", deleted, kept)
+	}
+	if _, err := os.Stat(manifest); !os.IsNotExist(err) {
+		t.Fatalf("manifest was written by a no-op clean")
+	}
+}
+
+// When deletions fail, the manifest content must stay byte-identical.
+func TestCleanAllFailuresWritesNothing(t *testing.T) {
+	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "label_gists.json")
+	manifestPathFunc = func() string { return manifest }
+	nowFunc = func() time.Time { return base }
+	origRun := run
+	t.Cleanup(func() {
+		manifestPathFunc = defaultManifestPath
+		nowFunc = time.Now
+		run = origRun
+	})
+
+	if err := Record(Published{ID: "flaky", Kind: kindGist}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stubRun(map[string]string{"flaky": "boom"})
+	deleted, kept, err := Clean(true, time.Hour, "")
+	if err != nil {
+		t.Fatalf("Clean: %v", err)
+	}
+	if deleted != 0 || kept != 1 {
+		t.Fatalf("deleted=%d kept=%d, want 0/1", deleted, kept)
+	}
+	after, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("manifest rewritten despite no deletions:\nbefore: %s\nafter: %s", before, after)
+	}
+}

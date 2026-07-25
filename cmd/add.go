@@ -26,8 +26,11 @@ their root IDs into a Neuroglancer state.
 Smart input resolution (when no --state is given):
 
   1. Check stdin for piped JSON
-  2. Check clipboard for a Neuroglancer URL
-  3. Fall back to the configured or built-in CRANT scene template`,
+  2. Check clipboard for a Neuroglancer URL (read implicitly)
+  3. Fall back to the configured or built-in CRANT scene template
+
+With no --output, the resulting Neuroglancer URL is written back to the
+clipboard, overwriting its current contents.`,
 	Example: `  # Smart: checks clipboard for a Neuroglancer URL, injects, and copies back
   crantcli add --cell-type ER
 
@@ -111,9 +114,9 @@ func init() {
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
-	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs, no state manipulation")
+	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
-	addCmd.Flags().BoolVar(&addLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI")
+	addCmd.Flags().BoolVar(&addLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK")
 	addCmd.Flags().DurationVar(&addLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
 	addCmd.Flags().StringVar(&addLabelsHook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
 	addCmd.Args = func(cmd *cobra.Command, args []string) error {

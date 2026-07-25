@@ -7,6 +7,7 @@ Show info about a Neuroglancer state
 Show layers, types, and segment counts for a Neuroglancer state.
 
 Uses smart input: reads from --state flag, stdin, clipboard, or default template.
+With no --state and no piped stdin, the clipboard is read implicitly.
 
 ```
 crantcli inspect [flags]

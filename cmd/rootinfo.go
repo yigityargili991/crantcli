@@ -11,6 +11,7 @@ import (
 
 	"crantcli/internal/cave"
 	"crantcli/internal/seatable"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -404,12 +405,12 @@ func writeRootInfoRootSection(write rootInfoTextWriter, result *rootInfoResult) 
 		}
 	}
 	if result.CAVE.SupervoxelID != "" {
-		if err := write("  supervoxel_id: %s\n", result.CAVE.SupervoxelID); err != nil {
+		if err := write("  supervoxel_id: %s\n", textout.Sanitize(result.CAVE.SupervoxelID)); err != nil {
 			return err
 		}
 	}
 	if result.CAVE.Error != "" {
-		if err := write("  cave_error: %s\n", result.CAVE.Error); err != nil {
+		if err := write("  cave_error: %s\n", textout.Sanitize(result.CAVE.Error)); err != nil {
 			return err
 		}
 	}
@@ -544,7 +545,7 @@ func writeRootInfoExtraFieldsSection(write rootInfoTextWriter, extraFields map[s
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if err := write("  %s: %s\n", key, extraFields[key]); err != nil {
+		if err := write("  %s: %s\n", textout.Sanitize(key), displayValue(extraFields[key])); err != nil {
 			return err
 		}
 	}
@@ -555,5 +556,5 @@ func displayValue(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "-"
 	}
-	return value
+	return textout.Sanitize(value)
 }

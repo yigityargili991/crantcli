@@ -2,6 +2,7 @@ package cave
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -260,17 +261,14 @@ func TestGetRootChangeLog_HTTPError(t *testing.T) {
 	}
 }
 
-func TestGetRootChangeLog_ReadTimeoutMeansNoHistory(t *testing.T) {
+func TestGetRootChangeLog_ReadTimeoutIsUnavailableNotEmpty(t *testing.T) {
 	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, `{"message": "Read timed out"}`)
 	}))
 
 	rows, err := c.GetRootChangeLog(1, true)
-	if err != nil {
-		t.Fatalf("GetRootChangeLog: %v", err)
-	}
-	if len(rows) != 0 {
-		t.Fatalf("got %d rows, want 0", len(rows))
+	if !errors.Is(err, ErrHistoryUnavailable) {
+		t.Fatalf("expected ErrHistoryUnavailable, got rows=%v err=%v", rows, err)
 	}
 }

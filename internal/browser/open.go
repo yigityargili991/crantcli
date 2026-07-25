@@ -24,7 +24,9 @@ func OpenURL(rawURL string) error {
 		return fmt.Errorf("opening browser is not supported on %s", runtime.GOOS)
 	}
 
-	if err := cmd.Start(); err != nil {
+	// Run (not Start) so the helper is reaped and launch errors surface; the
+	// platform openers return immediately after handing off to the browser.
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("starting browser command: %w", err)
 	}
 	return nil

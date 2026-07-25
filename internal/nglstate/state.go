@@ -13,6 +13,10 @@ import (
 // StateSource describes where the state was loaded from.
 type StateSource string
 
+// maxStateBytes bounds state documents read from stdin and files; legitimate
+// Neuroglancer scenes are a few MiB at most.
+const maxStateBytes = 64 << 20
+
 const (
 	SourceURL       StateSource = "url"
 	SourceFile      StateSource = "file"
@@ -70,9 +74,13 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 
 	// Try stdin if it's not a terminal
 	if !isTerminal(os.Stdin) {
-		data, err := io.ReadAll(os.Stdin)
+		// Bound the read so a hostile or broken pipe cannot exhaust memory.
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, maxStateBytes+1))
 		if err != nil {
 			return nil, fmt.Errorf("reading stdin: %w", err)
+		}
+		if len(data) > maxStateBytes {
+			return nil, fmt.Errorf("stdin state exceeds %d bytes", maxStateBytes)
 		}
 		if len(strings.TrimSpace(string(data))) > 0 {
 			state, err := parseJSON(data)
@@ -173,7 +181,8 @@ func writeToFile(state map[string]interface{}, path string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	// 0600: states can embed capability URLs (e.g. unlisted-gist label sources).
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("writing file %q: %w", path, err)
 	}
 	fmt.Fprintf(os.Stderr, "Wrote state to %s\n", path)

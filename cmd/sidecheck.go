@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"crantcli/internal/seatable"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -178,7 +179,7 @@ func normalizeSide(side string) string {
 
 func writeSideCheckProblems(w io.Writer, report sideCheckReport) error {
 	for _, rootID := range report.ProblemRootIDs {
-		if _, err := fmt.Fprintln(w, rootID); err != nil {
+		if _, err := fmt.Fprintln(w, textout.Sanitize(rootID)); err != nil {
 			return err
 		}
 	}

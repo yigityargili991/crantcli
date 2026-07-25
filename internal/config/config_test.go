@@ -66,3 +66,26 @@ func TestReadStoredToken(t *testing.T) {
 		}
 	})
 }
+
+func TestReadStoredToken_TightensLoosePermissions(t *testing.T) {
+	home, cleanup := setupTestHome(t)
+	defer cleanup()
+
+	path := filepath.Join(home, ".crantcli", "credentials")
+	writeEncodedToken(t, path, "loose-token")
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	if got := ReadStoredToken(); got != "loose-token" {
+		t.Fatalf("expected loose-token, got %q", got)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("expected permissions tightened to 0600, got 0o%o", perm)
+	}
+}

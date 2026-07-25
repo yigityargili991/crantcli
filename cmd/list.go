@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"crantcli/internal/seatable"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -117,12 +118,12 @@ func writeDistinctResults(w io.Writer, field string, resp *seatable.SQLResponse,
 			continue
 		}
 		if withCount {
-			if _, err := fmt.Fprintf(w, "%-40v %v\n", val, row["count"]); err != nil {
+			if _, err := fmt.Fprintf(w, "%-40s %s\n", textout.Sanitize(fmt.Sprint(val)), textout.Sanitize(fmt.Sprint(row["count"]))); err != nil {
 				return err
 			}
 			continue
 		}
-		if _, err := fmt.Fprintln(w, val); err != nil {
+		if _, err := fmt.Fprintln(w, textout.Sanitize(fmt.Sprint(val))); err != nil {
 			return err
 		}
 	}

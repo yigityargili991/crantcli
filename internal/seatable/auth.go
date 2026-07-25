@@ -14,9 +14,13 @@ import (
 
 // ExchangeToken exchanges an API token for a base access token.
 func ExchangeToken(apiToken string) (*AuthResponse, error) {
+	return exchangeToken(apiToken, config.SeaTableServer)
+}
+
+func exchangeToken(apiToken, server string) (*AuthResponse, error) {
 	// Flow 1: API token (Base API-Token) -> app access token.
-	appURL := config.SeaTableServer + "/api/v2.1/dtable/app-access-token/"
-	auth, status, body, err := exchangeTokenAtURL(apiToken, appURL)
+	appURL := server + "/api/v2.1/dtable/app-access-token/"
+	auth, status, _, err := exchangeTokenAtURL(apiToken, appURL)
 	if err == nil {
 		return auth, nil
 	}
@@ -24,18 +28,21 @@ func ExchangeToken(apiToken string) (*AuthResponse, error) {
 	// Flow 2: Account/Personal token -> base access token using workspace/base path.
 	// Python client usage with personal tokens commonly follows this route.
 	workspaceURL := fmt.Sprintf("%s/api/v2.1/workspace/%s/dtable/%s/access-token/",
-		config.SeaTableServer,
+		server,
 		neturl.PathEscape(config.SeaTableWorkspace),
 		neturl.PathEscape(config.SeaTableBase),
 	)
-	auth2, status2, body2, err2 := exchangeTokenAtURL(apiToken, workspaceURL)
+	auth2, status2, _, err2 := exchangeTokenAtURL(apiToken, workspaceURL)
 	if err2 == nil {
 		return auth2, nil
 	}
 
+	// Response bodies are deliberately excluded: a server could reflect the
+	// Authorization header into its error body, which would leak the API token
+	// into logs and terminal output.
 	return nil, fmt.Errorf(
-		"auth failed for both token flows: app-access-token (HTTP %d): %s; workspace/base access-token (HTTP %d): %s",
-		status, body, status2, body2,
+		"auth failed for both token flows: app-access-token (HTTP %d); workspace/base access-token (HTTP %d)",
+		status, status2,
 	)
 }
 
@@ -57,7 +64,7 @@ func exchangeTokenAtURL(apiToken, url string) (*AuthResponse, int, string, error
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, httpx.MaxErrorBody))
 	var auth AuthResponse
 	if err := json.Unmarshal(body, &auth); err != nil {
 		return nil, resp.StatusCode, string(body), fmt.Errorf("decoding auth response: %w", err)

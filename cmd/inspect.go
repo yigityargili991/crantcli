@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"crantcli/internal/nglstate"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -14,7 +15,8 @@ var inspectCmd = &cobra.Command{
 	Short: "Show info about a Neuroglancer state",
 	Long: `Show layers, types, and segment counts for a Neuroglancer state.
 
-Uses smart input: reads from --state flag, stdin, clipboard, or default template.`,
+Uses smart input: reads from --state flag, stdin, clipboard, or default template.
+With no --state and no piped stdin, the clipboard is read implicitly.`,
 	Example: `  crantcli inspect              # reads from clipboard
   crantcli inspect -s state.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,9 +50,9 @@ Uses smart input: reads from --state flag, stdin, clipboard, or default template
 			layerType, _ := layer["type"].(string)
 			source := formatLayerSource(layer["source"])
 
-			fmt.Printf("  [%d] %s (%s)\n", i, name, layerType)
+			fmt.Printf("  [%d] %s (%s)\n", i, textout.Sanitize(name), textout.Sanitize(layerType))
 			if source != "" {
-				fmt.Printf("      source: %s\n", source)
+				fmt.Printf("      source: %s\n", textout.Sanitize(source))
 			}
 
 			if layerType == "segmentation" {

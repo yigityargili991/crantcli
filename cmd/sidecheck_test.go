@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 
 	"crantcli/internal/seatable"
@@ -163,5 +165,21 @@ func positionRow(rootID, side string, x, y, z float64, hasPosition bool) seatabl
 		Y:           y,
 		Z:           z,
 		PositionSet: hasPosition,
+	}
+}
+
+// SEC-001 regression: root IDs originate from the database; keep control
+// characters out of the printed list.
+func TestWriteSideCheckProblems_Sanitizes(t *testing.T) {
+	report := sideCheckReport{ProblemRootIDs: []string{"123\x1b[31m", "456"}}
+	var buf bytes.Buffer
+	if err := writeSideCheckProblems(&buf, report); err != nil {
+		t.Fatalf("writeSideCheckProblems: %v", err)
+	}
+	if strings.ContainsRune(buf.String(), '\x1b') {
+		t.Fatalf("output contains ESC: %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "123") || !strings.Contains(buf.String(), "456") {
+		t.Fatalf("output lost IDs: %q", buf.String())
 	}
 }

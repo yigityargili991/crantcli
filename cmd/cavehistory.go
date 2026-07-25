@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"crantcli/internal/cave"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -134,8 +135,8 @@ func writeCaveHistoryTable(out, errOut io.Writer, results []caveHistoryResult) e
 				formatHistoryRootList(entry.BeforeRootIDs),
 				formatHistoryRootList(entry.AfterRootIDs),
 				entry.UserID,
-				entry.UserName,
-				entry.UserAffiliation,
+				textout.Sanitize(entry.UserName),
+				textout.Sanitize(entry.UserAffiliation),
 			)
 		}
 	}

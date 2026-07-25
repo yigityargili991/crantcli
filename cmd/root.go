@@ -29,7 +29,9 @@ Run 'crantcli setup' to configure your SeaTable API token.`,
 		if token := config.GetAPIToken(); token != "" {
 			return nil
 		}
-		return config.RunSetupPrompt()
+		// Do not silently write credentials from a read-only query command:
+		// point the user at the explicit setup flow instead of prompting here.
+		return errors.New("no SeaTable token configured; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")
 	},
 }
 

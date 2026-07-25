@@ -12,6 +12,7 @@ import (
 	"crantcli/internal/cave"
 	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
+	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
 )
@@ -348,7 +349,7 @@ func printResults(results []checkResult, quiet bool) (int, error) {
 		if svDisplay == "" {
 			svDisplay = "(none)"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.RootID, svDisplay, r.CaveRootID, r.Status)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", textout.Sanitize(r.RootID), textout.Sanitize(svDisplay), textout.Sanitize(r.CaveRootID), r.Status)
 	}
 
 	if err := w.Flush(); err != nil {

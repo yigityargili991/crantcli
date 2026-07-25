@@ -10,8 +10,11 @@ their root IDs into a Neuroglancer state.
 Smart input resolution (when no --state is given):
 
   1. Check stdin for piped JSON
-  2. Check clipboard for a Neuroglancer URL
+  2. Check clipboard for a Neuroglancer URL (read implicitly)
   3. Fall back to the configured or built-in CRANT scene template
+
+With no --output, the resulting Neuroglancer URL is written back to the
+clipboard, overwriting its current contents.
 
 ```
 crantcli add [flags]
@@ -70,7 +73,7 @@ crantcli add [flags]
   -g, --generate                   Use the configured or built-in default state instead of the clipboard
   -h, --help                       help for add
       --intersect                  Intersect --cell-class/--cell-type/--cell-subtype as a cross-product (AND) instead of the default union (OR, each value its own group); rarely needed since these classifiers are hierarchical. Other filters (--super-class, --side, --region, ...) always apply to every group
-      --labels                     Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI
+      --labels                     Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK
       --labels-hook string         Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {"url","id"}); defaults to $CRANT_LABELS_HOOK
       --labels-ttl duration        Delete previously-created label sources older than this on each --labels run (default 168h0m0s)
   -l, --layer string               Target segmentation layer name
@@ -79,7 +82,7 @@ crantcli add [flags]
       --proofread string           Filter by proofread status
       --region stringArray         Filter by region (repeatable for multiple regions)
       --replace                    Replace existing segments instead of appending
-      --root-ids-only              Print root IDs, no state manipulation
+      --root-ids-only              Print root IDs and copy them to the clipboard; no state manipulation
       --side string                Filter by side
   -s, --state string               Neuroglancer state (URL or file path)
       --super-class string         Filter by super_class

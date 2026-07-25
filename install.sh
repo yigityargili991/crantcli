@@ -123,21 +123,44 @@ trap 'cleanup; exit 1' HUP INT TERM
 log "Installing $binary_name $version for $os/$arch"
 download "$asset_url" "$tmp_dir/$asset"
 
-if download_optional "$checksums_url" "$tmp_dir/checksums.txt"; then
+if [ "${CRANTCLI_SKIP_CHECKSUM:-}" = "1" ]; then
+	warn "CRANTCLI_SKIP_CHECKSUM=1 set; skipping checksum verification (insecure)"
+else
+	# Fail closed: never install a binary whose integrity could not be verified.
+	download "$checksums_url" "$tmp_dir/checksums.txt" ||
+		die "could not download checksums.txt for $version; refusing to install an unverified binary (set CRANTCLI_SKIP_CHECKSUM=1 to override)"
+
 	expected_hash=$(awk -v asset="$asset" '$2 == asset { print $1; found = 1; exit } END { if (!found) exit 1 }' "$tmp_dir/checksums.txt") || {
 		die "checksums.txt does not contain an entry for $asset"
 	}
 
-	if actual_hash=$(sha256_file "$tmp_dir/$asset"); then
-		if [ "$actual_hash" != "$expected_hash" ]; then
-			die "checksum mismatch for $asset"
+	if ! actual_hash=$(sha256_file "$tmp_dir/$asset"); then
+		die "sha256sum/shasum is unavailable; cannot verify $asset (set CRANTCLI_SKIP_CHECKSUM=1 to override)"
+	fi
+	if [ "$actual_hash" != "$expected_hash" ]; then
+		die "checksum mismatch for $asset"
+	fi
+	log "Verified checksum for $asset"
+fi
+
+# Stronger verification when cosign is installed and the release carries
+# keyless signing bundles (added in newer releases; absent in old ones).
+if command_exists cosign; then
+	bundle_url="$release_base/$asset.sigstore.json"
+	if download_optional "$bundle_url" "$tmp_dir/$asset.sigstore.json"; then
+		if cosign verify-blob --bundle "$tmp_dir/$asset.sigstore.json" \
+			--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+			--certificate-identity-regexp "https://github\.com/yigityargili991/crantcli/" \
+			"$tmp_dir/$asset" >/dev/null 2>&1; then
+			log "Verified cosign signature for $asset"
+		else
+			die "cosign signature verification failed for $asset"
 		fi
-		log "Verified checksum for $asset"
 	else
-		warn "checksums.txt found, but sha256sum/shasum is unavailable; skipping checksum verification"
+		warn "no cosign signature bundle found for $version; relying on checksum verification"
 	fi
 else
-	warn "checksums.txt not found for $version; skipping checksum verification"
+	warn "cosign not installed; relying on checksum verification (install cosign for signature verification)"
 fi
 
 mkdir -p "$install_dir" || die "could not create install directory: $install_dir"

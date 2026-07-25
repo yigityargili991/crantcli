@@ -93,6 +93,7 @@ func TestStatusError_Error(t *testing.T) {
 		{"with body", &StatusError{StatusCode: 404, Body: []byte("not found")}, "HTTP 404: not found"},
 		{"trims body", &StatusError{StatusCode: 500, Body: []byte("  boom\n")}, "HTTP 500: boom"},
 		{"empty body", &StatusError{StatusCode: 503, Body: nil}, "HTTP 503"},
+		{"sanitizes escapes", &StatusError{StatusCode: 500, Body: []byte("bad\x1b[31m\x1b]52;c;eVil\x07")}, "HTTP 500: bad�[31m�]52;c;eVil�"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -100,5 +101,27 @@ func TestStatusError_Error(t *testing.T) {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDo_StatusErrorBodyIsCapped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(make([]byte, MaxErrorBody+1024))
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+
+	_, err = Do(srv.Client(), req)
+	var se *StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("error = %T, want *StatusError", err)
+	}
+	if len(se.Body) != MaxErrorBody {
+		t.Errorf("Body length = %d, want capped at %d", len(se.Body), MaxErrorBody)
 	}
 }

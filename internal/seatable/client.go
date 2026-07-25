@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -67,7 +68,7 @@ func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 	defer resp.Body.Close()
 
 	var result SQLResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, httpx.MaxResponseBody)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding SQL response: %w", err)
 	}
 	normalizeResultKeys(&result)
@@ -137,7 +138,7 @@ func (c *Client) FetchMetadata() (*MetadataResponse, error) {
 	defer resp.Body.Close()
 
 	var result MetadataResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, httpx.MaxResponseBody)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding metadata response: %w", err)
 	}
 	c.metadata = &result

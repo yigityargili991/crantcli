@@ -5,12 +5,16 @@ Build a Neuroglancer state from IDs in the clipboard
 ## Synopsis
 
 Read root IDs from the clipboard, inject them into a Neuroglancer state,
-and copy the resulting state URL back to the clipboard.
+and copy the resulting state URL back to the clipboard (overwriting it).
 
 The clipboard should contain root IDs separated by whitespace, newlines,
 or commas. The command loads a base state (from --state, piped stdin,
 user-configured default, or built-in template), injects the IDs into the
 segmentation layer, and writes the resulting Neuroglancer URL to the clipboard.
+
+Note: with --labels, the clipboard root IDs are sent to SeaTable to look up
+their cell types, and the matching metadata is published as an unlisted gist
+(or via --labels-hook/$CRANT_LABELS_HOOK).
 
 ```
 crantcli state-transfer [flags]
@@ -40,7 +44,7 @@ crantcli state-transfer [flags]
 ```
       --color string          Segment color: named color, 'colored' for random, or hex (#ff0000)
   -h, --help                  help for state-transfer
-      --labels                Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI
+      --labels                Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK
       --labels-hook string    Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {"url","id"}); defaults to $CRANT_LABELS_HOOK
       --labels-ttl duration   Delete previously-created label sources older than this on each --labels run (default 168h0m0s)
   -l, --layer string          Target segmentation layer name
