@@ -89,3 +89,120 @@ func TestReadStoredToken_TightensLoosePermissions(t *testing.T) {
 		t.Fatalf("expected permissions tightened to 0600, got 0o%o", perm)
 	}
 }
+
+func TestStoreTokenRoundTrip(t *testing.T) {
+	home, cleanup := setupTestHome(t)
+	defer cleanup()
+
+	if err := StoreToken("secret-token"); err != nil {
+		t.Fatalf("StoreToken: %v", err)
+	}
+
+	path := filepath.Join(home, ".crantcli", "credentials")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read stored token: %v", err)
+	}
+	wantEncoded := base64.StdEncoding.EncodeToString([]byte("secret-token")) + "\n"
+	if got := string(data); got != wantEncoded {
+		t.Fatalf("stored credential = %q, want base64 payload %q", got, wantEncoded)
+	}
+	if got := ReadStoredToken(); got != "secret-token" {
+		t.Fatalf("ReadStoredToken() = %q, want %q", got, "secret-token")
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat stored token: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("stored token permissions = 0o%o, want 0600", perm)
+	}
+}
+
+func TestGetAPITokenPrecedence(t *testing.T) {
+	t.Run("stored token wins", func(t *testing.T) {
+		home, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		tokenFile := filepath.Join(home, "token-file")
+		if err := os.WriteFile(tokenFile, []byte("file-token\n"), 0o600); err != nil {
+			t.Fatalf("write token file: %v", err)
+		}
+		writeEncodedToken(t, filepath.Join(home, ".crantcli", "credentials"), "stored-token")
+		t.Setenv("CRANTTABLE_TOKEN", "env-token")
+		t.Setenv("CRANTTABLE_TOKEN_FILE", tokenFile)
+
+		if got := GetAPIToken(); got != "stored-token" {
+			t.Fatalf("GetAPIToken() = %q, want stored-token", got)
+		}
+	})
+
+	t.Run("environment wins over token file", func(t *testing.T) {
+		home, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		tokenFile := filepath.Join(home, "token-file")
+		if err := os.WriteFile(tokenFile, []byte("file-token\n"), 0o600); err != nil {
+			t.Fatalf("write token file: %v", err)
+		}
+		t.Setenv("CRANTTABLE_TOKEN", "env-token")
+		t.Setenv("CRANTTABLE_TOKEN_FILE", tokenFile)
+
+		if got := GetAPIToken(); got != "env-token" {
+			t.Fatalf("GetAPIToken() = %q, want env-token", got)
+		}
+	})
+
+	t.Run("token file is trimmed", func(t *testing.T) {
+		home, cleanup := setupTestHome(t)
+		defer cleanup()
+
+		tokenFile := filepath.Join(home, "token-file")
+		if err := os.WriteFile(tokenFile, []byte("  file-token \n"), 0o600); err != nil {
+			t.Fatalf("write token file: %v", err)
+		}
+		t.Setenv("CRANTTABLE_TOKEN", "")
+		t.Setenv("CRANTTABLE_TOKEN_FILE", tokenFile)
+
+		if got := GetAPIToken(); got != "file-token" {
+			t.Fatalf("GetAPIToken() = %q, want file-token", got)
+		}
+	})
+}
+
+func TestCAVETokenSources(t *testing.T) {
+	home, cleanup := setupTestHome(t)
+	defer cleanup()
+
+	t.Setenv("CAVE_TOKEN", "env-cave-token")
+	t.Setenv("CAVE_TOKEN_FILE", "")
+	if got := GetCAVEToken(); got != "env-cave-token" {
+		t.Fatalf("GetCAVEToken() = %q, want env-cave-token", got)
+	}
+
+	if err := StoreCAVEToken("stored-cave-token"); err != nil {
+		t.Fatalf("StoreCAVEToken: %v", err)
+	}
+	if got := ReadStoredCAVEToken(); got != "stored-cave-token" {
+		t.Fatalf("ReadStoredCAVEToken() = %q, want stored-cave-token", got)
+	}
+	if got := GetCAVEToken(); got != "stored-cave-token" {
+		t.Fatalf("GetCAVEToken() = %q, want stored-cave-token", got)
+	}
+
+	path := filepath.Join(home, ".crantcli", "cave_credentials")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat CAVE token: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("CAVE token permissions = 0o%o, want 0600", perm)
+	}
+}
+
+func TestStoreEncodedTokenRejectsEmptyPath(t *testing.T) {
+	if err := storeEncodedToken("", "token"); err == nil {
+		t.Fatal("storeEncodedToken() error = nil, want home-directory error")
+	}
+}

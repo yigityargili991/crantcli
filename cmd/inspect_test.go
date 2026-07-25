@@ -26,3 +26,24 @@ func TestFormatLayerSource(t *testing.T) {
 		}
 	})
 }
+
+func TestCountSegments(t *testing.T) {
+	tests := []struct {
+		name  string
+		layer map[string]interface{}
+		want  int
+	}{
+		{name: "missing", layer: map[string]interface{}{}, want: 0},
+		{name: "invalid type", layer: map[string]interface{}{"segments": "123"}, want: 0},
+		{name: "empty", layer: map[string]interface{}{"segments": []interface{}{}}, want: 0},
+		{name: "populated", layer: map[string]interface{}{"segments": []interface{}{"123", "456"}}, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := countSegments(tt.layer); got != tt.want {
+				t.Fatalf("countSegments() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
