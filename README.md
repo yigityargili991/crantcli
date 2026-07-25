@@ -60,21 +60,16 @@ The [user guide](https://yigityargili991.github.io/crantcli/) explains query gro
 
 ## Install
 
-Pre-built binaries for Linux, macOS, and Windows on amd64 and arm64 are available from [GitHub Releases](https://github.com/yigityargili991/crantcli/releases).
+Pre-built binaries for Linux, macOS, and Windows on amd64 and arm64 are
+available from [GitHub Releases](https://github.com/yigityargili991/crantcli/releases).
 
-macOS and Linux:
+### macOS and Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh | sh
 ```
 
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
-```
-
-The installer supports pinned versions and custom destinations:
+Pin a release or choose another destination with environment variables:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.sh \
@@ -84,20 +79,37 @@ curl -fsSL https://raw.githubusercontent.com/yigityargili991/crantcli/main/insta
   | CRANTCLI_INSTALL_DIR=/usr/local/bin sh
 ```
 
-In PowerShell, set the equivalent variables before running the one-liner:
+### Windows PowerShell
+
+Run this in Windows PowerShell 5.1 or PowerShell 7+; an administrator shell is
+not required:
+
+```powershell
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
+crantcli --version
+```
+
+The installer selects the x64 or ARM64 binary, verifies its SHA-256 checksum,
+installs `crantcli.exe` to
+`$env:LOCALAPPDATA\Programs\crantcli`, and adds that directory to both the
+current session and your persistent user `PATH`. If `cosign` is installed, it
+also verifies the release's keyless Sigstore signature.
+
+Pin a release or choose another destination before running the installer:
 
 ```powershell
 $env:CRANTCLI_VERSION = "vX.Y.Z"
+irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
+
 $env:CRANTCLI_INSTALL_DIR = "C:\Tools\crantcli"
 irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 | iex
 ```
 
 Replace `vX.Y.Z` with a published release tag.
 
-The installer fails closed: if the release checksums cannot be downloaded or no
-SHA-256 tool is available, it refuses to install (set `CRANTCLI_SKIP_CHECKSUM=1`
-to override). Releases are also signed keylessly with cosign; if `cosign` is
-installed, the installer verifies the signature automatically.
+Both installers fail closed if release checksums cannot be downloaded or
+verified. `CRANTCLI_SKIP_CHECKSUM=1` is available as an explicit insecure
+override.
 
 To build from source:
 
