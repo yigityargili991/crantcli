@@ -9,7 +9,7 @@
 
 Query neurons in the [Clonal Raider Ant Connectome](https://github.com/Social-Evolution-and-Behavior/crantpy), add matching root IDs to [Neuroglancer](https://github.com/google/neuroglancer) scenes, and check whether those roots are still current in CAVE.
 
-[Documentation](docs/index.md) · [Installation](docs/getting-started/install.md) · [Guides](docs/guides/query.md) · [Command reference](docs/reference/index.md)
+[Documentation](https://yigityargili991.github.io/crantcli/) · [Installation](docs/getting-started/install.md) · [Guides](docs/guides/query.md) · [Command reference](docs/reference/index.md)
 
 ## Quick start
 
