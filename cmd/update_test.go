@@ -98,6 +98,26 @@ func TestUpdateAlreadyUpToDate(t *testing.T) {
 	}
 }
 
+func TestUpdateDoesNotDowngradeNewerBuild(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.17.0-rc.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+		if url != updateLatestURL {
+			return nil, fmt.Errorf("unexpected fetch %s", url)
+		}
+		return readyReleaseJSON("v0.16.2"), nil
+	})
+
+	out, _, err := executeRootForTest(t, "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "already up to date (v0.16.2)") {
+		t.Fatalf("stdout = %q, want already-up-to-date message", out)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started a downgrade: %+v", *calls)
+	}
+}
+
 func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url != updateLatestURL {
@@ -355,6 +375,10 @@ func TestIsUpToDate(t *testing.T) {
 	}{
 		{"v0.16.2", "v0.16.2", true},
 		{"0.16.2", "v0.16.2", true},
+		{"v0.17.0", "v0.16.2", true},
+		{"v0.17.0-rc.1", "v0.16.2", true},
+		{"v0.16.2+local", "v0.16.2", true},
+		{"v0.16.2-rc.1", "v0.16.2", false},
 		{"v0.16.1", "v0.16.2", false},
 		{"dev", "v0.16.2", false},
 		{"", "v0.16.2", false},
@@ -391,6 +415,15 @@ func TestInstallerEnv(t *testing.T) {
 	got = installerEnv([]string{"PATH=/bin"}, "", "")
 	if len(got) != 1 {
 		t.Fatalf("installerEnv with unknown dir = %v, want unchanged env", got)
+	}
+
+	empty := []string{"CRANTCLI_INSTALL_DIR=", "PATH=/bin"}
+	got = installerEnv(empty, "/usr/local/bin", "")
+	if dir, ok := envValue(got, "CRANTCLI_INSTALL_DIR"); !ok || dir != "/usr/local/bin" {
+		t.Fatalf("installerEnv empty install dir = %q (present %v), want detected dir: %v", dir, ok, got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("installerEnv kept duplicate empty install dir: %v", got)
 	}
 }
 

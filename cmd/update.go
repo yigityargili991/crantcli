@@ -15,6 +15,7 @@ import (
 	"crantcli/internal/httpx"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -101,14 +102,26 @@ func runUpdate(cmd *cobra.Command) error {
 	return nil
 }
 
-// isUpToDate reports whether the running build already matches the latest
-// release tag. Development builds ("dev" or unset) always update.
+// isUpToDate reports whether the running build is at least as new as the
+// latest release tag. Development builds ("dev" or unset) always update.
 func isUpToDate(current, latest string) bool {
 	if current == "" || current == "dev" {
 		return false
 	}
-	return strings.TrimPrefix(strings.TrimSpace(current), "v") ==
-		strings.TrimPrefix(strings.TrimSpace(latest), "v")
+	current = canonicalSemver(current)
+	latest = canonicalSemver(latest)
+	if semver.IsValid(current) && semver.IsValid(latest) {
+		return semver.Compare(current, latest) >= 0
+	}
+	return strings.TrimPrefix(current, "v") == strings.TrimPrefix(latest, "v")
+}
+
+func canonicalSemver(version string) string {
+	version = strings.TrimSpace(version)
+	if !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+	return version
 }
 
 func latestReleaseTag() (string, error) {
@@ -268,6 +281,7 @@ func installerEnv(env []string, installDir, version string) []string {
 	if installDir == "" || envHas(env, "CRANTCLI_INSTALL_DIR") {
 		return filtered
 	}
+	filtered = withoutEnv(filtered, "CRANTCLI_INSTALL_DIR")
 	return append(filtered, "CRANTCLI_INSTALL_DIR="+installDir)
 }
 
@@ -283,7 +297,11 @@ func withoutEnv(env []string, key string) []string {
 
 func envHas(env []string, key string) bool {
 	for _, entry := range env {
-		if envKeyMatches(entry, key) {
+		if !envKeyMatches(entry, key) {
+			continue
+		}
+		_, value, _ := strings.Cut(entry, "=")
+		if strings.TrimSpace(value) != "" {
 			return true
 		}
 	}
