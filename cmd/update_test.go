@@ -91,9 +91,10 @@ func envValue(env []string, key string) (string, bool) {
 func readyReleaseJSON(tag string) []byte {
 	scriptName := installerScriptName(updateGOOS)
 	return []byte(fmt.Sprintf(
-		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q},{"name":%q},{"name":%q}]}`,
+		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q},{"name":%q},{"name":%q},{"name":%q}]}`,
 		tag,
 		releaseAssetName(updateGOOS, updateGOARCH),
+		releaseAssetName(updateGOOS, updateGOARCH)+".sigstore.json",
 		scriptName,
 		scriptName+".sigstore.json",
 	))
@@ -143,13 +144,14 @@ func TestUpdateDoesNotDowngradeNewerBuild(t *testing.T) {
 }
 
 func TestUpdateWaitsForInstallableRelease(t *testing.T) {
+	binaryName := releaseAssetName("linux", "amd64")
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url != updateLatestURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return []byte(fmt.Sprintf(
-			`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"}]}`,
-			releaseAssetName(updateGOOS, updateGOARCH),
+			`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"},{"name":"install.sh.sigstore.json"}]}`,
+			binaryName,
 		)), nil
 	})
 
@@ -157,8 +159,8 @@ func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 	if !errors.Is(err, errReleaseNotReady) {
 		t.Fatalf("error = %v, want release-not-ready error", err)
 	}
-	if !strings.Contains(err.Error(), "install.sh.sigstore.json") {
-		t.Fatalf("error = %v, want missing installer signature bundle", err)
+	if !strings.Contains(err.Error(), binaryName+".sigstore.json") {
+		t.Fatalf("error = %v, want missing binary signature bundle", err)
 	}
 	if len(*calls) != 0 {
 		t.Fatalf("installer started before release assets were ready: %+v", *calls)
@@ -515,8 +517,11 @@ func TestInstallerEnv(t *testing.T) {
 	if dir, _ := envValue(got, "CRANTCLI_INSTALL_DIR"); dir != "/usr/local/bin" {
 		t.Fatalf("installerEnv install dir = %q, want /usr/local/bin: %v", dir, got)
 	}
-	if len(got) != 4 {
-		t.Fatalf("installerEnv = %v, want 4 entries", got)
+	if required, ok := envValue(got, "CRANTCLI_REQUIRE_SIGNATURE"); !ok || required != "1" {
+		t.Fatalf("installerEnv signature requirement = %q (present %v), want 1: %v", required, ok, got)
+	}
+	if len(got) != 5 {
+		t.Fatalf("installerEnv = %v, want 5 entries", got)
 	}
 
 	existing := []string{"CRANTCLI_INSTALL_DIR=/custom", "PATH=/bin"}
@@ -524,13 +529,13 @@ func TestInstallerEnv(t *testing.T) {
 	if dir, _ := envValue(got, "CRANTCLI_INSTALL_DIR"); dir != "/custom" {
 		t.Fatalf("installerEnv overrode exported dir: %v", got)
 	}
-	if len(got) != 3 {
+	if len(got) != 4 {
 		t.Fatalf("installerEnv = %v, want install dir preserved and version appended", got)
 	}
 
 	got = installerEnv([]string{"PATH=/bin"}, "", "")
-	if len(got) != 1 {
-		t.Fatalf("installerEnv with unknown dir = %v, want unchanged env", got)
+	if len(got) != 2 {
+		t.Fatalf("installerEnv with unknown dir = %v, want signature requirement appended", got)
 	}
 
 	empty := []string{"CRANTCLI_INSTALL_DIR=", "PATH=/bin"}
@@ -538,7 +543,7 @@ func TestInstallerEnv(t *testing.T) {
 	if dir, ok := envValue(got, "CRANTCLI_INSTALL_DIR"); !ok || dir != "/usr/local/bin" {
 		t.Fatalf("installerEnv empty install dir = %q (present %v), want detected dir: %v", dir, ok, got)
 	}
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("installerEnv kept duplicate empty install dir: %v", got)
 	}
 }
@@ -551,6 +556,7 @@ func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
 	env := []string{
 		"CrantCli_Version=v0.1.0",
 		`CrantCli_Install_Dir=C:\Tools\crantcli`,
+		"CrantCli_Require_Signature=0",
 		"PATH=C:\\Windows",
 	}
 	got := installerEnv(env, `C:\Other`, "v0.16.2")
@@ -566,6 +572,12 @@ func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
 	}
 	if _, duplicate := envValue(got, "CRANTCLI_INSTALL_DIR"); duplicate {
 		t.Fatalf("installerEnv appended a duplicate Windows install directory: %v", got)
+	}
+	if _, stale := envValue(got, "CrantCli_Require_Signature"); stale {
+		t.Fatalf("installerEnv kept differently-cased signature setting: %v", got)
+	}
+	if required, ok := envValue(got, "CRANTCLI_REQUIRE_SIGNATURE"); !ok || required != "1" {
+		t.Fatalf("CRANTCLI_REQUIRE_SIGNATURE = %q (present %v), want 1: %v", required, ok, got)
 	}
 }
 

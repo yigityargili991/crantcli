@@ -12,9 +12,11 @@ $originalWowArchitecture = $env:PROCESSOR_ARCHITEW6432
 $originalInstallDirectory = $env:CRANTCLI_INSTALL_DIR
 $originalVersion = $env:CRANTCLI_VERSION
 $originalSkipChecksum = $env:CRANTCLI_SKIP_CHECKSUM
+$originalRequireSignature = $env:CRANTCLI_REQUIRE_SIGNATURE
 $originalGithubToken = $env:CRANTCLI_GITHUB_TOKEN
 $originalCosignFail = $env:CRANTCLI_TEST_COSIGN_FAIL
 $env:CRANTCLI_GITHUB_TOKEN = $null
+$env:CRANTCLI_REQUIRE_SIGNATURE = $null
 $global:CrantCliInstallerTestFixtures = $fixtures
 $global:CrantCliInstallerRequestedUris = [Collections.Generic.List[string]]::new()
 
@@ -174,6 +176,29 @@ try {
         throw "installer copied a binary after signature verification failed"
     }
 
+    $env:CRANTCLI_TEST_COSIGN_FAIL = $null
+    $missingBundle = Join-Path $fixtures "crant_type_look-windows-amd64.exe.sigstore.json"
+    $savedBundle = Join-Path $testRoot "crant_type_look-windows-amd64.exe.sigstore.json"
+    Move-Item -LiteralPath $missingBundle -Destination $savedBundle
+    $env:PROCESSOR_ARCHITECTURE = "AMD64"
+    $env:CRANTCLI_INSTALL_DIR = Join-Path $testRoot "missing-bundle-failure"
+    $env:CRANTCLI_REQUIRE_SIGNATURE = "1"
+    try {
+        & (Join-Path $repositoryRoot "install.ps1")
+        throw "update mode accepted a binary without a signature bundle"
+    }
+    catch {
+        if ($_.Exception.Message -notlike "*refusing an unauthenticated update*") {
+            throw
+        }
+    }
+    finally {
+        Move-Item -LiteralPath $savedBundle -Destination $missingBundle
+    }
+    if (Test-Path -LiteralPath (Join-Path $env:CRANTCLI_INSTALL_DIR "crantcli.exe")) {
+        throw "installer copied a binary without its required signature bundle"
+    }
+
     Write-Host "Windows installer tests passed"
 }
 finally {
@@ -184,6 +209,7 @@ finally {
     $env:CRANTCLI_INSTALL_DIR = $originalInstallDirectory
     $env:CRANTCLI_VERSION = $originalVersion
     $env:CRANTCLI_SKIP_CHECKSUM = $originalSkipChecksum
+    $env:CRANTCLI_REQUIRE_SIGNATURE = $originalRequireSignature
     $env:CRANTCLI_GITHUB_TOKEN = $originalGithubToken
     $env:CRANTCLI_TEST_COSIGN_FAIL = $originalCosignFail
     Remove-Item function:global:Invoke-WebRequest -ErrorAction SilentlyContinue

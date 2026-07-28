@@ -174,8 +174,9 @@ else
 	log "Verified checksum for $asset"
 fi
 
-# Stronger verification when cosign is installed and the release carries
-# keyless signing bundles (added in newer releases; absent in old ones).
+# Updates set CRANTCLI_REQUIRE_SIGNATURE=1 and fail closed unless the binary's
+# keyless signature bundle can be authenticated. Direct installs retain the
+# checksum-only fallback for older releases and environments without cosign.
 if command_exists cosign; then
 	bundle_url="$release_base/$asset.sigstore.json"
 	if download_optional "$bundle_url" "$tmp_dir/$asset.sigstore.json"; then
@@ -187,9 +188,13 @@ if command_exists cosign; then
 		else
 			die "cosign signature verification failed for $asset"
 		fi
+	elif [ "${CRANTCLI_REQUIRE_SIGNATURE:-}" = "1" ]; then
+		die "could not download the cosign signature bundle for $asset; refusing an unauthenticated update"
 	else
 		warn "no cosign signature bundle found for $version; relying on checksum verification"
 	fi
+elif [ "${CRANTCLI_REQUIRE_SIGNATURE:-}" = "1" ]; then
+	die "cosign is required to authenticate update binaries"
 else
 	warn "cosign not installed; relying on checksum verification (install cosign for signature verification)"
 fi

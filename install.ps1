@@ -279,9 +279,15 @@ function Install-CrantCli {
                 }
                 Write-InstallerMessage "Verified cosign signature for $asset"
             }
+            elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
+                throw "could not download the cosign signature bundle for $asset; refusing an unauthenticated update"
+            }
             else {
                 Write-Warning "no cosign signature bundle found for $version; relying on checksum verification"
             }
+        }
+        elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
+            throw "cosign is required to authenticate update binaries"
         }
         else {
             Write-Warning "cosign not installed; relying on checksum verification (install cosign for signature verification)"

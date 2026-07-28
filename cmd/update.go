@@ -146,9 +146,11 @@ func latestReleaseTag() (string, error) {
 		return "", errors.New("latest release response has no tag_name")
 	}
 	scriptName := installerScriptName(updateGOOS)
+	binaryName := releaseAssetName(updateGOOS, updateGOARCH)
 	required := []string{
 		"checksums.txt",
-		releaseAssetName(updateGOOS, updateGOARCH),
+		binaryName,
+		binaryName + ".sigstore.json",
 		scriptName,
 		scriptName + ".sigstore.json",
 	}
@@ -311,13 +313,17 @@ func executableNameMatches(name, want string) bool {
 }
 
 // installerEnv builds the installer environment. Any inherited
-// CRANTCLI_VERSION is replaced with the resolved release tag.
+// CRANTCLI_VERSION is replaced with the resolved release tag, and update mode
+// requires the installer to authenticate the binary signature rather than
+// falling back to the mutable checksum manifest.
 // CRANTCLI_INSTALL_DIR defaults to the running executable's directory so the
 // update targets the current installation even when it sits in a custom
 // directory the installer cannot infer on its own (e.g. a one-shot
 // /usr/local/bin install). An explicitly exported CRANTCLI_INSTALL_DIR wins.
 func installerEnv(env []string, installDir, version string) []string {
 	filtered := withoutEnv(env, "CRANTCLI_VERSION")
+	filtered = withoutEnv(filtered, "CRANTCLI_REQUIRE_SIGNATURE")
+	filtered = append(filtered, "CRANTCLI_REQUIRE_SIGNATURE=1")
 	if version != "" {
 		filtered = append(filtered, "CRANTCLI_VERSION="+version)
 	}
