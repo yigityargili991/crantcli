@@ -23,11 +23,13 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 
 	origVersion := Version
 	origGOOS := updateGOOS
+	origGOARCH := updateGOARCH
 	origExe := updateExecutable
 	origFetch := updateFetch
 	origStart := updateStart
 	Version = version
 	updateGOOS = goos
+	updateGOARCH = "amd64"
 	updateExecutable = func() (string, error) { return exe, nil }
 	updateFetch = fetch
 	updateStart = func(name string, args []string, env []string) error {
@@ -37,6 +39,7 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 	t.Cleanup(func() {
 		Version = origVersion
 		updateGOOS = origGOOS
+		updateGOARCH = origGOARCH
 		updateExecutable = origExe
 		updateFetch = origFetch
 		updateStart = origStart
@@ -64,12 +67,20 @@ func envValue(env []string, key string) (string, bool) {
 	return "", false
 }
 
+func readyReleaseJSON(tag string) []byte {
+	return []byte(fmt.Sprintf(
+		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q}]}`,
+		tag,
+		releaseAssetName(updateGOOS, updateGOARCH),
+	))
+}
+
 func TestUpdateAlreadyUpToDate(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.2", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url != updateLatestURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
-		return []byte(`{"tag_name":"v0.16.2"}`), nil
+		return readyReleaseJSON("v0.16.2"), nil
 	})
 
 	out, errOut, err := executeRootForTest(t, "update")
@@ -87,11 +98,28 @@ func TestUpdateAlreadyUpToDate(t *testing.T) {
 	}
 }
 
+func TestUpdateWaitsForInstallableRelease(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+		if url != updateLatestURL {
+			return nil, fmt.Errorf("unexpected fetch %s", url)
+		}
+		return []byte(`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"}]}`), nil
+	})
+
+	_, _, err := executeRootForTest(t, "update")
+	if !errors.Is(err, errReleaseNotReady) {
+		t.Fatalf("error = %v, want release-not-ready error", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started before release assets were ready: %+v", *calls)
+	}
+}
+
 func TestUpdateSpawnsShOnUnix(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "darwin", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		case updateRawURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\necho installer\n"), nil
 		default:
@@ -130,7 +158,7 @@ func TestUpdateSpawnsPowerShellOnWindows(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "windows", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		case updateRawURL + "v0.16.2/install.ps1":
 			return []byte("Write-Host installer\n"), nil
 		default:
@@ -164,7 +192,7 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 	calls := stubUpdateSeams(t, "dev", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		case updateRawURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
 		default:
@@ -182,6 +210,7 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 }
 
 func TestUpdateLookupFailureProceeds(t *testing.T) {
+	t.Setenv("CRANTCLI_VERSION", "v0.0.1")
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
@@ -206,13 +235,16 @@ func TestUpdateLookupFailureProceeds(t *testing.T) {
 	if len(*calls) != 1 || (*calls)[0].name != "sh" {
 		t.Fatalf("start calls = %+v, want one sh invocation", *calls)
 	}
+	if _, pinned := envValue((*calls)[0].env, "CRANTCLI_VERSION"); pinned {
+		t.Fatalf("fallback installer env kept stale CRANTCLI_VERSION: %v", (*calls)[0].env)
+	}
 	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 }
 
 func TestUpdateScriptDownloadFails(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url == updateLatestURL {
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return nil, errors.New("not found")
 	})
@@ -229,7 +261,7 @@ func TestUpdateScriptDownloadFails(t *testing.T) {
 func TestUpdateStartFailure(t *testing.T) {
 	stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url == updateLatestURL {
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
 	})
@@ -246,11 +278,11 @@ func TestUpdateStartFailure(t *testing.T) {
 // 'make install' put the binary where install.sh cannot infer it).
 func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 	unsetEnvForTest(t, "CRANTCLI_INSTALL_DIR")
-	t.Setenv("CRANTCLI_VERSION", "v0.0.1") // a stale pin must not reach the installer
+	t.Setenv("CRANTCLI_VERSION", "v0.0.1") // a stale pin must be replaced by the resolved tag
 
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url == updateLatestURL {
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
 	})
@@ -264,8 +296,8 @@ func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 
 	env := (*calls)[0].env
-	if _, pinned := envValue(env, "CRANTCLI_VERSION"); pinned {
-		t.Fatalf("installer env still carries CRANTCLI_VERSION: %v", env)
+	if version, pinned := envValue(env, "CRANTCLI_VERSION"); !pinned || version != "v0.16.2" {
+		t.Fatalf("CRANTCLI_VERSION = %q (present %v), want v0.16.2", version, pinned)
 	}
 	dir, ok := envValue(env, "CRANTCLI_INSTALL_DIR")
 	if !ok || dir != "/nonexistent/bin" {
@@ -280,7 +312,7 @@ func TestUpdateRespectsExportedInstallDir(t *testing.T) {
 
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url == updateLatestURL {
-			return []byte(`{"tag_name":"v0.16.2"}`), nil
+			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
 	})
@@ -319,29 +351,55 @@ func TestIsUpToDate(t *testing.T) {
 
 func TestInstallerEnv(t *testing.T) {
 	env := []string{"HOME=/tmp", "CRANTCLI_VERSION=v0.1.0", "PATH=/bin"}
-	got := installerEnv(env, "/usr/local/bin")
-	if _, pinned := envValue(got, "CRANTCLI_VERSION"); pinned {
-		t.Fatalf("installerEnv kept CRANTCLI_VERSION: %v", got)
+	got := installerEnv(env, "/usr/local/bin", "v0.16.2")
+	if version, pinned := envValue(got, "CRANTCLI_VERSION"); !pinned || version != "v0.16.2" {
+		t.Fatalf("installerEnv CRANTCLI_VERSION = %q (present %v), want v0.16.2: %v", version, pinned, got)
 	}
 	if dir, _ := envValue(got, "CRANTCLI_INSTALL_DIR"); dir != "/usr/local/bin" {
 		t.Fatalf("installerEnv install dir = %q, want /usr/local/bin: %v", dir, got)
 	}
-	if len(got) != 3 {
-		t.Fatalf("installerEnv = %v, want 3 entries", got)
+	if len(got) != 4 {
+		t.Fatalf("installerEnv = %v, want 4 entries", got)
 	}
 
 	existing := []string{"CRANTCLI_INSTALL_DIR=/custom", "PATH=/bin"}
-	got = installerEnv(existing, "/usr/local/bin")
+	got = installerEnv(existing, "/usr/local/bin", "v0.16.2")
 	if dir, _ := envValue(got, "CRANTCLI_INSTALL_DIR"); dir != "/custom" {
 		t.Fatalf("installerEnv overrode exported dir: %v", got)
 	}
-	if len(got) != 2 {
-		t.Fatalf("installerEnv = %v, want exported env untouched", got)
+	if len(got) != 3 {
+		t.Fatalf("installerEnv = %v, want install dir preserved and version appended", got)
 	}
 
-	got = installerEnv([]string{"PATH=/bin"}, "")
+	got = installerEnv([]string{"PATH=/bin"}, "", "")
 	if len(got) != 1 {
 		t.Fatalf("installerEnv with unknown dir = %v, want unchanged env", got)
+	}
+}
+
+func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
+	origGOOS := updateGOOS
+	updateGOOS = "windows"
+	t.Cleanup(func() { updateGOOS = origGOOS })
+
+	env := []string{
+		"CrantCli_Version=v0.1.0",
+		`CrantCli_Install_Dir=C:\Tools\crantcli`,
+		"PATH=C:\\Windows",
+	}
+	got := installerEnv(env, `C:\Other`, "v0.16.2")
+
+	if version, ok := envValue(got, "CRANTCLI_VERSION"); !ok || version != "v0.16.2" {
+		t.Fatalf("CRANTCLI_VERSION = %q (present %v), want v0.16.2: %v", version, ok, got)
+	}
+	if _, stale := envValue(got, "CrantCli_Version"); stale {
+		t.Fatalf("installerEnv kept differently-cased stale version: %v", got)
+	}
+	if dir, ok := envValue(got, "CrantCli_Install_Dir"); !ok || dir != `C:\Tools\crantcli` {
+		t.Fatalf("CrantCli_Install_Dir = %q (present %v), want existing directory: %v", dir, ok, got)
+	}
+	if _, duplicate := envValue(got, "CRANTCLI_INSTALL_DIR"); duplicate {
+		t.Fatalf("installerEnv appended a duplicate Windows install directory: %v", got)
 	}
 }
 
