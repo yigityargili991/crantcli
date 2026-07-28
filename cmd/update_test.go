@@ -234,36 +234,21 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 }
 
-func TestUpdateLookupFailureProceeds(t *testing.T) {
-	t.Setenv("CRANTCLI_VERSION", "v0.0.1")
-	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		switch url {
-		case updateLatestURL:
-			return nil, errors.New("network down")
-		case updateRawURL + "main/install.sh":
-			return []byte("#!/bin/sh\n"), nil
-		default:
+func TestUpdateLookupFailureDoesNotDowngrade(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.17.0-rc.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+		if url != updateLatestURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
+		return nil, errors.New("network down")
 	})
 
-	out, errOut, err := executeRootForTest(t, "update")
-	if err != nil {
-		t.Fatalf("update: %v", err)
+	_, _, err := executeRootForTest(t, "update")
+	if err == nil || !strings.Contains(err.Error(), "check latest release: network down") {
+		t.Fatalf("error = %v, want lookup failure", err)
 	}
-	if !strings.Contains(errOut, "warning: could not check the latest release") {
-		t.Fatalf("stderr = %q, want lookup warning", errOut)
+	if len(*calls) != 0 {
+		t.Fatalf("installer started without a resolved target: %+v", *calls)
 	}
-	if !strings.Contains(out, "Updating crantcli v0.16.1 -> latest") {
-		t.Fatalf("stdout = %q, want update banner with latest target", out)
-	}
-	if len(*calls) != 1 || (*calls)[0].name != "sh" {
-		t.Fatalf("start calls = %+v, want one sh invocation", *calls)
-	}
-	if _, pinned := envValue((*calls)[0].env, "CRANTCLI_VERSION"); pinned {
-		t.Fatalf("fallback installer env kept stale CRANTCLI_VERSION: %v", (*calls)[0].env)
-	}
-	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 }
 
 func TestUpdateRejectsRenamedExecutable(t *testing.T) {

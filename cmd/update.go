@@ -63,24 +63,14 @@ func runUpdate(cmd *cobra.Command) error {
 	out := cmd.OutOrStdout()
 
 	// The installer script is taken from the release being installed so its
-	// logic always matches the target binary; without a resolved tag we fall
-	// back to the copy on the default branch.
-	ref := "main"
-	target := "latest"
-	installerVersion := ""
+	// logic always matches the target binary.
 	latest, err := latestReleaseTag()
-	switch {
-	case latest != "" && isUpToDate(Version, latest):
+	if err != nil {
+		return fmt.Errorf("check latest release: %w", err)
+	}
+	if isUpToDate(Version, latest) {
 		fmt.Fprintf(out, "crantcli is already up to date (%s)\n", latest)
 		return nil
-	case errors.Is(err, errReleaseNotReady):
-		return err
-	case err != nil:
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not check the latest release (%v); updating anyway\n", err)
-	default:
-		ref = latest
-		target = latest
-		installerVersion = latest
 	}
 
 	installDir, err := runningInstallDir()
@@ -89,14 +79,14 @@ func runUpdate(cmd *cobra.Command) error {
 	}
 
 	scriptName := installerScriptName(updateGOOS)
-	scriptPath, err := downloadInstaller(updateRawURL+ref+"/"+scriptName, scriptName)
+	scriptPath, err := downloadInstaller(updateRawURL+latest+"/"+scriptName, scriptName)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", scriptName, err)
 	}
 
 	name, args := installerCommand(updateGOOS, scriptPath)
-	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, target)
-	if err := updateStart(name, args, installerEnv(os.Environ(), installDir, installerVersion)); err != nil {
+	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, latest)
+	if err := updateStart(name, args, installerEnv(os.Environ(), installDir, latest)); err != nil {
 		return fmt.Errorf("launch installer: %w", err)
 	}
 	fmt.Fprintln(out, "Installer launched; it will replace the crantcli binary after this process exits.")
@@ -293,8 +283,7 @@ func executableNameMatches(name, want string) bool {
 }
 
 // installerEnv builds the installer environment. Any inherited
-// CRANTCLI_VERSION is replaced with the resolved release tag, or removed when
-// the release lookup failed and the installer must resolve "latest" itself.
+// CRANTCLI_VERSION is replaced with the resolved release tag.
 // CRANTCLI_INSTALL_DIR defaults to the running executable's directory so the
 // update targets the current installation even when it sits in a custom
 // directory the installer cannot infer on its own (e.g. a one-shot
