@@ -8,3 +8,6 @@ dist/
 /.claude
 /site/
 /.venv-docs/
+/.idea
+__pycache__/
+*.pyc

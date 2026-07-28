@@ -112,6 +112,7 @@ nav:
       - setup: reference/commands/crantcli_setup.md
       - side-check: reference/commands/crantcli_side-check.md
       - state-transfer: reference/commands/crantcli_state-transfer.md
+      - update: reference/commands/crantcli_update.md
       - Completion shells:
           - Bash: reference/commands/crantcli_completion_bash.md
           - Fish: reference/commands/crantcli_completion_fish.md

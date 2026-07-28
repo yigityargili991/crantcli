@@ -150,6 +150,44 @@ function Add-InstallDirectoryToPath {
     }
 }
 
+function Install-BinaryAtomically {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $directory = Split-Path -Parent $Destination
+    $stagedName = ".${BinaryName}.new-$([Guid]::NewGuid().ToString("N"))"
+    $stagedPath = Join-Path $directory $stagedName
+    $backupPath = "$Destination.old"
+
+    Copy-Item -LiteralPath $Source -Destination $stagedPath
+    try {
+        if (Test-Path -LiteralPath $backupPath) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+        if (Test-Path -LiteralPath $Destination) {
+            [IO.File]::Replace($stagedPath, $Destination, $backupPath, $true)
+        }
+        else {
+            Move-Item -LiteralPath $stagedPath -Destination $Destination
+        }
+        if (Test-Path -LiteralPath $backupPath) {
+            try {
+                Remove-Item -LiteralPath $backupPath -Force
+            }
+            catch {
+                Write-Warning "could not remove the previous executable at $backupPath; it can be deleted after this process exits"
+            }
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $stagedPath) {
+            Remove-Item -LiteralPath $stagedPath -Force
+        }
+    }
+}
+
 function Install-CrantCli {
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
         throw "install.ps1 only supports Windows"
@@ -241,9 +279,15 @@ function Install-CrantCli {
                 }
                 Write-InstallerMessage "Verified cosign signature for $asset"
             }
+            elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
+                throw "could not download the cosign signature bundle for $asset; refusing an unauthenticated update"
+            }
             else {
                 Write-Warning "no cosign signature bundle found for $version; relying on checksum verification"
             }
+        }
+        elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
+            throw "cosign is required to authenticate update binaries"
         }
         else {
             Write-Warning "cosign not installed; relying on checksum verification (install cosign for signature verification)"
@@ -251,7 +295,7 @@ function Install-CrantCli {
 
         New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
         $installPath = Join-Path $installDirectory $BinaryName
-        Copy-Item -LiteralPath $downloadedBinary -Destination $installPath -Force
+        Install-BinaryAtomically -Source $downloadedBinary -Destination $installPath
         Add-InstallDirectoryToPath -InstallDirectory $installDirectory
 
         Write-InstallerMessage "Installed crantcli to $installPath"

@@ -33,4 +33,5 @@ Run 'crantcli setup' to configure your SeaTable API token.
 * [crantcli setup](crantcli_setup.md)	 - Set or update API tokens (SeaTable and CAVE)
 * [crantcli side-check](crantcli_side-check.md)	 - Check selected neuron sides against the nearest EPG/PEG neuron
 * [crantcli state-transfer](crantcli_state-transfer.md)	 - Build a Neuroglancer state from IDs in the clipboard
+* [crantcli update](crantcli_update.md)	 - Update crantcli to the latest release
 

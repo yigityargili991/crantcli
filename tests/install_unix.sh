@@ -102,6 +102,8 @@ run_install() {
 	expected_arch=$4
 	version=$5
 	install_dir="$test_root/install-$expected_os-$expected_arch"
+	mkdir -p "$install_dir"
+	printf '%s\n' "old fixture" >"$install_dir/crantcli"
 	: >"$download_log"
 	: >"$cosign_log"
 
@@ -112,6 +114,7 @@ run_install() {
 	CRANTCLI_TEST_COSIGN_LOG=$cosign_log \
 	CRANTCLI_INSTALL_DIR=$install_dir \
 	CRANTCLI_VERSION=$version \
+	CRANTCLI_REQUIRE_SIGNATURE= \
 	CRANTCLI_GITHUB_TOKEN= \
 	PATH="$fake_bin:$PATH" \
 	sh "$repository_root/install.sh"
@@ -150,6 +153,7 @@ if CRANTCLI_TEST_UNAME_S=Linux \
 	CRANTCLI_TEST_COSIGN_LOG=$cosign_log \
 	CRANTCLI_INSTALL_DIR=$checksum_install_dir \
 	CRANTCLI_VERSION=latest \
+	CRANTCLI_REQUIRE_SIGNATURE= \
 	CRANTCLI_GITHUB_TOKEN= \
 	PATH="$fake_bin:$PATH" \
 	sh "$repository_root/install.sh" >"$test_root/checksum.out" 2>&1; then
@@ -170,6 +174,7 @@ if CRANTCLI_TEST_UNAME_S=Linux \
 	CRANTCLI_TEST_COSIGN_FAIL=1 \
 	CRANTCLI_INSTALL_DIR=$signature_install_dir \
 	CRANTCLI_VERSION=latest \
+	CRANTCLI_REQUIRE_SIGNATURE= \
 	CRANTCLI_GITHUB_TOKEN= \
 	PATH="$fake_bin:$PATH" \
 	sh "$repository_root/install.sh" >"$test_root/signature.out" 2>&1; then
@@ -179,5 +184,29 @@ test ! -e "$signature_install_dir/crantcli" ||
 	fail "installer copied a binary after signature verification failed"
 grep -F "cosign signature verification failed" "$test_root/signature.out" >/dev/null ||
 	fail "signature failure did not report the verification error"
+
+required_bundle="$fixtures/crant_type_look-linux-amd64.sigstore.json"
+saved_bundle="$test_root/crant_type_look-linux-amd64.sigstore.json"
+mv "$required_bundle" "$saved_bundle"
+missing_bundle_install_dir="$test_root/missing-bundle-failure"
+if CRANTCLI_TEST_UNAME_S=Linux \
+	CRANTCLI_TEST_UNAME_M=x86_64 \
+	CRANTCLI_TEST_FIXTURES=$fixtures \
+	CRANTCLI_TEST_DOWNLOAD_LOG=$download_log \
+	CRANTCLI_TEST_COSIGN_LOG=$cosign_log \
+	CRANTCLI_INSTALL_DIR=$missing_bundle_install_dir \
+	CRANTCLI_VERSION=latest \
+	CRANTCLI_REQUIRE_SIGNATURE=1 \
+	CRANTCLI_GITHUB_TOKEN= \
+	PATH="$fake_bin:$PATH" \
+	sh "$repository_root/install.sh" >"$test_root/missing-bundle.out" 2>&1; then
+	mv "$saved_bundle" "$required_bundle"
+	fail "update mode accepted a binary without a signature bundle"
+fi
+mv "$saved_bundle" "$required_bundle"
+test ! -e "$missing_bundle_install_dir/crantcli" ||
+	fail "installer copied a binary without its required signature bundle"
+grep -F "refusing an unauthenticated update" "$test_root/missing-bundle.out" >/dev/null ||
+	fail "missing required signature bundle did not report a fail-closed error"
 
 printf '%s\n' "Unix installer tests passed"

@@ -9,6 +9,7 @@ version="${CRANTCLI_VERSION:-latest}"
 github_token="${CRANTCLI_GITHUB_TOKEN:-}"
 unset CRANTCLI_GITHUB_TOKEN
 tmp_dir=""
+stage_path=""
 
 log() {
 	printf '%s\n' "$*"
@@ -26,6 +27,9 @@ die() {
 cleanup() {
 	if [ -n "$tmp_dir" ] && [ -d "$tmp_dir" ]; then
 		rm -rf "$tmp_dir"
+	fi
+	if [ -n "$stage_path" ] && [ -e "$stage_path" ]; then
+		rm -f "$stage_path"
 	fi
 }
 
@@ -170,8 +174,9 @@ else
 	log "Verified checksum for $asset"
 fi
 
-# Stronger verification when cosign is installed and the release carries
-# keyless signing bundles (added in newer releases; absent in old ones).
+# Updates set CRANTCLI_REQUIRE_SIGNATURE=1 and fail closed unless the binary's
+# keyless signature bundle can be authenticated. Direct installs retain the
+# checksum-only fallback for older releases and environments without cosign.
 if command_exists cosign; then
 	bundle_url="$release_base/$asset.sigstore.json"
 	if download_optional "$bundle_url" "$tmp_dir/$asset.sigstore.json"; then
@@ -183,9 +188,13 @@ if command_exists cosign; then
 		else
 			die "cosign signature verification failed for $asset"
 		fi
+	elif [ "${CRANTCLI_REQUIRE_SIGNATURE:-}" = "1" ]; then
+		die "could not download the cosign signature bundle for $asset; refusing an unauthenticated update"
 	else
 		warn "no cosign signature bundle found for $version; relying on checksum verification"
 	fi
+elif [ "${CRANTCLI_REQUIRE_SIGNATURE:-}" = "1" ]; then
+	die "cosign is required to authenticate update binaries"
 else
 	warn "cosign not installed; relying on checksum verification (install cosign for signature verification)"
 fi
@@ -196,8 +205,11 @@ if [ ! -w "$install_dir" ]; then
 fi
 
 install_path="$install_dir/$binary_name"
-cp "$tmp_dir/$asset" "$install_path" || die "could not install $binary_name to $install_path"
-chmod 0755 "$install_path"
+stage_path="$install_dir/.$binary_name.new.$$"
+cp "$tmp_dir/$asset" "$stage_path" || die "could not stage $binary_name in $install_dir"
+chmod 0755 "$stage_path"
+mv -f "$stage_path" "$install_path" || die "could not install $binary_name to $install_path"
+stage_path=""
 
 log "Installed $binary_name to $install_path"
 
