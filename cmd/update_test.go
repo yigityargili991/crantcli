@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -15,7 +17,7 @@ type updateStartCall struct {
 }
 
 // stubUpdateSeams swaps the update command's version, platform, executable
-// location, HTTP, and process seams, restoring them all when the test ends.
+// locations, HTTP, and process seams, restoring them all when the test ends.
 func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url string) ([]byte, error)) *[]updateStartCall {
 	t.Helper()
 
@@ -25,12 +27,14 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 	origGOOS := updateGOOS
 	origGOARCH := updateGOARCH
 	origExe := updateExecutable
+	origInvocation := updateInvocation
 	origFetch := updateFetch
 	origStart := updateStart
 	Version = version
 	updateGOOS = goos
 	updateGOARCH = "amd64"
 	updateExecutable = func() (string, error) { return exe, nil }
+	updateInvocation = func() (string, error) { return exe, nil }
 	updateFetch = fetch
 	updateStart = func(name string, args []string, env []string) error {
 		calls = append(calls, updateStartCall{name: name, args: append([]string{}, args...), env: append([]string{}, env...)})
@@ -41,6 +45,7 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 		updateGOOS = origGOOS
 		updateGOARCH = origGOARCH
 		updateExecutable = origExe
+		updateInvocation = origInvocation
 		updateFetch = origFetch
 		updateStart = origStart
 	})
@@ -275,6 +280,46 @@ func TestUpdateRejectsRenamedExecutable(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Fatalf("installer started for renamed executable: %+v", *calls)
+	}
+}
+
+func TestUpdateTargetsCanonicalSymlinkLauncher(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is not reliably available on Windows CI")
+	}
+	unsetEnvForTest(t, "CRANTCLI_INSTALL_DIR")
+
+	target := filepath.Join(t.TempDir(), "crant_type_look-linux-amd64")
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	launcherDir := t.TempDir()
+	launcher := filepath.Join(launcherDir, "crantcli")
+	if err := os.Symlink(target, launcher); err != nil {
+		t.Fatalf("create launcher symlink: %v", err)
+	}
+
+	calls := stubUpdateSeams(t, "v0.16.1", "linux", target, func(url string) ([]byte, error) {
+		switch url {
+		case updateLatestURL:
+			return readyReleaseJSON("v0.16.2"), nil
+		case updateRawURL + "v0.16.2/install.sh":
+			return []byte("#!/bin/sh\n"), nil
+		default:
+			return nil, fmt.Errorf("unexpected fetch %s", url)
+		}
+	})
+	updateInvocation = func() (string, error) { return launcher, nil }
+
+	if _, _, err := executeRootForTest(t, "update"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("start calls = %+v, want exactly one", *calls)
+	}
+	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
+	if dir, ok := envValue((*calls)[0].env, "CRANTCLI_INSTALL_DIR"); !ok || dir != launcherDir {
+		t.Fatalf("CRANTCLI_INSTALL_DIR = %q (present %v), want launcher dir %q", dir, ok, launcherDir)
 	}
 }
 

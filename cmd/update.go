@@ -36,6 +36,7 @@ var (
 	updateFetch      = fetchURL
 	updateStart      = startProcess
 	updateExecutable = os.Executable
+	updateInvocation = invokedExecutable
 )
 
 var updateCmd = &cobra.Command{
@@ -234,11 +235,11 @@ func startProcess(name string, args []string, env []string) error {
 }
 
 // runningInstallDir returns a directory where the platform installer will
-// replace the executable that launched the update. A canonical launcher path
-// takes precedence over its symlink target so the installer can replace that
-// launcher. A differently named launcher is accepted only when it resolves to
-// a canonically named executable; renamed binaries cannot be updated in place
-// because the installers always write the canonical filename.
+// replace the executable that launched the update. A canonical invocation
+// path takes precedence over its resolved target when both identify the same
+// file, allowing a canonical symlink to a historically named release asset to
+// be replaced. Renamed binaries without such a launcher cannot be updated in
+// place because the installers always write the canonical filename.
 func runningInstallDir() (string, error) {
 	exe, err := updateExecutable()
 	if err != nil {
@@ -247,6 +248,11 @@ func runningInstallDir() (string, error) {
 	wantName := "crantcli"
 	if updateGOOS == "windows" {
 		wantName += ".exe"
+	}
+	if invoked, err := updateInvocation(); err == nil &&
+		executableNameMatches(filepath.Base(invoked), wantName) &&
+		sameExecutable(invoked, exe) {
+		return filepath.Dir(invoked), nil
 	}
 	if executableNameMatches(filepath.Base(exe), wantName) {
 		return filepath.Dir(exe), nil
@@ -257,6 +263,26 @@ func runningInstallDir() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("running executable %q is not named %q", exe, wantName)
+}
+
+func invokedExecutable() (string, error) {
+	if len(os.Args) == 0 || os.Args[0] == "" {
+		return "", errors.New("process invocation path is unavailable")
+	}
+	path, err := exec.LookPath(os.Args[0])
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(path)
+}
+
+func sameExecutable(first, second string) bool {
+	firstInfo, err := os.Stat(first)
+	if err != nil {
+		return false
+	}
+	secondInfo, err := os.Stat(second)
+	return err == nil && os.SameFile(firstInfo, secondInfo)
 }
 
 func executableNameMatches(name, want string) bool {
