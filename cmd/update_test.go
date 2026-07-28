@@ -155,7 +155,7 @@ func TestUpdateSpawnsShOnUnix(t *testing.T) {
 }
 
 func TestUpdateSpawnsPowerShellOnWindows(t *testing.T) {
-	calls := stubUpdateSeams(t, "v0.16.1", "windows", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+	calls := stubUpdateSeams(t, "v0.16.1", "windows", "/nonexistent/bin/crantcli.exe", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
 			return readyReleaseJSON("v0.16.2"), nil
@@ -239,6 +239,23 @@ func TestUpdateLookupFailureProceeds(t *testing.T) {
 		t.Fatalf("fallback installer env kept stale CRANTCLI_VERSION: %v", (*calls)[0].env)
 	}
 	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
+}
+
+func TestUpdateRejectsRenamedExecutable(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/downloads/crant_type_look-linux-amd64", func(url string) ([]byte, error) {
+		if url != updateLatestURL {
+			return nil, fmt.Errorf("unexpected fetch %s", url)
+		}
+		return readyReleaseJSON("v0.16.2"), nil
+	})
+
+	_, _, err := executeRootForTest(t, "update")
+	if err == nil || !strings.Contains(err.Error(), `is not named "crantcli"`) {
+		t.Fatalf("error = %v, want renamed-executable rejection", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started for renamed executable: %+v", *calls)
+	}
 }
 
 func TestUpdateScriptDownloadFails(t *testing.T) {

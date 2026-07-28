@@ -81,15 +81,15 @@ func runUpdate(cmd *cobra.Command) error {
 		installerVersion = latest
 	}
 
+	installDir, err := runningInstallDir()
+	if err != nil {
+		return fmt.Errorf("locate running installation: %w", err)
+	}
+
 	scriptName := installerScriptName(updateGOOS)
 	scriptPath, err := downloadInstaller(updateRawURL+ref+"/"+scriptName, scriptName)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", scriptName, err)
-	}
-
-	installDir := runningInstallDir()
-	if installDir == "" {
-		fmt.Fprintln(cmd.ErrOrStderr(), "warning: could not determine the running installation directory; the installer will use its default")
 	}
 
 	name, args := installerCommand(updateGOOS, scriptPath)
@@ -220,19 +220,37 @@ func startProcess(name string, args []string, env []string) error {
 	return proc.Start()
 }
 
-// runningInstallDir returns the directory of the running executable so the
-// update can replace the installation that launched it. Symlinks are
-// resolved: replacing the real file keeps launchers pointing at it working.
-// Empty when the location cannot be determined.
-func runningInstallDir() string {
+// runningInstallDir returns a directory where the platform installer will
+// replace the executable that launched the update. A canonical launcher path
+// takes precedence over its symlink target so the installer can replace that
+// launcher. A differently named launcher is accepted only when it resolves to
+// a canonically named executable; renamed binaries cannot be updated in place
+// because the installers always write the canonical filename.
+func runningInstallDir() (string, error) {
 	exe, err := updateExecutable()
 	if err != nil {
-		return ""
+		return "", err
+	}
+	wantName := "crantcli"
+	if updateGOOS == "windows" {
+		wantName += ".exe"
+	}
+	if executableNameMatches(filepath.Base(exe), wantName) {
+		return filepath.Dir(exe), nil
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
+		if executableNameMatches(filepath.Base(resolved), wantName) {
+			return filepath.Dir(resolved), nil
+		}
 	}
-	return filepath.Dir(exe)
+	return "", fmt.Errorf("running executable %q is not named %q", exe, wantName)
+}
+
+func executableNameMatches(name, want string) bool {
+	if updateGOOS == "windows" {
+		return strings.EqualFold(name, want)
+	}
+	return name == want
 }
 
 // installerEnv builds the installer environment. Any inherited
