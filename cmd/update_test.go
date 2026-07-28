@@ -365,8 +365,9 @@ func TestUpdateHelperProcess(t *testing.T) {
 func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 	unsetEnvForTest(t, "CRANTCLI_INSTALL_DIR")
 	t.Setenv("CRANTCLI_VERSION", "v0.0.1") // a stale pin must be replaced by the resolved tag
+	executable := "/nonexistent/bin/crantcli"
 
-	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+	calls := stubUpdateSeams(t, "v0.16.1", "linux", executable, func(url string) ([]byte, error) {
 		if url == updateLatestURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
@@ -385,8 +386,9 @@ func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 		t.Fatalf("CRANTCLI_VERSION = %q (present %v), want v0.16.2", version, pinned)
 	}
 	dir, ok := envValue(env, "CRANTCLI_INSTALL_DIR")
-	if !ok || dir != "/nonexistent/bin" {
-		t.Fatalf("CRANTCLI_INSTALL_DIR = %q (present %v), want /nonexistent/bin", dir, ok)
+	wantDir := filepath.Dir(executable)
+	if !ok || dir != wantDir {
+		t.Fatalf("CRANTCLI_INSTALL_DIR = %q (present %v), want %q", dir, ok, wantDir)
 	}
 }
 
