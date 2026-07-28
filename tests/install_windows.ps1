@@ -127,6 +127,12 @@ try {
     if (-not $installerSource.Contains($expectedIdentity)) {
         throw "installer does not constrain signatures to the release workflow"
     }
+    if (-not $installerSource.Contains('[IO.File]::Replace($stagedPath, $Destination, $backupPath, $true)')) {
+        throw "installer does not replace an existing executable in one operation"
+    }
+    if ($installerSource.Contains('Move-Item -LiteralPath $Destination -Destination $backupPath')) {
+        throw "installer temporarily removes the canonical executable before replacement"
+    }
 
     Write-Checksums
 

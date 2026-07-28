@@ -30,6 +30,7 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 	origExe := updateExecutable
 	origInvocation := updateInvocation
 	origFetch := updateFetch
+	origVerify := updateVerify
 	origRun := updateRun
 	Version = version
 	updateGOOS = goos
@@ -37,6 +38,7 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 	updateExecutable = func() (string, error) { return exe, nil }
 	updateInvocation = func() (string, error) { return exe, nil }
 	updateFetch = fetch
+	updateVerify = func(string, string) error { return nil }
 	updateRun = func(name string, args []string, env []string) error {
 		var scriptContent []byte
 		for _, arg := range args {
@@ -60,6 +62,7 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 		updateExecutable = origExe
 		updateInvocation = origInvocation
 		updateFetch = origFetch
+		updateVerify = origVerify
 		updateRun = origRun
 	})
 	return &calls
@@ -86,10 +89,13 @@ func envValue(env []string, key string) (string, bool) {
 }
 
 func readyReleaseJSON(tag string) []byte {
+	scriptName := installerScriptName(updateGOOS)
 	return []byte(fmt.Sprintf(
-		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q}]}`,
+		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q},{"name":%q},{"name":%q}]}`,
 		tag,
 		releaseAssetName(updateGOOS, updateGOARCH),
+		scriptName,
+		scriptName+".sigstore.json",
 	))
 }
 
@@ -141,12 +147,18 @@ func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 		if url != updateLatestURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
-		return []byte(`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"}]}`), nil
+		return []byte(fmt.Sprintf(
+			`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"}]}`,
+			releaseAssetName(updateGOOS, updateGOARCH),
+		)), nil
 	})
 
 	_, _, err := executeRootForTest(t, "update")
 	if !errors.Is(err, errReleaseNotReady) {
 		t.Fatalf("error = %v, want release-not-ready error", err)
+	}
+	if !strings.Contains(err.Error(), "install.sh.sigstore.json") {
+		t.Fatalf("error = %v, want missing installer signature bundle", err)
 	}
 	if len(*calls) != 0 {
 		t.Fatalf("installer started before release assets were ready: %+v", *calls)
@@ -158,8 +170,10 @@ func TestUpdateRunsShOnUnix(t *testing.T) {
 		switch url {
 		case updateLatestURL:
 			return readyReleaseJSON("v0.16.2"), nil
-		case updateRawURL + "v0.16.2/install.sh":
+		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\necho installer\n"), nil
+		case updateReleaseDownloadURL + "v0.16.2/install.sh.sigstore.json":
+			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
@@ -195,8 +209,10 @@ func TestUpdateRunsPowerShellOnWindows(t *testing.T) {
 		switch url {
 		case updateLatestURL:
 			return readyReleaseJSON("v0.16.2"), nil
-		case updateRawURL + "v0.16.2/install.ps1":
+		case updateReleaseDownloadURL + "v0.16.2/install.ps1":
 			return []byte("Write-Host installer\n"), nil
+		case updateReleaseDownloadURL + "v0.16.2/install.ps1.sigstore.json":
+			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
@@ -224,8 +240,10 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 		switch url {
 		case updateLatestURL:
 			return readyReleaseJSON("v0.16.2"), nil
-		case updateRawURL + "v0.16.2/install.sh":
+		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
+		case updateReleaseDownloadURL + "v0.16.2/install.sh.sigstore.json":
+			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
@@ -293,8 +311,10 @@ func TestUpdateTargetsCanonicalSymlinkLauncher(t *testing.T) {
 		switch url {
 		case updateLatestURL:
 			return readyReleaseJSON("v0.16.2"), nil
-		case updateRawURL + "v0.16.2/install.sh":
+		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
+		case updateReleaseDownloadURL + "v0.16.2/install.sh.sigstore.json":
+			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
@@ -329,6 +349,45 @@ func TestUpdateScriptDownloadFails(t *testing.T) {
 	}
 }
 
+func TestUpdateInstallerBundleDownloadFails(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+		switch url {
+		case updateLatestURL:
+			return readyReleaseJSON("v0.16.2"), nil
+		case updateReleaseDownloadURL + "v0.16.2/install.sh":
+			return []byte("#!/bin/sh\n"), nil
+		default:
+			return nil, errors.New("not found")
+		}
+	})
+
+	_, _, err := executeRootForTest(t, "update")
+	if err == nil || !strings.Contains(err.Error(), "download install.sh.sigstore.json") {
+		t.Fatalf("error = %v, want signature-bundle download failure", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started without a signature bundle: %+v", *calls)
+	}
+}
+
+func TestUpdateRejectsUnverifiedInstaller(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+		if url == updateLatestURL {
+			return readyReleaseJSON("v0.16.2"), nil
+		}
+		return []byte("fixture"), nil
+	})
+	updateVerify = func(string, string) error { return errors.New("invalid signature") }
+
+	_, _, err := executeRootForTest(t, "update")
+	if err == nil || !strings.Contains(err.Error(), "verify install.sh: invalid signature") {
+		t.Fatalf("error = %v, want installer signature failure", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started after signature verification failed: %+v", *calls)
+	}
+}
+
 func TestUpdateRunFailure(t *testing.T) {
 	stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url == updateLatestURL {
@@ -357,6 +416,14 @@ func TestUpdateHelperProcess(t *testing.T) {
 		return
 	}
 	os.Exit(7)
+}
+
+func TestVerifyInstallerRequiresCosign(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := verifyInstaller("installer", "bundle")
+	if err == nil || !strings.Contains(err.Error(), "cosign is required") {
+		t.Fatalf("verifyInstaller error = %v, want missing-cosign error", err)
+	}
 }
 
 // The installer must replace the installation that launched the update, not

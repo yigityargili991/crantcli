@@ -6,9 +6,9 @@ Update crantcli to the latest release
 
 Check for a newer crantcli release and update in place.
 
-The update runs the platform installer (install.sh on macOS/Linux, install.ps1
-on Windows) for the latest GitHub release, including its checksum and signature
-verification. It returns only after the binary has been atomically replaced.
+The update authenticates the release's platform installer with cosign, then
+runs it to verify and install the latest binary. It returns only after the
+binary has been atomically replaced. Cosign must be available on PATH.
 
 ```
 crantcli update [flags]

@@ -167,16 +167,10 @@ function Install-BinaryAtomically {
             Remove-Item -LiteralPath $backupPath -Force
         }
         if (Test-Path -LiteralPath $Destination) {
-            Move-Item -LiteralPath $Destination -Destination $backupPath
+            [IO.File]::Replace($stagedPath, $Destination, $backupPath, $true)
         }
-        try {
+        else {
             Move-Item -LiteralPath $stagedPath -Destination $Destination
-        }
-        catch {
-            if ((Test-Path -LiteralPath $backupPath) -and -not (Test-Path -LiteralPath $Destination)) {
-                Move-Item -LiteralPath $backupPath -Destination $Destination
-            }
-            throw
         }
         if (Test-Path -LiteralPath $backupPath) {
             try {

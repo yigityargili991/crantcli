@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	updateRepoSlug    = "yigityargili991/crantcli"
-	updateAssetPrefix = "crant_type_look"
-	updateLatestURL   = "https://api.github.com/repos/" + updateRepoSlug + "/releases/latest"
-	updateRawURL      = "https://raw.githubusercontent.com/" + updateRepoSlug + "/"
+	updateRepoSlug            = "yigityargili991/crantcli"
+	updateAssetPrefix         = "crant_type_look"
+	updateLatestURL           = "https://api.github.com/repos/" + updateRepoSlug + "/releases/latest"
+	updateReleaseDownloadURL  = "https://github.com/" + updateRepoSlug + "/releases/download/"
+	updateCertificateIssuer   = "https://token.actions.githubusercontent.com"
+	updateCertificateIdentity = `^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$`
 )
 
 var errReleaseNotReady = errors.New("latest release is not ready")
@@ -34,6 +36,7 @@ var (
 	updateGOOS       = runtime.GOOS
 	updateGOARCH     = runtime.GOARCH
 	updateFetch      = fetchURL
+	updateVerify     = verifyInstaller
 	updateRun        = runProcess
 	updateExecutable = os.Executable
 	updateInvocation = invokedExecutable
@@ -44,9 +47,9 @@ var updateCmd = &cobra.Command{
 	Short: "Update crantcli to the latest release",
 	Long: `Check for a newer crantcli release and update in place.
 
-The update runs the platform installer (install.sh on macOS/Linux, install.ps1
-on Windows) for the latest GitHub release, including its checksum and signature
-verification. It returns only after the binary has been atomically replaced.`,
+The update authenticates the release's platform installer with cosign, then
+runs it to verify and install the latest binary. It returns only after the
+binary has been atomically replaced. Cosign must be available on PATH.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return runUpdate(cmd)
@@ -78,11 +81,21 @@ func runUpdate(cmd *cobra.Command) error {
 	}
 
 	scriptName := installerScriptName(updateGOOS)
-	scriptPath, err := downloadInstaller(updateRawURL+latest+"/"+scriptName, scriptName)
+	releaseURL := updateReleaseDownloadURL + latest + "/"
+	scriptPath, err := downloadInstaller(releaseURL+scriptName, scriptName)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", scriptName, err)
 	}
 	defer os.Remove(scriptPath)
+	bundleName := scriptName + ".sigstore.json"
+	bundlePath, err := downloadInstaller(releaseURL+bundleName, bundleName)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", bundleName, err)
+	}
+	defer os.Remove(bundlePath)
+	if err := updateVerify(scriptPath, bundlePath); err != nil {
+		return fmt.Errorf("verify %s: %w", scriptName, err)
+	}
 
 	name, args := installerCommand(updateGOOS, scriptPath)
 	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, latest)
@@ -132,7 +145,13 @@ func latestReleaseTag() (string, error) {
 	if payload.TagName == "" {
 		return "", errors.New("latest release response has no tag_name")
 	}
-	required := []string{"checksums.txt", releaseAssetName(updateGOOS, updateGOARCH)}
+	scriptName := installerScriptName(updateGOOS)
+	required := []string{
+		"checksums.txt",
+		releaseAssetName(updateGOOS, updateGOARCH),
+		scriptName,
+		scriptName + ".sigstore.json",
+	}
 	available := make(map[string]bool, len(payload.Assets))
 	for _, asset := range payload.Assets {
 		available[asset.Name] = true
@@ -206,6 +225,23 @@ func fetchURL(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(io.LimitReader(resp.Body, httpx.MaxResponseBody))
+}
+
+func verifyInstaller(scriptPath, bundlePath string) error {
+	cosign, err := exec.LookPath("cosign")
+	if err != nil {
+		return errors.New("cosign is required to authenticate the installer")
+	}
+	proc := exec.Command(cosign,
+		"verify-blob",
+		"--bundle", bundlePath,
+		"--certificate-oidc-issuer", updateCertificateIssuer,
+		"--certificate-identity-regexp", updateCertificateIdentity,
+		scriptPath,
+	)
+	proc.Stdout = os.Stdout
+	proc.Stderr = os.Stderr
+	return proc.Run()
 }
 
 func runProcess(name string, args []string, env []string) error {
