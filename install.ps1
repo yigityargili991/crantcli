@@ -150,6 +150,50 @@ function Add-InstallDirectoryToPath {
     }
 }
 
+function Install-BinaryAtomically {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $directory = Split-Path -Parent $Destination
+    $stagedName = ".${BinaryName}.new-$([Guid]::NewGuid().ToString("N"))"
+    $stagedPath = Join-Path $directory $stagedName
+    $backupPath = "$Destination.old"
+
+    Copy-Item -LiteralPath $Source -Destination $stagedPath
+    try {
+        if (Test-Path -LiteralPath $backupPath) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+        if (Test-Path -LiteralPath $Destination) {
+            Move-Item -LiteralPath $Destination -Destination $backupPath
+        }
+        try {
+            Move-Item -LiteralPath $stagedPath -Destination $Destination
+        }
+        catch {
+            if ((Test-Path -LiteralPath $backupPath) -and -not (Test-Path -LiteralPath $Destination)) {
+                Move-Item -LiteralPath $backupPath -Destination $Destination
+            }
+            throw
+        }
+        if (Test-Path -LiteralPath $backupPath) {
+            try {
+                Remove-Item -LiteralPath $backupPath -Force
+            }
+            catch {
+                Write-Warning "could not remove the previous executable at $backupPath; it can be deleted after this process exits"
+            }
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $stagedPath) {
+            Remove-Item -LiteralPath $stagedPath -Force
+        }
+    }
+}
+
 function Install-CrantCli {
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
         throw "install.ps1 only supports Windows"
@@ -251,7 +295,7 @@ function Install-CrantCli {
 
         New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
         $installPath = Join-Path $installDirectory $BinaryName
-        Copy-Item -LiteralPath $downloadedBinary -Destination $installPath -Force
+        Install-BinaryAtomically -Source $downloadedBinary -Destination $installPath
         Add-InstallDirectoryToPath -InstallDirectory $installDirectory
 
         Write-InstallerMessage "Installed crantcli to $installPath"

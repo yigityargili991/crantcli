@@ -102,6 +102,8 @@ run_install() {
 	expected_arch=$4
 	version=$5
 	install_dir="$test_root/install-$expected_os-$expected_arch"
+	mkdir -p "$install_dir"
+	printf '%s\n' "old fixture" >"$install_dir/crantcli"
 	: >"$download_log"
 	: >"$cosign_log"
 

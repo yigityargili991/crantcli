@@ -34,7 +34,7 @@ var (
 	updateGOOS       = runtime.GOOS
 	updateGOARCH     = runtime.GOARCH
 	updateFetch      = fetchURL
-	updateStart      = startProcess
+	updateRun        = runProcess
 	updateExecutable = os.Executable
 	updateInvocation = invokedExecutable
 )
@@ -44,10 +44,9 @@ var updateCmd = &cobra.Command{
 	Short: "Update crantcli to the latest release",
 	Long: `Check for a newer crantcli release and update in place.
 
-The update re-runs the platform installer (install.sh on macOS/Linux,
-install.ps1 on Windows) for the latest GitHub release, including its checksum
-and signature verification. crantcli exits while the installer replaces the
-binary, so the new version is available the next time you run crantcli.`,
+The update runs the platform installer (install.sh on macOS/Linux, install.ps1
+on Windows) for the latest GitHub release, including its checksum and signature
+verification. It returns only after the binary has been atomically replaced.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return runUpdate(cmd)
@@ -83,13 +82,14 @@ func runUpdate(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("download %s: %w", scriptName, err)
 	}
+	defer os.Remove(scriptPath)
 
 	name, args := installerCommand(updateGOOS, scriptPath)
 	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, latest)
-	if err := updateStart(name, args, installerEnv(os.Environ(), installDir, latest)); err != nil {
-		return fmt.Errorf("launch installer: %w", err)
+	if err := updateRun(name, args, installerEnv(os.Environ(), installDir, latest)); err != nil {
+		return fmt.Errorf("run installer: %w", err)
 	}
-	fmt.Fprintln(out, "Installer launched; it will replace the crantcli binary after this process exits.")
+	fmt.Fprintf(out, "Updated crantcli to %s\n", latest)
 	return nil
 }
 
@@ -165,22 +165,16 @@ func installerScriptName(goos string) string {
 }
 
 // installerCommand returns the command that runs the downloaded installer.
-// The process is started detached (never waited on) so crantcli can exit
-// before the binary is replaced; on Windows the brief sleep gives this
-// process time to exit, since a running .exe cannot be overwritten.
 func installerCommand(goos, scriptPath string) (string, []string) {
 	if goos == "windows" {
 		return "powershell", []string{
-			"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-			"Start-Sleep -Seconds 2; & '" + strings.ReplaceAll(scriptPath, "'", "''") + "'",
+			"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath,
 		}
 	}
 	return "sh", []string{scriptPath}
 }
 
-// downloadInstaller fetches the installer script into a temp file. The file
-// is deliberately left behind: the installer runs after crantcli exits, so
-// only the OS can clean it up.
+// downloadInstaller fetches the installer script into a temporary file.
 func downloadInstaller(url, scriptName string) (string, error) {
 	body, err := updateFetch(url)
 	if err != nil {
@@ -214,14 +208,12 @@ func fetchURL(url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, httpx.MaxResponseBody))
 }
 
-// startProcess launches the installer without waiting for it: crantcli must
-// exit before the installer replaces the binary.
-func startProcess(name string, args []string, env []string) error {
+func runProcess(name string, args []string, env []string) error {
 	proc := exec.Command(name, args...)
 	proc.Stdout = os.Stdout
 	proc.Stderr = os.Stderr
 	proc.Env = env
-	return proc.Start()
+	return proc.Run()
 }
 
 // runningInstallDir returns a directory where the platform installer will

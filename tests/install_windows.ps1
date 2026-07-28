@@ -72,6 +72,9 @@ function Test-Install {
     $assetArchitecture = $Architecture.ToLowerInvariant()
     $asset = "crant_type_look-windows-$assetArchitecture.exe"
     $installDirectory = Join-Path $testRoot "install-$assetArchitecture"
+    $installedFile = Join-Path $installDirectory "crantcli.exe"
+    New-Item -ItemType Directory -Path $installDirectory | Out-Null
+    Set-Content -LiteralPath $installedFile -Value "old fixture" -NoNewline
     $env:PROCESSOR_ARCHITECTURE = $Architecture
     $env:PROCESSOR_ARCHITEW6432 = $null
     $env:CRANTCLI_INSTALL_DIR = $installDirectory
@@ -80,11 +83,13 @@ function Test-Install {
 
     & (Join-Path $repositoryRoot "install.ps1")
 
-    $installedFile = Join-Path $installDirectory "crantcli.exe"
     Assert-Equal `
         (Get-Content -LiteralPath (Join-Path $fixtures "crant_type_look-windows-$assetArchitecture.exe") -Raw) `
         (Get-Content -LiteralPath $installedFile -Raw) `
         "$Architecture asset was not installed"
+    if (Test-Path -LiteralPath "${installedFile}.old") {
+        throw "installer left an unlocked backup at ${installedFile}.old"
+    }
     if (-not (($env:Path -split ";") -contains $installDirectory)) {
         throw "$installDirectory was not added to the current PATH"
     }

@@ -10,18 +10,19 @@ import (
 	"testing"
 )
 
-type updateStartCall struct {
-	name string
-	args []string
-	env  []string
+type updateRunCall struct {
+	name          string
+	args          []string
+	env           []string
+	scriptContent []byte
 }
 
 // stubUpdateSeams swaps the update command's version, platform, executable
 // locations, HTTP, and process seams, restoring them all when the test ends.
-func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url string) ([]byte, error)) *[]updateStartCall {
+func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url string) ([]byte, error)) *[]updateRunCall {
 	t.Helper()
 
-	calls := []updateStartCall{}
+	calls := []updateRunCall{}
 
 	origVersion := Version
 	origGOOS := updateGOOS
@@ -29,15 +30,27 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 	origExe := updateExecutable
 	origInvocation := updateInvocation
 	origFetch := updateFetch
-	origStart := updateStart
+	origRun := updateRun
 	Version = version
 	updateGOOS = goos
 	updateGOARCH = "amd64"
 	updateExecutable = func() (string, error) { return exe, nil }
 	updateInvocation = func() (string, error) { return exe, nil }
 	updateFetch = fetch
-	updateStart = func(name string, args []string, env []string) error {
-		calls = append(calls, updateStartCall{name: name, args: append([]string{}, args...), env: append([]string{}, env...)})
+	updateRun = func(name string, args []string, env []string) error {
+		var scriptContent []byte
+		for _, arg := range args {
+			if strings.HasSuffix(arg, ".sh") || strings.HasSuffix(arg, ".ps1") {
+				scriptContent, _ = os.ReadFile(arg)
+				break
+			}
+		}
+		calls = append(calls, updateRunCall{
+			name:          name,
+			args:          append([]string{}, args...),
+			env:           append([]string{}, env...),
+			scriptContent: scriptContent,
+		})
 		return nil
 	}
 	t.Cleanup(func() {
@@ -47,7 +60,7 @@ func stubUpdateSeams(t *testing.T, version, goos, exe string, fetch func(url str
 		updateExecutable = origExe
 		updateInvocation = origInvocation
 		updateFetch = origFetch
-		updateStart = origStart
+		updateRun = origRun
 	})
 	return &calls
 }
@@ -140,7 +153,7 @@ func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 	}
 }
 
-func TestUpdateSpawnsShOnUnix(t *testing.T) {
+func TestUpdateRunsShOnUnix(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "darwin", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
@@ -159,6 +172,9 @@ func TestUpdateSpawnsShOnUnix(t *testing.T) {
 	if !strings.Contains(out, "Updating crantcli v0.16.1 -> v0.16.2") {
 		t.Fatalf("stdout = %q, want update banner", out)
 	}
+	if !strings.Contains(out, "Updated crantcli to v0.16.2") {
+		t.Fatalf("stdout = %q, want completion message", out)
+	}
 	if len(*calls) != 1 {
 		t.Fatalf("start calls = %+v, want exactly one", *calls)
 	}
@@ -169,17 +185,12 @@ func TestUpdateSpawnsShOnUnix(t *testing.T) {
 	if len(call.args) != 1 || !strings.HasSuffix(call.args[0], ".sh") {
 		t.Fatalf("sh args = %v, want a single .sh script path", call.args)
 	}
-	content, readErr := os.ReadFile(call.args[0])
-	if readErr != nil {
-		t.Fatalf("read spawned script: %v", readErr)
-	}
-	t.Cleanup(func() { os.Remove(call.args[0]) })
-	if string(content) != "#!/bin/sh\necho installer\n" {
-		t.Fatalf("script content = %q, want downloaded installer", content)
+	if string(call.scriptContent) != "#!/bin/sh\necho installer\n" {
+		t.Fatalf("script content = %q, want downloaded installer", call.scriptContent)
 	}
 }
 
-func TestUpdateSpawnsPowerShellOnWindows(t *testing.T) {
+func TestUpdateRunsPowerShellOnWindows(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "windows", "/nonexistent/bin/crantcli.exe", func(url string) ([]byte, error) {
 		switch url {
 		case updateLatestURL:
@@ -203,13 +214,8 @@ func TestUpdateSpawnsPowerShellOnWindows(t *testing.T) {
 		t.Fatalf("started %q, want powershell", call.name)
 	}
 	joined := strings.Join(call.args, " ")
-	if !strings.Contains(joined, "Start-Sleep") || !strings.Contains(joined, ".ps1") {
-		t.Fatalf("powershell args = %v, want delayed .ps1 invocation", call.args)
-	}
-	for _, arg := range call.args {
-		if strings.HasSuffix(arg, ".ps1") {
-			t.Cleanup(func() { os.Remove(arg) })
-		}
+	if strings.Contains(joined, "Start-Sleep") || !strings.Contains(joined, "-File") || !strings.Contains(joined, ".ps1") {
+		t.Fatalf("powershell args = %v, want synchronous -File invocation", call.args)
 	}
 }
 
@@ -231,7 +237,6 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("dev build skipped update: start calls = %+v", *calls)
 	}
-	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 }
 
 func TestUpdateLookupFailureDoesNotDowngrade(t *testing.T) {
@@ -302,7 +307,6 @@ func TestUpdateTargetsCanonicalSymlinkLauncher(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("start calls = %+v, want exactly one", *calls)
 	}
-	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 	if dir, ok := envValue((*calls)[0].env, "CRANTCLI_INSTALL_DIR"); !ok || dir != launcherDir {
 		t.Fatalf("CRANTCLI_INSTALL_DIR = %q (present %v), want launcher dir %q", dir, ok, launcherDir)
 	}
@@ -325,19 +329,34 @@ func TestUpdateScriptDownloadFails(t *testing.T) {
 	}
 }
 
-func TestUpdateStartFailure(t *testing.T) {
+func TestUpdateRunFailure(t *testing.T) {
 	stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		if url == updateLatestURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
 	})
-	updateStart = func(string, []string, []string) error { return errors.New("exec failed") }
+	updateRun = func(string, []string, []string) error { return errors.New("exec failed") }
 
 	_, _, err := executeRootForTest(t, "update")
-	if err == nil || !strings.Contains(err.Error(), "launch installer") {
-		t.Fatalf("error = %v, want launch installer failure", err)
+	if err == nil || !strings.Contains(err.Error(), "run installer") {
+		t.Fatalf("error = %v, want run installer failure", err)
 	}
+}
+
+func TestRunProcessReturnsInstallerExitError(t *testing.T) {
+	env := append(os.Environ(), "CRANTCLI_UPDATE_HELPER_PROCESS=1")
+	err := runProcess(os.Args[0], []string{"-test.run=TestUpdateHelperProcess"}, env)
+	if err == nil {
+		t.Fatal("runProcess returned nil for a failing installer process")
+	}
+}
+
+func TestUpdateHelperProcess(t *testing.T) {
+	if os.Getenv("CRANTCLI_UPDATE_HELPER_PROCESS") != "1" {
+		return
+	}
+	os.Exit(7)
 }
 
 // The installer must replace the installation that launched the update, not
@@ -360,7 +379,6 @@ func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("start calls = %+v, want exactly one", *calls)
 	}
-	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 
 	env := (*calls)[0].env
 	if version, pinned := envValue(env, "CRANTCLI_VERSION"); !pinned || version != "v0.16.2" {
@@ -390,7 +408,6 @@ func TestUpdateRespectsExportedInstallDir(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("start calls = %+v, want exactly one", *calls)
 	}
-	t.Cleanup(func() { os.Remove((*calls)[0].args[0]) })
 
 	dir, ok := envValue((*calls)[0].env, "CRANTCLI_INSTALL_DIR")
 	if !ok || dir != "/custom/dir" {
