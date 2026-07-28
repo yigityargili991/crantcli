@@ -23,12 +23,14 @@ const (
 	updateRawURL    = "https://raw.githubusercontent.com/" + updateRepoSlug + "/"
 )
 
-// Test seams: platform, HTTP fetches, and process launches are replaceable so
-// update behavior can be exercised without network access or a real installer.
+// Test seams: platform, HTTP fetches, process launches, and the executable
+// location are replaceable so update behavior can be exercised without
+// network access or a real installer.
 var (
-	updateGOOS  = runtime.GOOS
-	updateFetch = fetchURL
-	updateStart = startProcess
+	updateGOOS       = runtime.GOOS
+	updateFetch      = fetchURL
+	updateStart      = startProcess
+	updateExecutable = os.Executable
 )
 
 var updateCmd = &cobra.Command{
@@ -77,9 +79,14 @@ func runUpdate(cmd *cobra.Command) error {
 		return fmt.Errorf("download %s: %w", scriptName, err)
 	}
 
+	installDir := runningInstallDir()
+	if installDir == "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning: could not determine the running installation directory; the installer will use its default")
+	}
+
 	name, args := installerCommand(updateGOOS, scriptPath)
 	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, target)
-	if err := updateStart(name, args...); err != nil {
+	if err := updateStart(name, args, installerEnv(os.Environ(), installDir)); err != nil {
 		return fmt.Errorf("launch installer: %w", err)
 	}
 	fmt.Fprintln(out, "Installer launched; it will replace the crantcli binary after this process exits.")
@@ -170,14 +177,43 @@ func fetchURL(url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, httpx.MaxResponseBody))
 }
 
-func startProcess(name string, args ...string) error {
+// startProcess launches the installer without waiting for it: crantcli must
+// exit before the installer replaces the binary.
+func startProcess(name string, args []string, env []string) error {
 	proc := exec.Command(name, args...)
 	proc.Stdout = os.Stdout
 	proc.Stderr = os.Stderr
-	// A pinned CRANTCLI_VERSION in the environment would make the installer
-	// fetch that version instead of the latest, defeating the update.
-	proc.Env = withoutEnv(os.Environ(), "CRANTCLI_VERSION")
+	proc.Env = env
 	return proc.Start()
+}
+
+// runningInstallDir returns the directory of the running executable so the
+// update can replace the installation that launched it. Symlinks are
+// resolved: replacing the real file keeps launchers pointing at it working.
+// Empty when the location cannot be determined.
+func runningInstallDir() string {
+	exe, err := updateExecutable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Dir(exe)
+}
+
+// installerEnv builds the installer environment. A pinned CRANTCLI_VERSION is
+// removed (it would install that version instead of the latest), and
+// CRANTCLI_INSTALL_DIR defaults to the running executable's directory so the
+// update targets the current installation even when it sits in a custom
+// directory the installer cannot infer on its own (e.g. a one-shot
+// /usr/local/bin install). An explicitly exported CRANTCLI_INSTALL_DIR wins.
+func installerEnv(env []string, installDir string) []string {
+	filtered := withoutEnv(env, "CRANTCLI_VERSION")
+	if installDir == "" || envHas(env, "CRANTCLI_INSTALL_DIR") {
+		return filtered
+	}
+	return append(filtered, "CRANTCLI_INSTALL_DIR="+installDir)
 }
 
 func withoutEnv(env []string, key string) []string {
@@ -189,4 +225,14 @@ func withoutEnv(env []string, key string) []string {
 		}
 	}
 	return filtered
+}
+
+func envHas(env []string, key string) bool {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
 }
