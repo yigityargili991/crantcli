@@ -77,8 +77,13 @@ With `--output`, the result is always JSON written to that file. Without it:
 | Clipboard URL, explicit URL, or template | Neuroglancer URL copied to the clipboard |
 | File or piped JSON | Formatted JSON on standard output |
 
-If clipboard writing fails, URL output falls back to standard output.
+If clipboard writing fails, crantcli warns and prints the URL to standard
+output. The command still succeeds, because the URL reached you; it fails only
+if no destination could be written at all.
 
-`state-transfer` is the exception: without `--output` it always copies a URL to the clipboard, whatever the input source.
+`state-transfer` is the exception: without `--output` it always copies a URL to
+the clipboard, whatever the input source. Linux Wayland/X11 clipboard support
+is built into the binary; external clipboard tools are compatibility fallbacks
+only.
 
 [Learn the full resolution order](../concepts/state-resolution.md)

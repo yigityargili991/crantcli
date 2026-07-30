@@ -1,36 +1,98 @@
 package browser
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"net/url"
 	"os/exec"
-	"runtime"
+	"strings"
+	"time"
 
 	"crantcli/internal/procenv"
 )
 
-// OpenURL opens a URL in the system default browser.
+// Backend identifies the desktop mechanism that accepted an open request.
+type Backend string
+
+const (
+	BackendXDGPortal Backend = "XDG desktop portal"
+	BackendXDGOpen   Backend = "xdg-open"
+	BackendGIO       Backend = "gio"
+	BackendMacOpen   Backend = "open"
+	BackendRundll32  Backend = "rundll32"
+)
+
+// OpenResult identifies how a URL was handed to the desktop.
+type OpenResult struct {
+	Backend Backend
+}
+
+const (
+	openerTimeout   = 15 * time.Second
+	maxOpenerOutput = 64 << 10
+)
+
+type cappedOutput struct {
+	bytes.Buffer
+}
+
+func (w *cappedOutput) Write(p []byte) (int, error) {
+	remaining := maxOpenerOutput - w.Len()
+	if remaining > 0 {
+		if remaining > len(p) {
+			remaining = len(p)
+		}
+		_, _ = w.Buffer.Write(p[:remaining])
+	}
+	// Report the full input as consumed so a noisy opener is discarded rather
+	// than terminated with an unrelated short-write error.
+	return len(p), nil
+}
+
+var runPlatformCommand = runOpenCommand
+
+// OpenURL opens an HTTP(S) URL in the system default browser.
 func OpenURL(rawURL string) error {
+	_, err := OpenURLWithResult(rawURL)
+	return err
+}
+
+// OpenURLWithResult opens rawURL and reports which platform backend accepted
+// it. A successful result means the desktop accepted the handoff; compositors
+// and browsers retain control over window placement and focus.
+func OpenURLWithResult(rawURL string) (OpenResult, error) {
 	if rawURL == "" {
-		return fmt.Errorf("URL is empty")
+		return OpenResult{}, fmt.Errorf("URL is empty")
 	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return OpenResult{}, fmt.Errorf("invalid browser URL")
+	}
+	return platformOpenURL(rawURL)
+}
 
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", rawURL)
-	case "linux":
-		cmd = exec.Command("xdg-open", rawURL)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
-	default:
-		return fmt.Errorf("opening browser is not supported on %s", runtime.GOOS)
-	}
+func runOpenCommand(backend Backend, name string, args ...string) (OpenResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), openerTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = procenv.Sanitized()
-
-	// Run (not Start) so the helper is reaped and launch errors surface; the
-	// platform openers return immediately after handing off to the browser.
+	var output cappedOutput
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("starting browser command: %w", err)
+		if ctx.Err() == context.DeadlineExceeded {
+			return OpenResult{}, fmt.Errorf("%s timed out after %s", name, openerTimeout)
+		}
+		message := strings.TrimSpace(output.String())
+		if len(message) > 4096 {
+			message = message[:4096] + "…"
+		}
+		if message != "" {
+			return OpenResult{}, fmt.Errorf("%s: %w: %s", name, err, message)
+		}
+		return OpenResult{}, fmt.Errorf("%s: %w", name, err)
 	}
-	return nil
+	return OpenResult{Backend: backend}, nil
 }

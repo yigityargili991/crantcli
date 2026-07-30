@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"crantcli/internal/browser"
 	"crantcli/internal/clipboard"
 	"crantcli/internal/labelhost"
 	"crantcli/internal/nglstate"
@@ -254,11 +253,15 @@ func init() {
 		if addRootIDsOnly {
 			joined := strings.Join(allRootIDs, "\n")
 			fmt.Println(joined)
-			if err := clipboard.Write(joined); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not copy to clipboard: %v\n", err)
-			} else {
-				fmt.Fprintf(os.Stderr, "Root IDs copied to clipboard\n")
+			copyResult, err := clipboard.WriteText(joined)
+			if err != nil {
+				// The IDs already reached stdout, so this command succeeded.
+				// Failing here would break piping on headless and CI machines,
+				// where the clipboard is never available.
+				fmt.Fprintf(os.Stderr, "Warning: root IDs were printed, but clipboard copy failed: %v\n", err)
+				return nil
 			}
+			fmt.Fprintf(os.Stderr, "Clipboard: copied root IDs via %s\n", copyResult.Backend)
 			return nil
 		}
 
@@ -286,28 +289,12 @@ func init() {
 			}
 		}
 
-		// Output
-		if err := nglstate.WriteState(result, addOutput); err != nil {
-			return err
-		}
-
-		if addOpen {
-			nglURL := result.OutputURL
-			if nglURL == "" {
-				var err error
-				nglURL, err = nglstate.EncodeURL(result.State, "")
-				if err != nil {
-					return fmt.Errorf("encoding URL for --open: %w", err)
-				}
-			}
-
-			if err := browser.OpenURL(nglURL); err != nil {
-				return fmt.Errorf("opening browser: %w", err)
-			}
-			fmt.Fprintln(os.Stderr, "Opened Neuroglancer URL in browser")
-		}
-
-		return nil
+		// Deliver file/stdout/clipboard output and the browser request as
+		// independent actions so one desktop failure cannot suppress another.
+		return nglstate.DeliverState(result, nglstate.DeliveryOptions{
+			OutputFile: addOutput,
+			Open:       addOpen,
+		})
 	}
 
 	rootCmd.AddCommand(addCmd)

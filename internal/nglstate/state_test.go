@@ -1,7 +1,9 @@
 package nglstate
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -81,6 +83,81 @@ func TestLoadStateFromStdin(t *testing.T) {
 	if got := result.State["from"]; got != "stdin" {
 		t.Fatalf("state from = %#v, want stdin", got)
 	}
+}
+
+func TestLoadStateClipboardDiagnostics(t *testing.T) {
+	previousRead := stateClipboardRead
+	previousWarnings := stateWarningWriter
+	previousCachePath := testCachePath
+	var warnings bytes.Buffer
+	stateWarningWriter = &warnings
+	testCachePath = t.TempDir()
+	replaceStdin(t, "")
+	t.Cleanup(func() {
+		stateClipboardRead = previousRead
+		stateWarningWriter = previousWarnings
+		testCachePath = previousCachePath
+	})
+
+	t.Run("unavailable falls back with warning", func(t *testing.T) {
+		warnings.Reset()
+		stateClipboardRead = func() (string, error) { return "", errors.New("no desktop") }
+		result, err := LoadState("", false)
+		if err != nil {
+			t.Fatalf("LoadState: %v", err)
+		}
+		if result.Source != SourceTemplate {
+			t.Fatalf("source = %q, want template", result.Source)
+		}
+		if !strings.Contains(warnings.String(), "clipboard input unavailable") || !strings.Contains(warnings.String(), "no desktop") {
+			t.Fatalf("warning = %q", warnings.String())
+		}
+	})
+
+	t.Run("viewer URL without a state fragment falls back with warning", func(t *testing.T) {
+		warnings.Reset()
+		stateClipboardRead = func() (string, error) {
+			return "https://spelunker.cave-explorer.org/", nil
+		}
+		result, err := LoadState("", false)
+		if err != nil {
+			t.Fatalf("LoadState: %v", err)
+		}
+		if result.Source != SourceTemplate {
+			t.Fatalf("source = %q, want template", result.Source)
+		}
+		if !strings.Contains(warnings.String(), "without a state fragment") {
+			t.Fatalf("warning = %q", warnings.String())
+		}
+	})
+
+	t.Run("malformed state URL fails", func(t *testing.T) {
+		warnings.Reset()
+		stateClipboardRead = func() (string, error) {
+			return "https://spelunker.cave-explorer.org/#!not-json", nil
+		}
+		_, err := LoadState("", false)
+		if err == nil || !strings.Contains(err.Error(), "decoding clipboard URL") {
+			t.Fatalf("LoadState error = %v, want clipboard decode error", err)
+		}
+	})
+
+	t.Run("valid state URL loads", func(t *testing.T) {
+		warnings.Reset()
+		stateClipboardRead = func() (string, error) {
+			return "https://spelunker.cave-explorer.org/#!%7B%22layers%22:[]%7D", nil
+		}
+		result, err := LoadState("", false)
+		if err != nil {
+			t.Fatalf("LoadState: %v", err)
+		}
+		if result.Source != SourceClipboard {
+			t.Fatalf("source = %q, want clipboard", result.Source)
+		}
+		if warnings.Len() != 0 {
+			t.Fatalf("unexpected warning %q", warnings.String())
+		}
+	})
 }
 
 func TestLoadStateUsesCustomDefault(t *testing.T) {

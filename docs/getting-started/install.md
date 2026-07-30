@@ -39,20 +39,15 @@ If macOS blocks a manually downloaded binary on first launch, clear its quaranti
 xattr -d com.apple.quarantine "$(which crantcli)"
 ```
 
-### Linux clipboard support
+### Linux desktop integration
 
-Clipboard-driven commands need one helper available on the system:
+Clipboard access is built into the Linux binary for Wayland and X11; no
+clipboard package is required. If installed, `wl-copy`/`wl-paste`, `xclip`, or
+`xsel` remain compatibility fallbacks for unusual compositor setups.
 
-- Wayland: `wl-clipboard` is preferred.
-- X11: `xclip` or `xsel`.
-
-For example:
-
-```bash
-sudo apt install wl-clipboard
-```
-
-You can avoid clipboard dependencies by providing `--state` and `--output` files.
+Browser opening uses the XDG desktop portal when available, then falls back to
+`xdg-open` or `gio`. Headless sessions can use explicit files instead of desktop
+integration.
 
 ## Windows
 

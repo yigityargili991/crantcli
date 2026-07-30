@@ -38,6 +38,7 @@ Install a release or build from source first; see the [installation guide](docs/
 - Explores CRANT classes, types, regions, and counts.
 - Builds and colors Neuroglancer scenes from CRANT queries.
 - Works with clipboard URLs, JSON files, pipes, or the built-in scene.
+- Includes built-in Wayland/X11 clipboard support and XDG portal browser handoff on Linux.
 - Checks stored root IDs against CAVE and refreshes stale scene segments.
 - Shows CAVE edit history and combined root metadata.
 - Adds CRANT cell-type labels to Neuroglancer segments.

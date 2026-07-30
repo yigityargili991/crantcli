@@ -10,7 +10,10 @@ The `crantcli` release binaries include the following third-party software:
 | `github.com/inconshreveable/mousetrap` | 1.1.0 | Apache License 2.0 |
 | `github.com/zalando/go-keyring` | 0.2.8 | MIT |
 | `github.com/danieljoos/wincred` | 1.2.3 | MIT |
+| `golang.design/x/clipboard` | 0.8.0 | MIT |
+| `golang.design/x/x11` | 0.2.0 | MIT |
 | `github.com/godbus/dbus/v5` | 5.2.2 | BSD 2-Clause |
+| `golang.org/x/mod` | 0.38.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/sys` | 0.44.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/term` | 0.39.0 | BSD 3-Clause and Go patent grant |
 
@@ -247,6 +250,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## MIT License (`golang.design/x/clipboard`, `golang.design/x/x11`)
+
+Copyright (c) 2021 Changkun Ou <contact@changkun.de>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## MIT License (`github.com/danieljoos/wincred`)
 
 Copyright (c) 2014 Daniel Joos
@@ -302,8 +327,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## BSD 3-Clause License (Go)
 
-Applies to the Go runtime and standard library, `golang.org/x/sys`, and
-`golang.org/x/term`.
+Applies to the Go runtime and standard library, `golang.org/x/mod`,
+`golang.org/x/sys`, and `golang.org/x/term`.
 
 Copyright 2009 The Go Authors.
 

@@ -19,6 +19,7 @@ func executeRootForTest(t *testing.T, args ...string) (string, string, error) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		rootCmd.SilenceUsage = false
 	})
 
 	err := rootCmd.Execute()
@@ -36,12 +37,15 @@ func TestRequiresTokenErrorsWithoutToken(t *testing.T) {
 	getAPIToken = func() string { return "" }
 	t.Cleanup(func() { getAPIToken = originalGetAPIToken })
 
-	_, _, err := executeRootForTest(t, "list", "cell_type")
+	output, errOutput, err := executeRootForTest(t, "list", "cell_type")
 	if err == nil {
 		t.Fatal("expected missing-token error")
 	}
 	if !strings.Contains(err.Error(), "crantcli setup") {
 		t.Fatalf("error = %q, want guidance to run setup", err.Error())
+	}
+	if strings.Contains(output, "Usage:") || strings.Contains(errOutput, "Usage:") {
+		t.Fatalf("runtime error printed command usage: stdout=%q stderr=%q", output, errOutput)
 	}
 
 	entries, readErr := os.ReadDir(tempHome)
