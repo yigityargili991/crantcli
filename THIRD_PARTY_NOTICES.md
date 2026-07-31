@@ -12,7 +12,11 @@ The `crantcli` release binaries include the following third-party software:
 | `github.com/danieljoos/wincred` | 1.2.3 | MIT |
 | `golang.design/x/clipboard` | 0.8.0 | MIT |
 | `golang.design/x/x11` | 0.2.0 | MIT |
+| `github.com/ebitengine/purego` | 0.10.1 | Apache License 2.0 |
 | `github.com/godbus/dbus/v5` | 5.2.2 | BSD 2-Clause |
+| `golang.org/x/exp/shiny` | 0.0.0-20250606033433-dcc06ee1d476 | BSD 3-Clause |
+| `golang.org/x/image` | 0.28.0 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/mobile` | 0.0.0-20250606033058-a2a15c67f36f | BSD 3-Clause and Go patent grant |
 | `golang.org/x/mod` | 0.38.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/sys` | 0.44.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/term` | 0.39.0 | BSD 3-Clause and Go patent grant |
@@ -21,8 +25,9 @@ The applicable license and attribution texts follow.
 
 ## Apache License 2.0
 
-Applies to `github.com/spf13/cobra` and
-`github.com/inconshreveable/mousetrap`.
+Applies to `github.com/spf13/cobra`,
+`github.com/inconshreveable/mousetrap`, and
+`github.com/ebitengine/purego`.
 
 Copyright 2022 Alan Shreve (@inconshreveable)
 
@@ -327,7 +332,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## BSD 3-Clause License (Go)
 
-Applies to the Go runtime and standard library, `golang.org/x/mod`,
+Applies to the Go runtime and standard library, `golang.org/x/exp/shiny`,
+`golang.org/x/image`, `golang.org/x/mobile`, `golang.org/x/mod`,
 `golang.org/x/sys`, and `golang.org/x/term`.
 
 Copyright 2009 The Go Authors.
@@ -358,6 +364,10 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Go patent grant
+
+Applies to the Go runtime and standard library, `golang.org/x/image`,
+`golang.org/x/mobile`, `golang.org/x/mod`, `golang.org/x/sys`, and
+`golang.org/x/term`.
 
 Additional IP Rights Grant (Patents)
 

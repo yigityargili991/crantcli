@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"os/user"
 )
 
 type fakeHandoffFile struct {
@@ -296,11 +298,15 @@ func TestHandoffDirRejectsNonDirectory(t *testing.T) {
 
 func TestHandoffDirFallbackAndFailures(t *testing.T) {
 	previousCache := handoffUserCacheDir
+	previousCurrentUser := handoffCurrentUser
+	previousHomeDir := handoffUserHomeDir
 	previousTemp := handoffTempDir
 	previousMkdir := makeHandoffDirs
 	previousChmod := secureHandoffDir
 	t.Cleanup(func() {
 		handoffUserCacheDir = previousCache
+		handoffCurrentUser = previousCurrentUser
+		handoffUserHomeDir = previousHomeDir
 		handoffTempDir = previousTemp
 		makeHandoffDirs = previousMkdir
 		secureHandoffDir = previousChmod
@@ -309,6 +315,9 @@ func TestHandoffDirFallbackAndFailures(t *testing.T) {
 	t.Run("stable temporary fallback", func(t *testing.T) {
 		tempRoot := t.TempDir()
 		handoffUserCacheDir = func() (string, error) { return "", errors.New("no cache") }
+		handoffCurrentUser = func() (*user.User, error) {
+			return &user.User{Uid: "1001", Username: "tester", HomeDir: "/home/tester"}, nil
+		}
 		handoffTempDir = func() string { return tempRoot }
 		first, err := handoffDir()
 		if err != nil {
@@ -318,7 +327,7 @@ func TestHandoffDirFallbackAndFailures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if first != second || first != filepath.Join(tempRoot, "crantcli-browser-handoffs") {
+		if first != second || !strings.HasPrefix(first, filepath.Join(tempRoot, "crantcli-browser-handoffs-")) {
 			t.Fatalf("fallback directories = %q and %q", first, second)
 		}
 		stale := filepath.Join(first, "crantcli_stale.html")
@@ -332,6 +341,15 @@ func TestHandoffDirFallbackAndFailures(t *testing.T) {
 		sweepStaleHandoffs()
 		if _, err := os.Stat(stale); !os.IsNotExist(err) {
 			t.Fatalf("stale fallback handoff survived: %v", err)
+		}
+	})
+
+	t.Run("temporary fallback requires user identity", func(t *testing.T) {
+		handoffUserCacheDir = func() (string, error) { return "", errors.New("no cache") }
+		handoffCurrentUser = func() (*user.User, error) { return nil, errors.New("no user") }
+		handoffUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+		if _, err := handoffDir(); err == nil || !strings.Contains(err.Error(), "determining current user") {
+			t.Fatalf("error = %v", err)
 		}
 	})
 
@@ -352,6 +370,46 @@ func TestHandoffDirFallbackAndFailures(t *testing.T) {
 			t.Fatalf("error = %v", err)
 		}
 	})
+}
+
+func TestHandoffOwnerKey(t *testing.T) {
+	previousCurrentUser := handoffCurrentUser
+	previousHomeDir := handoffUserHomeDir
+	t.Cleanup(func() {
+		handoffCurrentUser = previousCurrentUser
+		handoffUserHomeDir = previousHomeDir
+	})
+
+	handoffCurrentUser = func() (*user.User, error) {
+		return &user.User{Uid: "1001", Username: "first", HomeDir: "/home/first"}, nil
+	}
+	first, err := handoffOwnerKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffCurrentUser = func() (*user.User, error) {
+		return &user.User{Uid: "1002", Username: "second", HomeDir: "/home/second"}, nil
+	}
+	second, err := handoffOwnerKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || len(first) != 24 || len(second) != 24 {
+		t.Fatalf("owner keys = %q and %q", first, second)
+	}
+
+	handoffCurrentUser = func() (*user.User, error) {
+		return nil, errors.New("lookup failed")
+	}
+	handoffUserHomeDir = func() (string, error) { return "/fallback/home", nil }
+	if fallback, err := handoffOwnerKey(); err != nil || fallback == "" {
+		t.Fatalf("fallback key = %q, error = %v", fallback, err)
+	}
+
+	handoffUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+	if _, err := handoffOwnerKey(); err == nil {
+		t.Fatal("handoffOwnerKey unexpectedly accepted an unknown user")
+	}
 }
 
 func TestHandoffTokenReportsRandomFailure(t *testing.T) {

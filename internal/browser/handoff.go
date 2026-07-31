@@ -2,6 +2,7 @@ package browser
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,6 +27,8 @@ var (
 	generateHandoffToken   = handoffToken
 	handoffRandomRead      = rand.Read
 	handoffUserCacheDir    = os.UserCacheDir
+	handoffCurrentUser     = user.Current
+	handoffUserHomeDir     = os.UserHomeDir
 	handoffTempDir         = os.TempDir
 	makeHandoffDirs        = os.MkdirAll
 	secureHandoffDir       = os.Chmod
@@ -94,8 +98,13 @@ func handoffDir() (string, error) {
 	var dir string
 	if cacheErr != nil || cacheRoot == "" {
 		// Keep the fallback stable so later sweeps can rediscover staged state.
-		// The same symlink/type checks and 0700 mode enforcement below apply.
-		dir = filepath.Join(handoffTempDir(), "crantcli-browser-handoffs")
+		// Scope it per user on shared Unix temp directories; the same
+		// symlink/type checks and 0700 mode enforcement below apply.
+		ownerKey, err := handoffOwnerKey()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(handoffTempDir(), "crantcli-browser-handoffs-"+ownerKey)
 	} else {
 		dir = filepath.Join(cacheRoot, "crantcli", "browser-handoffs")
 	}
@@ -113,6 +122,22 @@ func handoffDir() (string, error) {
 		return "", fmt.Errorf("securing browser handoff directory: %w", err)
 	}
 	return dir, nil
+}
+
+func handoffOwnerKey() (string, error) {
+	var identity string
+	if current, err := handoffCurrentUser(); err == nil && current != nil {
+		identity = current.Uid + "\x00" + current.Username + "\x00" + current.HomeDir
+	}
+	if strings.Trim(identity, "\x00") == "" {
+		home, err := handoffUserHomeDir()
+		if err != nil || home == "" {
+			return "", fmt.Errorf("determining current user for browser handoff")
+		}
+		identity = home
+	}
+	sum := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(sum[:12]), nil
 }
 
 // sweepStaleHandoffs removes expired redirect files on every open, including
