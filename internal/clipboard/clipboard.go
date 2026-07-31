@@ -65,6 +65,11 @@ var linuxWriteTools = []clipTool{
 
 var errNoLinuxClipboardTool = errors.New("no external Linux clipboard helper found")
 
+var (
+	linuxNativeRead  = readBuiltInLinux
+	linuxNativeWrite = writeBuiltInLinux
+)
+
 // maxClipboardBytes bounds clipboard reads and the payload sent to the
 // detached Linux selection owner.
 const maxClipboardBytes = 64 << 20
@@ -105,7 +110,7 @@ func ReadText() (ReadResult, error) {
 	case "darwin":
 		return readCommand("pbpaste", BackendPBPaste, nil)
 	case "linux":
-		text, nativeErr := readBuiltInLinux()
+		text, nativeErr := linuxNativeRead()
 		if nativeErr == nil {
 			trimmed := strings.TrimSpace(text)
 			if trimmed != "" {
@@ -171,7 +176,7 @@ func WriteText(content string) (WriteResult, error) {
 	case "darwin":
 		return writeCommand("pbcopy", BackendPBCopy, nil, content)
 	case "linux":
-		nativeErr := writeBuiltInLinux(content)
+		nativeErr := linuxNativeWrite(content)
 		if nativeErr == nil {
 			return WriteResult{Backend: BackendBuiltInLinux}, nil
 		}

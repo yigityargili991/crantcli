@@ -19,6 +19,25 @@ type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
 
+type failingReader struct{ err error }
+
+func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
+
+type failingWriteCloser struct {
+	bytes.Buffer
+	writeErr error
+	closeErr error
+}
+
+func (w *failingWriteCloser) Write(p []byte) (int, error) {
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	return w.Buffer.Write(p)
+}
+
+func (w *failingWriteCloser) Close() error { return w.closeErr }
+
 type signalWriteCloser struct {
 	bytes.Buffer
 	closed chan struct{}
@@ -39,11 +58,15 @@ func isolateNativeClipboard(t *testing.T) {
 	previousRead := nativeClipboardRead
 	previousWrite := nativeClipboardWrite
 	previousExecutable := nativeExecutable
+	previousLinuxRead := linuxNativeRead
+	previousLinuxWrite := linuxNativeWrite
 	t.Cleanup(func() {
 		nativeClipboardInit = previousInit
 		nativeClipboardRead = previousRead
 		nativeClipboardWrite = previousWrite
 		nativeExecutable = previousExecutable
+		linuxNativeRead = previousLinuxRead
+		linuxNativeWrite = previousLinuxWrite
 	})
 }
 
@@ -180,6 +203,36 @@ func TestReadBuiltInLinuxSelfExecProtocol(t *testing.T) {
 	}
 }
 
+func TestReadBuiltInLinuxRejectsInvalidProtocol(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "helper error", body: "printf '" + nativeErrorPrefix + "desktop unavailable\\n'", want: "desktop unavailable"},
+		{name: "missing header", body: "exit 0", want: "before sending data"},
+		{name: "unexpected header", body: "printf 'unexpected\\n'", want: "unexpected clipboard reader response"},
+		{name: "invalid length", body: "printf '" + nativeDataPrefix + "nope\\n'", want: "invalid clipboard reader length"},
+		{name: "truncated data", body: "printf '" + nativeDataPrefix + "5\\nhi'", want: "reading native clipboard data"},
+		{name: "failed after data", body: "printf '" + nativeDataPrefix + "2\\nhi'\nexit 7", want: "clipboard reader failed"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			isolateNativeClipboard(t)
+			script := filepath.Join(t.TempDir(), "reader")
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n"+test.body+"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			nativeExecutable = func() (string, error) { return script, nil }
+			_, err := readBuiltInLinux()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want text %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestWriteBuiltInLinuxSelfExecHandshake(t *testing.T) {
 	isolateNativeClipboard(t)
 	dir := t.TempDir()
@@ -218,6 +271,279 @@ func TestWriteBuiltInLinuxRefusesEmptySelection(t *testing.T) {
 	if err := writeBuiltInLinux(""); err == nil {
 		t.Fatal("writeBuiltInLinux accepted an empty selection")
 	}
+}
+
+func TestWriteBuiltInLinuxRejectsInvalidHandshake(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "owner error", body: "printf '" + nativeErrorPrefix + "selection denied\\n'", want: "selection denied"},
+		{name: "missing response", body: "exit 0", want: "exited before becoming ready"},
+		{name: "unexpected response", body: "printf 'unexpected\\n'", want: "unexpected clipboard owner response"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			isolateNativeClipboard(t)
+			script := filepath.Join(t.TempDir(), "owner")
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n"+test.body+"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			nativeExecutable = func() (string, error) { return script, nil }
+			err := writeBuiltInLinux("state URL")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want text %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestNativeClipboardDirectFailures(t *testing.T) {
+	t.Run("reader panic", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeClipboardInit = func() error { panic("display panic") }
+		if _, err := readNativeClipboardDirect(); err == nil || !strings.Contains(err.Error(), "display panic") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("reader initialization", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		t.Setenv("WAYLAND_DISPLAY", "")
+		t.Setenv("DISPLAY", "")
+		nativeClipboardInit = func() error { return errors.New("unavailable") }
+		if _, err := readNativeClipboardDirect(); err == nil || !strings.Contains(err.Error(), "no graphical") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("reader size limit", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeClipboardInit = func() error { return nil }
+		nativeClipboardRead = func(xclipboard.Format) []byte { return make([]byte, maxClipboardBytes+1) }
+		if _, err := readNativeClipboardDirect(); err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("reader protocol error", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeClipboardInit = func() error { return errors.New("unavailable") }
+		var output bytes.Buffer
+		RunNativeClipboardReader(nopWriteCloser{&output})
+		if !strings.Contains(output.String(), nativeErrorPrefix) {
+			t.Fatalf("output = %q", output.String())
+		}
+	})
+}
+
+func TestNativeClipboardOwnerFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		input io.Reader
+		setup func(*testing.T)
+		ready *failingWriteCloser
+		want  string
+	}{
+		{
+			name:  "input error",
+			input: failingReader{err: errors.New("read failed")},
+			want:  "reading clipboard owner input",
+		},
+		{
+			name:  "initialization error",
+			input: strings.NewReader("value"),
+			setup: func(t *testing.T) {
+				t.Setenv("DISPLAY", ":test")
+				nativeClipboardInit = func() error { return errors.New("display failed") }
+			},
+			want: "display failed",
+		},
+		{
+			name:  "write rejected",
+			input: strings.NewReader("value"),
+			setup: func(*testing.T) {
+				nativeClipboardInit = func() error { return nil }
+				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} { return nil }
+			},
+			want: "rejected",
+		},
+		{
+			name:  "ownership lost",
+			input: strings.NewReader("value"),
+			setup: func(*testing.T) {
+				nativeClipboardInit = func() error { return nil }
+				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} {
+					changed := make(chan struct{})
+					close(changed)
+					return changed
+				}
+			},
+			want: "lost before startup",
+		},
+		{
+			name:  "ready write fails",
+			input: strings.NewReader("value"),
+			setup: func(*testing.T) {
+				nativeClipboardInit = func() error { return nil }
+				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} { return make(chan struct{}) }
+			},
+			ready: &failingWriteCloser{writeErr: errors.New("broken handshake")},
+			want:  "acknowledging clipboard ownership",
+		},
+		{
+			name:  "ready close fails",
+			input: strings.NewReader("value"),
+			setup: func(*testing.T) {
+				nativeClipboardInit = func() error { return nil }
+				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} { return make(chan struct{}) }
+			},
+			ready: &failingWriteCloser{closeErr: errors.New("close failed")},
+			want:  "closing clipboard owner handshake",
+		},
+		{
+			name:  "native panic",
+			input: strings.NewReader("value"),
+			setup: func(*testing.T) {
+				nativeClipboardInit = func() error { panic("owner panic") }
+			},
+			want: "owner panic",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			isolateNativeClipboard(t)
+			nativeClipboardInit = func() error { return nil }
+			if test.setup != nil {
+				test.setup(t)
+			}
+			ready := test.ready
+			if ready == nil {
+				ready = &failingWriteCloser{}
+			}
+			err := runNativeClipboardOwner(test.input, ready)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want text %q", err, test.want)
+			}
+		})
+	}
+
+	t.Run("size limit", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeClipboardInit = func() error { return nil }
+		input := io.LimitReader(strings.NewReader(strings.Repeat("x", maxClipboardBytes+1)), maxClipboardBytes+1)
+		err := runNativeClipboardOwner(input, &failingWriteCloser{})
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestNativeInitializationErrorSanitizesMessage(t *testing.T) {
+	t.Setenv("DISPLAY", ":test")
+	message := strings.Repeat("x", 350) + "\nsecret"
+	err := nativeInitializationError(errors.New(message))
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "…") {
+		t.Fatalf("error was not sanitized: %q", err)
+	}
+}
+
+func TestLinuxClipboardHighLevelBranches(t *testing.T) {
+	t.Run("read wrapper returns native text", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeRead = func() (string, error) { return "  value  ", nil }
+		got, err := Read()
+		if err != nil || got != "value" {
+			t.Fatalf("Read = (%q, %v)", got, err)
+		}
+	})
+
+	t.Run("native read failure without helper", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeRead = func() (string, error) { return "", errors.New("native failed") }
+		t.Setenv("PATH", t.TempDir())
+		_, err := ReadText()
+		if err == nil || !strings.Contains(err.Error(), "native failed") || !strings.Contains(err.Error(), "no external") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("fallback read failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeRead = func() (string, error) { return "", errors.New("native failed") }
+		dir := t.TempDir()
+		script := filepath.Join(dir, "wl-paste")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 3\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("WAYLAND_DISPLAY", "test")
+		_, err := ReadText()
+		if err == nil || !strings.Contains(err.Error(), "native failed") || !strings.Contains(err.Error(), "wl-paste") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("write wrapper uses native backend", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeWrite = func(string) error { return nil }
+		if err := Write("value"); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("native write failure without helper", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeWrite = func(string) error { return errors.New("native failed") }
+		t.Setenv("PATH", t.TempDir())
+		_, err := WriteText("value")
+		if err == nil || !strings.Contains(err.Error(), "native failed") || !strings.Contains(err.Error(), "no external") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("fallback write failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeWrite = func(string) error { return errors.New("native failed") }
+		dir := t.TempDir()
+		script := filepath.Join(dir, "wl-copy")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 4\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("WAYLAND_DISPLAY", "test")
+		_, err := WriteText("value")
+		if err == nil || !strings.Contains(err.Error(), "native failed") || !strings.Contains(err.Error(), "wl-copy") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("empty write clears wl-copy", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		linuxNativeWrite = func(string) error { return errors.New("native failed") }
+		dir := t.TempDir()
+		argsPath := filepath.Join(dir, "args")
+		script := filepath.Join(dir, "wl-copy")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" >\"$CRANTCLI_TEST_ARGS\"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("WAYLAND_DISPLAY", "test")
+		t.Setenv("CRANTCLI_TEST_ARGS", argsPath)
+		result, err := WriteText("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Backend != BackendWLCopy {
+			t.Fatalf("backend = %q", result.Backend)
+		}
+		if args, err := os.ReadFile(argsPath); err != nil || string(args) != "--clear" {
+			t.Fatalf("args = %q, err = %v", args, err)
+		}
+	})
 }
 
 func TestEmptyNativeReadFallsBackToHelper(t *testing.T) {

@@ -25,17 +25,18 @@ var prepareCommandOpenURL = commandOpenURL
 const handoffLifetime = 24 * time.Hour
 
 func commandOpenURL(rawURL string) (string, error) {
+	if len(rawURL) <= maxSafeOpenArgument && openerArgumentIsSafe(rawURL) {
+		// Direct opens do not need filesystem state. Keep cleanup best-effort so
+		// an unavailable cache cannot prevent the platform opener from running.
+		sweepStaleHandoffs()
+		return rawURL, nil
+	}
+
 	dir, err := handoffDir()
 	if err != nil {
 		return "", err
 	}
-	// Sweep on every open, not only oversized ones, so a session that stages a
-	// single large state does not leave its URL on disk indefinitely.
 	removeStaleHandoffs(dir)
-
-	if len(rawURL) <= maxSafeOpenArgument && openerArgumentIsSafe(rawURL) {
-		return rawURL, nil
-	}
 
 	token, err := handoffToken()
 	if err != nil {

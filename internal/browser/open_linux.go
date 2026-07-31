@@ -27,6 +27,36 @@ const (
 
 var openViaPortal = openURLViaPortal
 
+type portalConnection interface {
+	Close() error
+	Signal(chan<- *dbus.Signal)
+	RemoveSignal(chan<- *dbus.Signal)
+	AddMatchSignal(...dbus.MatchOption) error
+	RemoveMatchSignal(...dbus.MatchOption) error
+}
+
+type portalCaller interface {
+	CallWithContext(context.Context, string, dbus.Flags, ...interface{}) *dbus.Call
+}
+
+type portalSession struct {
+	connection portalConnection
+	object     portalCaller
+}
+
+var connectPortalSession = newPortalSession
+
+func newPortalSession() (*portalSession, error) {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return nil, err
+	}
+	return &portalSession{
+		connection: conn,
+		object:     conn.Object(portalDestination, portalPath),
+	}, nil
+}
+
 func platformOpenURL(rawURL string) (OpenResult, error) {
 	// The portal path stages no file, so it would never sweep otherwise; a
 	// session that stages once during a portal outage must not keep that URL
@@ -63,17 +93,18 @@ func platformOpenURL(rawURL string) (OpenResult, error) {
 }
 
 func openURLViaPortal(rawURL string) (OpenResult, error) {
-	conn, err := dbus.ConnectSessionBus()
+	session, err := connectPortalSession()
 	if err != nil {
 		return OpenResult{}, fmt.Errorf("connecting to session bus: %w", err)
 	}
+	conn := session.connection
+	object := session.object
 	defer conn.Close()
 
 	token, err := handoffToken()
 	if err != nil {
 		return OpenResult{}, err
 	}
-	object := conn.Object(portalDestination, portalPath)
 	options := map[string]dbus.Variant{"handle_token": dbus.MakeVariant(token)}
 	versionCtx, cancelVersion := context.WithTimeout(context.Background(), time.Second)
 	version := portalInterfaceVersion(versionCtx, object)
@@ -106,6 +137,10 @@ func openURLViaPortal(rawURL string) (OpenResult, error) {
 		return OpenResult{}, fmt.Errorf("portal returned invalid request path %q", requestPath)
 	}
 
+	return waitForPortalResponse(ctx, signals, requestPath)
+}
+
+func waitForPortalResponse(ctx context.Context, signals <-chan *dbus.Signal, requestPath dbus.ObjectPath) (OpenResult, error) {
 	for {
 		select {
 		case signal, ok := <-signals:
@@ -136,7 +171,7 @@ func openURLViaPortal(rawURL string) (OpenResult, error) {
 	}
 }
 
-func portalInterfaceVersion(ctx context.Context, object dbus.BusObject) uint32 {
+func portalInterfaceVersion(ctx context.Context, object portalCaller) uint32 {
 	var value dbus.Variant
 	if err := object.CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", 0,
 		"org.freedesktop.portal.OpenURI", "version").Store(&value); err != nil {

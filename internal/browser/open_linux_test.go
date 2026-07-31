@@ -3,6 +3,7 @@
 package browser
 
 import (
+	"context"
 	"errors"
 	"net/url"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/godbus/dbus/v5"
 )
 
 func isolateLinuxOpeners(t *testing.T) {
@@ -18,10 +21,12 @@ func isolateLinuxOpeners(t *testing.T) {
 	previousPortal := openViaPortal
 	previousPrepare := prepareCommandOpenURL
 	previousCommand := runPlatformCommand
+	previousConnect := connectPortalSession
 	t.Cleanup(func() {
 		openViaPortal = previousPortal
 		prepareCommandOpenURL = previousPrepare
 		runPlatformCommand = previousCommand
+		connectPortalSession = previousConnect
 	})
 }
 
@@ -89,6 +94,26 @@ func TestPlatformOpenReportsEveryFailure(t *testing.T) {
 		t.Fatal("platformOpenURL unexpectedly succeeded")
 	}
 	for _, want := range []string{"portal failed", "xdg-open failed", "gio failed"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
+func TestPlatformOpenReportsPreparationFailure(t *testing.T) {
+	isolateLinuxOpeners(t)
+	openViaPortal = func(string) (OpenResult, error) {
+		return OpenResult{}, errors.New("portal failed")
+	}
+	prepareCommandOpenURL = func(string) (string, error) {
+		return "", errors.New("cache unavailable")
+	}
+
+	_, err := platformOpenURL("https://example.org/")
+	if err == nil {
+		t.Fatal("platformOpenURL unexpectedly succeeded")
+	}
+	for _, want := range []string{"portal failed", "preparing browser handoff", "cache unavailable"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not contain %q", err, want)
 		}
@@ -172,4 +197,267 @@ func TestPortalHandleTokenIsValidAndUnique(t *testing.T) {
 	if first == second || !strings.HasPrefix(first, "crantcli_") || strings.ContainsAny(first, "-./") {
 		t.Fatalf("invalid portal tokens %q and %q", first, second)
 	}
+}
+
+func TestWaitForPortalResponse(t *testing.T) {
+	requestPath := dbus.ObjectPath("/org/freedesktop/portal/desktop/request/test")
+	tests := []struct {
+		name       string
+		signals    []*dbus.Signal
+		closeAfter bool
+		want       Backend
+		wantError  string
+	}{
+		{
+			name: "ignores unrelated signals before success",
+			signals: []*dbus.Signal{
+				nil,
+				{Name: "other.signal", Path: requestPath},
+				{Name: portalResponse, Path: "/other/path"},
+				{Name: portalResponse, Path: requestPath, Body: []interface{}{uint32(0)}},
+			},
+			want: BackendXDGPortal,
+		},
+		{
+			name:      "missing status",
+			signals:   []*dbus.Signal{{Name: portalResponse, Path: requestPath}},
+			wantError: "no status",
+		},
+		{
+			name:      "invalid status",
+			signals:   []*dbus.Signal{{Name: portalResponse, Path: requestPath, Body: []interface{}{"zero"}}},
+			wantError: "invalid status",
+		},
+		{
+			name:      "cancelled",
+			signals:   []*dbus.Signal{{Name: portalResponse, Path: requestPath, Body: []interface{}{uint32(1)}}},
+			wantError: "cancelled",
+		},
+		{
+			name:      "failed",
+			signals:   []*dbus.Signal{{Name: portalResponse, Path: requestPath, Body: []interface{}{uint32(2)}}},
+			wantError: "status 2",
+		},
+		{
+			name:       "session closes",
+			closeAfter: true,
+			wantError:  "session bus closed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			signals := make(chan *dbus.Signal, len(test.signals))
+			for _, signal := range test.signals {
+				signals <- signal
+			}
+			if test.closeAfter {
+				close(signals)
+			}
+			result, err := waitForPortalResponse(context.Background(), signals, requestPath)
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("error = %v, want text %q", err, test.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Backend != test.want {
+				t.Fatalf("backend = %q, want %q", result.Backend, test.want)
+			}
+		})
+	}
+
+	t.Run("context expires", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := waitForPortalResponse(ctx, make(chan *dbus.Signal), requestPath)
+		if err == nil || !strings.Contains(err.Error(), "did not complete") {
+			t.Fatalf("error = %v, want timeout", err)
+		}
+	})
+}
+
+type portalVersionObject struct {
+	dbus.BusObject
+	call *dbus.Call
+}
+
+func (o portalVersionObject) CallWithContext(context.Context, string, dbus.Flags, ...interface{}) *dbus.Call {
+	return o.call
+}
+
+func TestPortalInterfaceVersion(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call *dbus.Call
+		want uint32
+	}{
+		{name: "version", call: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(4))}}, want: 4},
+		{name: "call error", call: &dbus.Call{Err: errors.New("unavailable")}},
+		{name: "unexpected type", call: &dbus.Call{Body: []interface{}{dbus.MakeVariant("four")}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := portalInterfaceVersion(context.Background(), portalVersionObject{call: test.call}); got != test.want {
+				t.Fatalf("version = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+type fakePortalConnection struct {
+	signals       chan<- *dbus.Signal
+	addMatchErr   error
+	closed        bool
+	signalRemoved bool
+	matchRemoved  bool
+}
+
+func (c *fakePortalConnection) Close() error {
+	c.closed = true
+	return nil
+}
+
+func (c *fakePortalConnection) Signal(signals chan<- *dbus.Signal) {
+	c.signals = signals
+}
+
+func (c *fakePortalConnection) RemoveSignal(chan<- *dbus.Signal) {
+	c.signalRemoved = true
+}
+
+func (c *fakePortalConnection) AddMatchSignal(...dbus.MatchOption) error {
+	return c.addMatchErr
+}
+
+func (c *fakePortalConnection) RemoveMatchSignal(...dbus.MatchOption) error {
+	c.matchRemoved = true
+	return nil
+}
+
+type fakePortalObject struct {
+	dbus.BusObject
+	connection  *fakePortalConnection
+	versionCall *dbus.Call
+	openCall    *dbus.Call
+	status      interface{}
+	options     map[string]dbus.Variant
+}
+
+func (o *fakePortalObject) CallWithContext(_ context.Context, method string, _ dbus.Flags, args ...interface{}) *dbus.Call {
+	if method == "org.freedesktop.DBus.Properties.Get" {
+		return o.versionCall
+	}
+	if len(args) == 3 {
+		o.options, _ = args[2].(map[string]dbus.Variant)
+	}
+	if o.openCall.Err == nil && o.status != nil {
+		requestPath, _ := o.openCall.Body[0].(dbus.ObjectPath)
+		o.connection.signals <- &dbus.Signal{
+			Name: portalResponse,
+			Path: requestPath,
+			Body: []interface{}{o.status},
+		}
+	}
+	return o.openCall
+}
+
+func TestOpenURLViaPortal(t *testing.T) {
+	t.Run("connection failure", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		connectPortalSession = func() (*portalSession, error) {
+			return nil, errors.New("no session")
+		}
+		_, err := openURLViaPortal("https://example.org/")
+		if err == nil || !strings.Contains(err.Error(), "no session") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("match failure", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		connection := &fakePortalConnection{addMatchErr: errors.New("match denied")}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(1))}},
+			openCall:    &dbus.Call{},
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+		_, err := openURLViaPortal("https://example.org/")
+		if err == nil || !strings.Contains(err.Error(), "match denied") {
+			t.Fatalf("error = %v", err)
+		}
+		if !connection.closed || !connection.signalRemoved {
+			t.Fatalf("connection cleanup = %#v", connection)
+		}
+	})
+
+	t.Run("request failure", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		connection := &fakePortalConnection{}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Err: errors.New("version unavailable")},
+			openCall:    &dbus.Call{Err: errors.New("request denied")},
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+		_, err := openURLViaPortal("https://example.org/")
+		if err == nil || !strings.Contains(err.Error(), "request denied") {
+			t.Fatalf("error = %v", err)
+		}
+		if !connection.matchRemoved {
+			t.Fatal("match rule was not removed")
+		}
+	})
+
+	t.Run("invalid request path", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		connection := &fakePortalConnection{}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(1))}},
+			openCall:    &dbus.Call{Body: []interface{}{dbus.ObjectPath("invalid")}},
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+		_, err := openURLViaPortal("https://example.org/")
+		if err == nil || !strings.Contains(err.Error(), "invalid request path") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("success passes activation token", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		t.Setenv("XDG_ACTIVATION_TOKEN", "activation")
+		connection := &fakePortalConnection{}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(4))}},
+			openCall:    &dbus.Call{Body: []interface{}{dbus.ObjectPath("/org/freedesktop/portal/desktop/request/test")}},
+			status:      uint32(0),
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+		result, err := openURLViaPortal("https://example.org/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Backend != BackendXDGPortal {
+			t.Fatalf("backend = %q", result.Backend)
+		}
+		if token, ok := object.options["activation_token"]; !ok || token.Value() != "activation" {
+			t.Fatalf("options = %#v", object.options)
+		}
+		if handle, ok := object.options["handle_token"]; !ok || !strings.HasPrefix(handle.Value().(string), "crantcli_") {
+			t.Fatalf("options = %#v", object.options)
+		}
+	})
 }
