@@ -1,0 +1,188 @@
+package browser
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// prepareCommandOpenURL resolves the target handed to an argv-based opener.
+// Every platform caps the length of a single exec argument, and Neuroglancer
+// states routinely exceed the tightest of those caps, so oversized URLs are
+// staged through a private local redirect file instead. A URL the platform
+// cannot carry intact -- one whose quotes Windows would escape into the URL
+// itself -- is staged the same way regardless of length.
+var (
+	prepareCommandOpenURL  = commandOpenURL
+	generateHandoffToken   = handoffToken
+	handoffRandomRead      = rand.Read
+	handoffUserCacheDir    = os.UserCacheDir
+	handoffCurrentUser     = user.Current
+	handoffUserHomeDir     = os.UserHomeDir
+	handoffTempDir         = os.TempDir
+	makeHandoffDirs        = os.MkdirAll
+	secureHandoffDir       = os.Chmod
+	openBrowserHandoffFile = openHandoffFile
+)
+
+type browserHandoffFile interface {
+	io.StringWriter
+	Sync() error
+	Close() error
+}
+
+func openHandoffFile(path string) (browserHandoffFile, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
+
+// handoffLifetime bounds how long a staged redirect file is kept.
+const handoffLifetime = 24 * time.Hour
+
+func commandOpenURL(rawURL string) (string, error) {
+	if len(rawURL) <= maxSafeOpenArgument && openerArgumentIsSafe(rawURL) {
+		// Direct opens do not need filesystem state. Keep cleanup best-effort so
+		// an unavailable cache cannot prevent the platform opener from running.
+		sweepStaleHandoffs()
+		return rawURL, nil
+	}
+
+	dir, err := handoffDir()
+	if err != nil {
+		return "", err
+	}
+	removeStaleHandoffs(dir)
+
+	token, err := generateHandoffToken()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, token+".html")
+	encodedURL, _ := json.Marshal(rawURL) // marshaling a string cannot fail
+	html := "<!doctype html><meta charset=utf-8>" +
+		"<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'\">" +
+		"<title>Opening Neuroglancer</title><script>location.replace(" + string(encodedURL) + ")</script>" +
+		"<noscript>JavaScript is required for this local Neuroglancer handoff.</noscript>\n"
+	file, err := openBrowserHandoffFile(path)
+	if err != nil {
+		return "", fmt.Errorf("creating browser handoff: %w", err)
+	}
+	if _, err := file.WriteString(html); err != nil {
+		file.Close()
+		os.Remove(path)
+		return "", fmt.Errorf("writing browser handoff: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		os.Remove(path)
+		return "", fmt.Errorf("syncing browser handoff: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		os.Remove(path)
+		return "", fmt.Errorf("closing browser handoff: %w", err)
+	}
+	return fileURL(path), nil
+}
+
+func handoffDir() (string, error) {
+	cacheRoot, cacheErr := handoffUserCacheDir()
+	var dir string
+	if cacheErr != nil || cacheRoot == "" {
+		// Keep the fallback stable so later sweeps can rediscover staged state.
+		// Scope it per user on shared Unix temp directories; the same
+		// symlink/type checks and 0700 mode enforcement below apply.
+		ownerKey, err := handoffOwnerKey()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(handoffTempDir(), "crantcli-browser-handoffs-"+ownerKey)
+	} else {
+		dir = filepath.Join(cacheRoot, "crantcli", "browser-handoffs")
+	}
+
+	if info, err := os.Lstat(dir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", fmt.Errorf("browser handoff path %s is not a private directory", dir)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("checking browser handoff directory: %w", err)
+	} else if err := makeHandoffDirs(dir, 0o700); err != nil {
+		return "", fmt.Errorf("creating browser handoff directory: %w", err)
+	}
+	if err := secureHandoffDir(dir, 0o700); err != nil {
+		return "", fmt.Errorf("securing browser handoff directory: %w", err)
+	}
+	return dir, nil
+}
+
+func handoffOwnerKey() (string, error) {
+	var identity string
+	if current, err := handoffCurrentUser(); err == nil && current != nil {
+		identity = current.Uid + "\x00" + current.Username + "\x00" + current.HomeDir
+	}
+	if strings.Trim(identity, "\x00") == "" {
+		home, err := handoffUserHomeDir()
+		if err != nil || home == "" {
+			return "", fmt.Errorf("determining current user for browser handoff")
+		}
+		identity = home
+	}
+	sum := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(sum[:12]), nil
+}
+
+// sweepStaleHandoffs removes expired redirect files on every open, including
+// the portal path that never stages one. Best-effort: a sweep failure must not
+// block the open itself.
+func sweepStaleHandoffs() {
+	if dir, err := handoffDir(); err == nil {
+		removeStaleHandoffs(dir)
+	}
+}
+
+func removeStaleHandoffs(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-handoffLifetime)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".html") {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
+		}
+	}
+}
+
+// fileURL renders a local path as a file:// URL. Windows paths are converted to
+// slash form and given the leading slash that turns "C:/dir/x" into the
+// "file:///C:/dir/x" spelling browsers expect.
+func fileURL(path string) string {
+	converted := filepath.ToSlash(path)
+	if !strings.HasPrefix(converted, "/") {
+		converted = "/" + converted
+	}
+	return (&url.URL{Scheme: "file", Path: converted}).String()
+}
+
+// handoffToken produces a random identifier usable both as a handoff filename
+// and as an XDG portal handle_token, which admits only [A-Za-z0-9_].
+func handoffToken() (string, error) {
+	var random [12]byte
+	if _, err := handoffRandomRead(random[:]); err != nil {
+		return "", fmt.Errorf("generating browser handoff token: %w", err)
+	}
+	return "crantcli_" + strings.ToLower(hex.EncodeToString(random[:])), nil
+}

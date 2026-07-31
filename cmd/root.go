@@ -25,6 +25,9 @@ injects them into a Neuroglancer state JSON.
 
 Run 'crantcli setup' to configure your SeaTable API token.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Cobra validates arguments before this hook. Keep usage for syntax
+		// mistakes, but suppress it once execution has entered the runtime path.
+		cmd.Root().SilenceUsage = true
 		if cmd.Annotations["requiresToken"] != "true" {
 			return nil
 		}

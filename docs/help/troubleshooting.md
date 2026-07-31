@@ -64,25 +64,36 @@ export CAVE_TOKEN="..."
 
 `check-cave` and `root-info` also query SeaTable, so they require both services.
 
-## Clipboard reading or writing fails on Linux
+## Clipboard or browser delivery fails on Linux
 
-Install a compatible helper:
+The release binary has built-in Wayland and X11 clipboard support. It also uses
+`wl-copy`/`wl-paste`, `xclip`, or `xsel` as compatibility fallbacks when they
+are already installed. A failure normally means the process has no usable
+graphical session—for example, a headless shell with neither
+`WAYLAND_DISPLAY` nor `DISPLAY`.
 
-```bash
-# Wayland
-sudo apt install wl-clipboard
+Delivery failures are explicit but not fatal on their own. If clipboard delivery
+fails for a URL-producing command, crantcli warns and prints the completed URL
+to standard output, and the command still succeeds. Only a result that reached
+no destination at all is reported as a failure.
 
-# X11
-sudo apt install xclip   # or xsel
-```
-
-The helper is used only when `WAYLAND_DISPLAY` (Wayland) or `DISPLAY` (X11) is set.
-
-File-based workflows avoid the clipboard:
+File-based workflows avoid desktop integration entirely:
 
 ```bash
 crantcli add --cell-type ER --state input.json --output result.json
 ```
+
+On Linux, `--open` first uses the XDG desktop portal and then `xdg-open` or
+`gio`. The desktop may open a tab in an existing browser window without moving
+that window between workspaces; crantcli can verify the handoff, but the window
+manager controls focus.
+
+Every platform caps the length of a command-line argument, and Neuroglancer
+states routinely exceed the tightest of those caps (32767 characters on
+Windows). When a URL is too long to pass as an argument, crantcli stages it in a
+private redirect file under the user cache directory and opens that instead; the
+browser lands on the real viewer URL. Staged files are readable only by you and
+are swept after 24 hours.
 
 ## The wrong segmentation layer was changed
 

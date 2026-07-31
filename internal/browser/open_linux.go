@@ -1,0 +1,211 @@
+//go:build linux
+
+package browser
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/godbus/dbus/v5"
+)
+
+const (
+	portalDestination  = "org.freedesktop.portal.Desktop"
+	portalPath         = dbus.ObjectPath("/org/freedesktop/portal/desktop")
+	portalOpenURI      = "org.freedesktop.portal.OpenURI.OpenURI"
+	portalResponse     = "org.freedesktop.portal.Request.Response"
+	portalRequestClose = "org.freedesktop.portal.Request.Close"
+	portalTimeout      = 15 * time.Second
+
+	// MAX_ARG_STRLEN caps a single exec argument at 128 KiB on Linux. Leave
+	// headroom and hand anything larger to the command openers through a
+	// private local redirect file instead.
+	maxSafeOpenArgument = 96 << 10
+)
+
+var (
+	openViaPortal        = openURLViaPortal
+	portalRequestTimeout = portalTimeout
+)
+
+var (
+	errPortalCancelled      = errors.New("portal request was cancelled")
+	errPortalFallbackUnsafe = errors.New("portal request could not be safely abandoned")
+)
+
+type portalConnection interface {
+	Close() error
+	Object(string, dbus.ObjectPath) dbus.BusObject
+	Signal(chan<- *dbus.Signal)
+	RemoveSignal(chan<- *dbus.Signal)
+	AddMatchSignal(...dbus.MatchOption) error
+	RemoveMatchSignal(...dbus.MatchOption) error
+}
+
+type portalCaller interface {
+	CallWithContext(context.Context, string, dbus.Flags, ...interface{}) *dbus.Call
+}
+
+type portalSession struct {
+	connection portalConnection
+	object     portalCaller
+}
+
+var (
+	connectPortalBus     = func() (portalConnection, error) { return dbus.ConnectSessionBus() }
+	connectPortalSession = newPortalSession
+)
+
+func newPortalSession() (*portalSession, error) {
+	conn, err := connectPortalBus()
+	if err != nil {
+		return nil, err
+	}
+	return &portalSession{
+		connection: conn,
+		object:     conn.Object(portalDestination, portalPath),
+	}, nil
+}
+
+func platformOpenURL(rawURL string) (OpenResult, error) {
+	// The portal path stages no file, so it would never sweep otherwise; a
+	// session that stages once during a portal outage must not keep that URL
+	// on disk indefinitely.
+	sweepStaleHandoffs()
+
+	var failures []error
+	if result, err := openViaPortal(rawURL); err == nil {
+		return result, nil
+	} else if errors.Is(err, errPortalCancelled) || errors.Is(err, errPortalFallbackUnsafe) {
+		return OpenResult{}, err
+	} else {
+		failures = append(failures, fmt.Errorf("XDG desktop portal: %w", err))
+	}
+
+	commandURL, err := prepareCommandOpenURL(rawURL)
+	if err != nil {
+		failures = append(failures, fmt.Errorf("preparing browser handoff: %w", err))
+		return OpenResult{}, fmt.Errorf("no Linux browser opener succeeded: %w", errors.Join(failures...))
+	}
+	for _, candidate := range []struct {
+		backend Backend
+		name    string
+		args    []string
+	}{
+		{backend: BackendXDGOpen, name: "xdg-open", args: []string{commandURL}},
+		{backend: BackendGIO, name: "gio", args: []string{"open", commandURL}},
+	} {
+		result, err := runPlatformCommand(candidate.backend, candidate.name, candidate.args...)
+		if err == nil {
+			return result, nil
+		}
+		failures = append(failures, err)
+	}
+	return OpenResult{}, fmt.Errorf("no Linux browser opener succeeded: %w", errors.Join(failures...))
+}
+
+func openURLViaPortal(rawURL string) (OpenResult, error) {
+	session, err := connectPortalSession()
+	if err != nil {
+		return OpenResult{}, fmt.Errorf("connecting to session bus: %w", err)
+	}
+	conn := session.connection
+	object := session.object
+	defer conn.Close()
+
+	token, err := generateHandoffToken()
+	if err != nil {
+		return OpenResult{}, err
+	}
+	options := map[string]dbus.Variant{"handle_token": dbus.MakeVariant(token)}
+	versionCtx, cancelVersion := context.WithTimeout(context.Background(), time.Second)
+	version := portalInterfaceVersion(versionCtx, object)
+	cancelVersion()
+	if activationToken := os.Getenv("XDG_ACTIVATION_TOKEN"); activationToken != "" && version >= 4 {
+		options["activation_token"] = dbus.MakeVariant(activationToken)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), portalRequestTimeout)
+	defer cancel()
+
+	signals := make(chan *dbus.Signal, 4)
+	conn.Signal(signals)
+	defer conn.RemoveSignal(signals)
+	match := []dbus.MatchOption{
+		dbus.WithMatchSender(portalDestination),
+		dbus.WithMatchInterface("org.freedesktop.portal.Request"),
+		dbus.WithMatchMember("Response"),
+	}
+	if err := conn.AddMatchSignal(match...); err != nil {
+		return OpenResult{}, fmt.Errorf("subscribing to portal response: %w", err)
+	}
+	defer conn.RemoveMatchSignal(match...)
+
+	var requestPath dbus.ObjectPath
+	if err := object.CallWithContext(ctx, portalOpenURI, 0, "", rawURL, options).Store(&requestPath); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return OpenResult{}, fmt.Errorf("%w: request timed out before returning a handle", errPortalFallbackUnsafe)
+		}
+		return OpenResult{}, fmt.Errorf("requesting URL open: %w", err)
+	}
+	if !requestPath.IsValid() {
+		return OpenResult{}, fmt.Errorf("portal returned invalid request path %q", requestPath)
+	}
+
+	result, err := waitForPortalResponse(ctx, signals, requestPath)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		return result, err
+	}
+
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelClose()
+	if closeErr := conn.Object(portalDestination, requestPath).
+		CallWithContext(closeCtx, portalRequestClose, 0).Err; closeErr != nil {
+		return OpenResult{}, fmt.Errorf("%w: closing timed-out request: %v", errPortalFallbackUnsafe, closeErr)
+	}
+	return OpenResult{}, err
+}
+
+func waitForPortalResponse(ctx context.Context, signals <-chan *dbus.Signal, requestPath dbus.ObjectPath) (OpenResult, error) {
+	for {
+		select {
+		case signal, ok := <-signals:
+			if !ok {
+				return OpenResult{}, fmt.Errorf("session bus closed before portal response")
+			}
+			if signal == nil || signal.Name != portalResponse || signal.Path != requestPath {
+				continue
+			}
+			if len(signal.Body) == 0 {
+				return OpenResult{}, fmt.Errorf("portal response had no status")
+			}
+			status, ok := signal.Body[0].(uint32)
+			if !ok {
+				return OpenResult{}, fmt.Errorf("portal returned invalid status %T", signal.Body[0])
+			}
+			switch status {
+			case 0:
+				return OpenResult{Backend: BackendXDGPortal}, nil
+			case 1:
+				return OpenResult{}, errPortalCancelled
+			default:
+				return OpenResult{}, fmt.Errorf("request failed with status %d", status)
+			}
+		case <-ctx.Done():
+			return OpenResult{}, fmt.Errorf("request did not complete: %w", ctx.Err())
+		}
+	}
+}
+
+func portalInterfaceVersion(ctx context.Context, object portalCaller) uint32 {
+	var value dbus.Variant
+	if err := object.CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", 0,
+		"org.freedesktop.portal.OpenURI", "version").Store(&value); err != nil {
+		return 0
+	}
+	version, _ := value.Value().(uint32)
+	return version
+}

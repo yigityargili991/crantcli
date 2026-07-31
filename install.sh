@@ -221,10 +221,4 @@ case ":${PATH:-}:" in
 		;;
 esac
 
-if [ "$os" = linux ]; then
-	if ! command_exists wl-copy && ! command_exists xclip && ! command_exists xsel; then
-		warn "clipboard workflows need wl-clipboard, xclip, or xsel on Linux"
-	fi
-fi
-
 log "Next: $binary_name setup"

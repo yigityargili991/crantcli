@@ -80,5 +80,6 @@ Skip state manipulation:
 crantcli add --cell-type ER --root-ids-only
 ```
 
-The IDs are printed one per line and copied to the clipboard when possible.
+The IDs are printed one per line and copied to the clipboard. If copying fails,
+crantcli warns on standard error and the printed IDs remain usable.
 

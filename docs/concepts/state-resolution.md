@@ -28,7 +28,13 @@ Without `--state`, resolution proceeds in this order:
 stdin ──▶ clipboard URL ──▶ custom default ──▶ built-in scene
 ```
 
-`--generate` skips the clipboard check and selects the configured or built-in default in normal interactive use. Piped standard input still has priority.
+`--generate` skips the clipboard check and selects the configured or built-in
+default in normal interactive use. Piped standard input still has priority. If
+clipboard access is unavailable, crantcli warns before using the default. A
+clipboard value that looks like a Neuroglancer URL but has no state fragment —
+the bare viewer link — also falls back to the default with a warning, while one
+whose fragment contains malformed state is reported as an error rather than
+silently ignored.
 
 !!! note
     `state-transfer` intentionally treats the clipboard as a list of IDs, so it uses an explicit base state or a default template instead of trying to decode those IDs as a URL.
@@ -52,7 +58,10 @@ Without `--output`:
 
 - states loaded from files or standard input are emitted as JSON on standard output;
 - states loaded from URLs, the clipboard, or a template are encoded as a Neuroglancer URL and copied to the clipboard;
-- if clipboard writing fails, the URL is printed.
+- if clipboard writing fails, a warning is emitted and the URL is printed to standard output; the command succeeds, since the result still reached you. It fails only when no destination at all could be written.
+
+Clipboard copy, file/stdout output, and `--open` are independent delivery
+actions: failure in one does not suppress the others.
 
 `--open` can open the updated URL even when JSON is also written to a file.
 

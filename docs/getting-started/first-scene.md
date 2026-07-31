@@ -10,7 +10,9 @@ crantcli add \
   --open
 ```
 
-The command reports matches on standard error and produces an updated Neuroglancer state.
+The command reports matches and each successful delivery backend on standard
+error, then produces an updated Neuroglancer state. Linux clipboard support is
+built in; no `wl-clipboard` or X11 helper package is required.
 
 ## Reuse the scene from your clipboard
 
@@ -20,7 +22,10 @@ Once a Neuroglancer URL is on your clipboard, the next query can add another pop
 crantcli add --cell-type ER --color purple
 ```
 
-With no `--state`, `crantcli` checks the clipboard before falling back to your configured or built-in default scene. The updated URL is copied back to the clipboard.
+With no `--state`, `crantcli` checks the clipboard before falling back to your
+configured or built-in default scene. The updated URL is copied back to the
+clipboard. If clipboard delivery fails, the URL is printed to standard output
+instead and the command still succeeds.
 
 ## Use files instead
 
@@ -45,7 +50,9 @@ crantcli inspect --state er-state.json
 crantcli add --cell-type ER --root-ids-only
 ```
 
-Root IDs are printed and copied to the clipboard when clipboard access is available.
+Root IDs are printed and copied to the clipboard. If copying is unavailable,
+crantcli warns on standard error and the printed IDs remain usable, so piping
+keeps working on headless machines.
 
 ## Where to go next
 

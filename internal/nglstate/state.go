@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,11 @@ type StateSource string
 // maxStateBytes bounds state documents read from stdin and files; legitimate
 // Neuroglancer scenes are a few MiB at most.
 const maxStateBytes = 64 << 20
+
+var (
+	stateClipboardRead           = clipboard.Read
+	stateWarningWriter io.Writer = os.Stderr
+)
 
 const (
 	SourceURL       StateSource = "url"
@@ -88,12 +94,24 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 		}
 	}
 
-	// Try clipboard
+	// Try clipboard. An unavailable optional clipboard still permits the
+	// documented default-state fallback, but it must not be silent. A value
+	// that identifies itself as a Neuroglancer URL without a state fragment is
+	// just the bare viewer link, so it also falls back with a warning. A
+	// fragment that will not decode is treated as intentional; malformed state
+	// is therefore an error rather than a quiet switch to an unrelated
+	// template.
 	if !generate {
-		clip, err := clipboard.Read()
-		if err == nil && IsNeuroglancerURL(clip) {
+		clip, clipErr := stateClipboardRead()
+		if clipErr != nil {
+			fmt.Fprintf(stateWarningWriter, "Warning: clipboard input unavailable; using the default state: %v\n", clipErr)
+		} else if IsNeuroglancerURL(clip) {
 			state, err := DecodeURL(clip)
-			if err == nil {
+			if errors.Is(err, errNoFragment) {
+				fmt.Fprintln(stateWarningWriter, "Warning: clipboard holds a Neuroglancer viewer URL without a state fragment; using the default state")
+			} else if err != nil {
+				return nil, fmt.Errorf("decoding clipboard URL: %w", err)
+			} else {
 				return &LoadResult{State: state, Source: SourceClipboard, OriginalURL: clip}, nil
 			}
 		}
@@ -115,31 +133,11 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	return &LoadResult{State: state, Source: SourceTemplate}, nil
 }
 
-// WriteState outputs the state to the appropriate destination.
-// If outputFile is set, write to file.
-// If source was clipboard or URL, encode as URL and copy to clipboard.
-// Otherwise, write JSON to stdout.
+// WriteState preserves the legacy no-browser API for state-editing commands.
+// New callers that also need a browser handoff should use DeliverState so all
+// destinations are attempted independently.
 func WriteState(result *LoadResult, outputFile string) error {
-	if outputFile != "" {
-		return writeToFile(result.State, outputFile)
-	}
-
-	switch result.Source {
-	case SourceClipboard, SourceURL, SourceTemplate:
-		nglURL, err := EncodeURL(result.State, "")
-		if err != nil {
-			return err
-		}
-		result.OutputURL = nglURL
-		if err := clipboard.Write(nglURL); err != nil {
-			fmt.Println(nglURL)
-			return nil
-		}
-		fmt.Fprintf(os.Stderr, "Neuroglancer URL copied to clipboard\n")
-		return nil
-	default:
-		return writeToStdout(result.State)
-	}
+	return DeliverState(result, DeliveryOptions{OutputFile: outputFile})
 }
 
 func parseJSON(data []byte) (map[string]interface{}, error) {
@@ -163,12 +161,12 @@ func writeToFile(state map[string]interface{}, path string) error {
 	return nil
 }
 
-func writeToStdout(state map[string]interface{}) error {
+func writeStateJSON(w io.Writer, state map[string]interface{}) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
-	_, err = fmt.Println(string(data))
+	_, err = fmt.Fprintln(w, string(data))
 	return err
 }
 

@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"crantcli/internal/browser"
 	"crantcli/internal/clipboard"
 	"crantcli/internal/labelhost"
 	"crantcli/internal/nglstate"
@@ -69,33 +69,40 @@ clipboard, overwriting its current contents.`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
-func init() {
-	var (
-		addSuperClass   string
-		addCellClasses  []string
-		addCellTypes    []string
-		addCellSubtypes []string
-		addIntersect    bool
-		addSide         string
-		addRegions      []string
-		addBundles      []string
-		addTract        string
-		addProofread    string
-		addState        string
-		addGenerate     bool
-		addOutput       string
-		addLayer        string
-		addColor        string
-		addColorBy      string
-		addReplace      bool
-		addRootIDsOnly  bool
-		addOpen         bool
-		addColorSub     bool
-		addLabels       bool
-		addLabelsTTL    time.Duration
-		addLabelsHook   string
-	)
+var (
+	addSuperClass   string
+	addCellClasses  []string
+	addCellTypes    []string
+	addCellSubtypes []string
+	addIntersect    bool
+	addSide         string
+	addRegions      []string
+	addBundles      []string
+	addTract        string
+	addProofread    string
+	addState        string
+	addGenerate     bool
+	addOutput       string
+	addLayer        string
+	addColor        string
+	addColorBy      string
+	addReplace      bool
+	addRootIDsOnly  bool
+	addOpen         bool
+	addColorSub     bool
+	addLabels       bool
+	addLabelsTTL    time.Duration
+	addLabelsHook   string
 
+	addNewClient             = seatable.NewClient
+	addQueryNeurons          = seatable.QueryNeurons
+	addLoadState             = nglstate.LoadState
+	addFindSegmentationLayer = nglstate.FindSegmentationLayer
+	addDeliverState          = nglstate.DeliverState
+	addClipboardWrite        = clipboard.WriteText
+)
+
+func init() {
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
 	addCmd.Flags().StringArrayVar(&addCellClasses, "cell-class", nil, "Filter by cell_class (repeatable for multiple classes)")
 	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
@@ -188,7 +195,7 @@ func init() {
 		}
 
 		// Query SeaTable
-		client, err := seatable.NewClient()
+		client, err := addNewClient()
 		if err != nil {
 			return err
 		}
@@ -206,7 +213,7 @@ func init() {
 		}
 
 		for _, s := range specs {
-			rows, err := seatable.QueryNeurons(client, &s.filters)
+			rows, err := addQueryNeurons(client, &s.filters)
 			if err != nil {
 				return err
 			}
@@ -252,18 +259,11 @@ func init() {
 
 		// Root IDs only mode
 		if addRootIDsOnly {
-			joined := strings.Join(allRootIDs, "\n")
-			fmt.Println(joined)
-			if err := clipboard.Write(joined); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not copy to clipboard: %v\n", err)
-			} else {
-				fmt.Fprintf(os.Stderr, "Root IDs copied to clipboard\n")
-			}
-			return nil
+			return deliverRootIDs(allRootIDs, cmd.OutOrStdout(), cmd.ErrOrStderr(), addClipboardWrite)
 		}
 
 		// Load state
-		result, err := nglstate.LoadState(addState, addGenerate)
+		result, err := addLoadState(addState, addGenerate)
 		if err != nil {
 			return err
 		}
@@ -271,7 +271,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.Source)
 
 		// Find segmentation layer and inject
-		layer, _, err := nglstate.FindSegmentationLayer(result.State, addLayer)
+		layer, _, err := addFindSegmentationLayer(result.State, addLayer)
 		if err != nil {
 			return err
 		}
@@ -286,31 +286,29 @@ func init() {
 			}
 		}
 
-		// Output
-		if err := nglstate.WriteState(result, addOutput); err != nil {
-			return err
-		}
-
-		if addOpen {
-			nglURL := result.OutputURL
-			if nglURL == "" {
-				var err error
-				nglURL, err = nglstate.EncodeURL(result.State, "")
-				if err != nil {
-					return fmt.Errorf("encoding URL for --open: %w", err)
-				}
-			}
-
-			if err := browser.OpenURL(nglURL); err != nil {
-				return fmt.Errorf("opening browser: %w", err)
-			}
-			fmt.Fprintln(os.Stderr, "Opened Neuroglancer URL in browser")
-		}
-
-		return nil
+		// Deliver file/stdout/clipboard output and the browser request as
+		// independent actions so one desktop failure cannot suppress another.
+		return addDeliverState(result, nglstate.DeliveryOptions{
+			OutputFile: addOutput,
+			Open:       addOpen,
+		})
 	}
 
 	rootCmd.AddCommand(addCmd)
+}
+
+func deliverRootIDs(rootIDs []string, stdout, stderr io.Writer, copyText func(string) (clipboard.WriteResult, error)) error {
+	joined := strings.Join(rootIDs, "\n")
+	fmt.Fprintln(stdout, joined)
+	copyResult, err := copyText(joined)
+	if err != nil {
+		// The IDs already reached stdout, so this command succeeded. Failing
+		// here would break piping on headless and CI machines.
+		fmt.Fprintf(stderr, "Warning: root IDs were printed, but clipboard copy failed: %v\n", err)
+		return nil
+	}
+	fmt.Fprintf(stderr, "Clipboard: copied root IDs via %s\n", copyResult.Backend)
+	return nil
 }
 
 func extractRootIDs(rows []seatable.NeuronRow) []string {
