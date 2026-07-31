@@ -115,6 +115,10 @@ irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 
 
 Replace `vX.Y.Z` with a published release tag.
 
+`crantcli update` verifies the downloaded installer and binary with Sigstore
+before replacing the current executable. Verification is built into crantcli;
+users do not need to install Cosign separately.
+
 Both installers fail closed if release checksums cannot be downloaded or
 verified. `CRANTCLI_SKIP_CHECKSUM=1` is available as an explicit insecure
 override.

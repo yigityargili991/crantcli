@@ -13,10 +13,13 @@ $originalInstallDirectory = $env:CRANTCLI_INSTALL_DIR
 $originalVersion = $env:CRANTCLI_VERSION
 $originalSkipChecksum = $env:CRANTCLI_SKIP_CHECKSUM
 $originalRequireSignature = $env:CRANTCLI_REQUIRE_SIGNATURE
+$originalVerifyBinary = $env:CRANTCLI_VERIFY_BINARY
 $originalGithubToken = $env:CRANTCLI_GITHUB_TOKEN
 $originalCosignFail = $env:CRANTCLI_TEST_COSIGN_FAIL
+$originalVerifierFail = $env:CRANTCLI_TEST_VERIFIER_FAIL
 $env:CRANTCLI_GITHUB_TOKEN = $null
 $env:CRANTCLI_REQUIRE_SIGNATURE = $null
+$env:CRANTCLI_VERIFY_BINARY = $null
 $global:CrantCliInstallerTestFixtures = $fixtures
 $global:CrantCliInstallerRequestedUris = [Collections.Generic.List[string]]::new()
 
@@ -105,7 +108,13 @@ function Test-Install {
     if (-not ($global:CrantCliInstallerRequestedUris[0].Contains($releasePath))) {
         throw "installer used the wrong release URL for $Version"
     }
-    if (-not ($global:CrantCliInstallerRequestedUris | Where-Object { $_.EndsWith("$asset.sigstore.json") })) {
+    $bundleSuffix = if ([string]::IsNullOrWhiteSpace($env:CRANTCLI_VERIFY_BINARY)) {
+        ".sigstore.json"
+    }
+    else {
+        ".bundle.json"
+    }
+    if (-not ($global:CrantCliInstallerRequestedUris | Where-Object { $_.EndsWith("$asset$bundleSuffix") })) {
         throw "installer did not download the signature bundle for $asset"
     }
 }
@@ -116,10 +125,16 @@ try {
         $asset = "crant_type_look-windows-$architecture.exe"
         Set-Content -LiteralPath (Join-Path $fixtures $asset) -Value "$architecture fixture" -NoNewline
         Set-Content -LiteralPath (Join-Path $fixtures "$asset.sigstore.json") -Value '{"fixture":"signature"}' -NoNewline
+        Set-Content -LiteralPath (Join-Path $fixtures "$asset.bundle.json") -Value '{"fixture":"signature"}' -NoNewline
     }
     Set-Content -LiteralPath (Join-Path $fakeBin "cosign.cmd") -Value @(
         '@echo off',
         'if "%CRANTCLI_TEST_COSIGN_FAIL%"=="1" exit /b 1',
+        'exit /b 0'
+    )
+    Set-Content -LiteralPath (Join-Path $fakeBin "crantcli-verifier.cmd") -Value @(
+        '@echo off',
+        'if "%CRANTCLI_TEST_VERIFIER_FAIL%"=="1" exit /b 1',
         'exit /b 0'
     )
     $env:Path = "$fakeBin;$env:Path"
@@ -140,6 +155,10 @@ try {
 
     Test-Install -Architecture "AMD64" -Version "latest"
     Test-Install -Architecture "ARM64" -Version "v1.2.3"
+
+    $env:CRANTCLI_VERIFY_BINARY = Join-Path $fakeBin "crantcli-verifier.cmd"
+    Test-Install -Architecture "AMD64" -Version "latest"
+    $env:CRANTCLI_VERIFY_BINARY = $null
 
     Write-Checksums -Invalid
     $env:PROCESSOR_ARCHITECTURE = "AMD64"
@@ -177,6 +196,24 @@ try {
     }
 
     $env:CRANTCLI_TEST_COSIGN_FAIL = $null
+    $env:CRANTCLI_TEST_VERIFIER_FAIL = "1"
+    $env:CRANTCLI_VERIFY_BINARY = Join-Path $fakeBin "crantcli-verifier.cmd"
+    $env:CRANTCLI_INSTALL_DIR = Join-Path $testRoot "builtin-signature-failure"
+    try {
+        & (Join-Path $repositoryRoot "install.ps1")
+        throw "installer accepted a signature rejected by the built-in verifier"
+    }
+    catch {
+        if ($_.Exception.Message -notlike "*Sigstore signature verification failed*") {
+            throw
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $env:CRANTCLI_INSTALL_DIR "crantcli.exe")) {
+        throw "installer copied a binary after built-in signature verification failed"
+    }
+
+    $env:CRANTCLI_TEST_VERIFIER_FAIL = $null
+    $env:CRANTCLI_VERIFY_BINARY = $null
     $missingBundle = Join-Path $fixtures "crant_type_look-windows-amd64.exe.sigstore.json"
     $savedBundle = Join-Path $testRoot "crant_type_look-windows-amd64.exe.sigstore.json"
     Move-Item -LiteralPath $missingBundle -Destination $savedBundle
@@ -210,8 +247,10 @@ finally {
     $env:CRANTCLI_VERSION = $originalVersion
     $env:CRANTCLI_SKIP_CHECKSUM = $originalSkipChecksum
     $env:CRANTCLI_REQUIRE_SIGNATURE = $originalRequireSignature
+    $env:CRANTCLI_VERIFY_BINARY = $originalVerifyBinary
     $env:CRANTCLI_GITHUB_TOKEN = $originalGithubToken
     $env:CRANTCLI_TEST_COSIGN_FAIL = $originalCosignFail
+    $env:CRANTCLI_TEST_VERIFIER_FAIL = $originalVerifierFail
     Remove-Item function:global:Invoke-WebRequest -ErrorAction SilentlyContinue
     Remove-Variable CrantCliInstallerTestFixtures -Scope Global -ErrorAction SilentlyContinue
     Remove-Variable CrantCliInstallerRequestedUris -Scope Global -ErrorAction SilentlyContinue

@@ -94,9 +94,9 @@ func readyReleaseJSON(tag string) []byte {
 		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q},{"name":%q},{"name":%q},{"name":%q}]}`,
 		tag,
 		releaseAssetName(updateGOOS, updateGOARCH),
-		releaseAssetName(updateGOOS, updateGOARCH)+".sigstore.json",
+		releaseAssetName(updateGOOS, updateGOARCH)+updateBundleSuffix,
 		scriptName,
-		scriptName+".sigstore.json",
+		scriptName+updateBundleSuffix,
 	))
 }
 
@@ -150,7 +150,7 @@ func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return []byte(fmt.Sprintf(
-			`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"},{"name":"install.sh.sigstore.json"}]}`,
+			`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"},{"name":"install.sh.bundle.json"}]}`,
 			binaryName,
 		)), nil
 	})
@@ -159,7 +159,7 @@ func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 	if !errors.Is(err, errReleaseNotReady) {
 		t.Fatalf("error = %v, want release-not-ready error", err)
 	}
-	if !strings.Contains(err.Error(), binaryName+".sigstore.json") {
+	if !strings.Contains(err.Error(), binaryName+updateBundleSuffix) {
 		t.Fatalf("error = %v, want missing binary signature bundle", err)
 	}
 	if len(*calls) != 0 {
@@ -174,7 +174,7 @@ func TestUpdateRunsShOnUnix(t *testing.T) {
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\necho installer\n"), nil
-		case updateReleaseDownloadURL + "v0.16.2/install.sh.sigstore.json":
+		case updateReleaseDownloadURL + "v0.16.2/install.sh.bundle.json":
 			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
@@ -213,7 +213,7 @@ func TestUpdateRunsPowerShellOnWindows(t *testing.T) {
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.ps1":
 			return []byte("Write-Host installer\n"), nil
-		case updateReleaseDownloadURL + "v0.16.2/install.ps1.sigstore.json":
+		case updateReleaseDownloadURL + "v0.16.2/install.ps1.bundle.json":
 			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
@@ -244,7 +244,7 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
-		case updateReleaseDownloadURL + "v0.16.2/install.sh.sigstore.json":
+		case updateReleaseDownloadURL + "v0.16.2/install.sh.bundle.json":
 			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
@@ -315,7 +315,7 @@ func TestUpdateTargetsCanonicalSymlinkLauncher(t *testing.T) {
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
-		case updateReleaseDownloadURL + "v0.16.2/install.sh.sigstore.json":
+		case updateReleaseDownloadURL + "v0.16.2/install.sh.bundle.json":
 			return []byte(`{"bundle":true}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected fetch %s", url)
@@ -364,7 +364,7 @@ func TestUpdateInstallerBundleDownloadFails(t *testing.T) {
 	})
 
 	_, _, err := executeRootForTest(t, "update")
-	if err == nil || !strings.Contains(err.Error(), "download install.sh.sigstore.json") {
+	if err == nil || !strings.Contains(err.Error(), "download install.sh.bundle.json") {
 		t.Fatalf("error = %v, want signature-bundle download failure", err)
 	}
 	if len(*calls) != 0 {
@@ -420,14 +420,6 @@ func TestUpdateHelperProcess(t *testing.T) {
 	os.Exit(7)
 }
 
-func TestVerifyInstallerRequiresCosign(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	err := verifyInstaller("installer", "bundle")
-	if err == nil || !strings.Contains(err.Error(), "cosign is required") {
-		t.Fatalf("verifyInstaller error = %v, want missing-cosign error", err)
-	}
-}
-
 // The installer must replace the installation that launched the update, not
 // its own default directory (PR review: one-shot /usr/local/bin installs and
 // 'make install' put the binary where install.sh cannot infer it).
@@ -458,6 +450,9 @@ func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 	wantDir := filepath.Dir(executable)
 	if !ok || dir != wantDir {
 		t.Fatalf("CRANTCLI_INSTALL_DIR = %q (present %v), want %q", dir, ok, wantDir)
+	}
+	if verifier, ok := envValue(env, "CRANTCLI_VERIFY_BINARY"); !ok || verifier != executable {
+		t.Fatalf("CRANTCLI_VERIFY_BINARY = %q (present %v), want %q", verifier, ok, executable)
 	}
 }
 
@@ -509,8 +504,8 @@ func TestIsUpToDate(t *testing.T) {
 }
 
 func TestInstallerEnv(t *testing.T) {
-	env := []string{"HOME=/tmp", "CRANTCLI_VERSION=v0.1.0", "PATH=/bin"}
-	got := installerEnv(env, "/usr/local/bin", "v0.16.2")
+	env := []string{"HOME=/tmp", "CRANTCLI_VERSION=v0.1.0", "CRANTCLI_VERIFY_BINARY=/untrusted", "PATH=/bin"}
+	got := installerEnv(env, "/usr/local/bin", "v0.16.2", "/running/crantcli")
 	if version, pinned := envValue(got, "CRANTCLI_VERSION"); !pinned || version != "v0.16.2" {
 		t.Fatalf("installerEnv CRANTCLI_VERSION = %q (present %v), want v0.16.2: %v", version, pinned, got)
 	}
@@ -520,26 +515,29 @@ func TestInstallerEnv(t *testing.T) {
 	if required, ok := envValue(got, "CRANTCLI_REQUIRE_SIGNATURE"); !ok || required != "1" {
 		t.Fatalf("installerEnv signature requirement = %q (present %v), want 1: %v", required, ok, got)
 	}
-	if len(got) != 5 {
-		t.Fatalf("installerEnv = %v, want 5 entries", got)
+	if verifier, ok := envValue(got, "CRANTCLI_VERIFY_BINARY"); !ok || verifier != "/running/crantcli" {
+		t.Fatalf("installerEnv verifier = %q (present %v), want running binary: %v", verifier, ok, got)
+	}
+	if len(got) != 6 {
+		t.Fatalf("installerEnv = %v, want 6 entries", got)
 	}
 
 	existing := []string{"CRANTCLI_INSTALL_DIR=/custom", "PATH=/bin"}
-	got = installerEnv(existing, "/usr/local/bin", "v0.16.2")
+	got = installerEnv(existing, "/usr/local/bin", "v0.16.2", "/running/crantcli")
 	if dir, _ := envValue(got, "CRANTCLI_INSTALL_DIR"); dir != "/custom" {
 		t.Fatalf("installerEnv overrode exported dir: %v", got)
 	}
-	if len(got) != 4 {
+	if len(got) != 5 {
 		t.Fatalf("installerEnv = %v, want install dir preserved and version appended", got)
 	}
 
-	got = installerEnv([]string{"PATH=/bin"}, "", "")
+	got = installerEnv([]string{"PATH=/bin"}, "", "", "")
 	if len(got) != 2 {
 		t.Fatalf("installerEnv with unknown dir = %v, want signature requirement appended", got)
 	}
 
 	empty := []string{"CRANTCLI_INSTALL_DIR=", "PATH=/bin"}
-	got = installerEnv(empty, "/usr/local/bin", "")
+	got = installerEnv(empty, "/usr/local/bin", "", "")
 	if dir, ok := envValue(got, "CRANTCLI_INSTALL_DIR"); !ok || dir != "/usr/local/bin" {
 		t.Fatalf("installerEnv empty install dir = %q (present %v), want detected dir: %v", dir, ok, got)
 	}
@@ -557,9 +555,10 @@ func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
 		"CrantCli_Version=v0.1.0",
 		`CrantCli_Install_Dir=C:\Tools\crantcli`,
 		"CrantCli_Require_Signature=0",
+		`CrantCli_Verify_Binary=C:\Untrusted\crantcli.exe`,
 		"PATH=C:\\Windows",
 	}
-	got := installerEnv(env, `C:\Other`, "v0.16.2")
+	got := installerEnv(env, `C:\Other`, "v0.16.2", `C:\Tools\crantcli.exe`)
 
 	if version, ok := envValue(got, "CRANTCLI_VERSION"); !ok || version != "v0.16.2" {
 		t.Fatalf("CRANTCLI_VERSION = %q (present %v), want v0.16.2: %v", version, ok, got)
@@ -578,6 +577,12 @@ func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
 	}
 	if required, ok := envValue(got, "CRANTCLI_REQUIRE_SIGNATURE"); !ok || required != "1" {
 		t.Fatalf("CRANTCLI_REQUIRE_SIGNATURE = %q (present %v), want 1: %v", required, ok, got)
+	}
+	if _, stale := envValue(got, "CrantCli_Verify_Binary"); stale {
+		t.Fatalf("installerEnv kept differently-cased stale verifier: %v", got)
+	}
+	if verifier, ok := envValue(got, "CRANTCLI_VERIFY_BINARY"); !ok || verifier != `C:\Tools\crantcli.exe` {
+		t.Fatalf("CRANTCLI_VERIFY_BINARY = %q (present %v), want running binary: %v", verifier, ok, got)
 	}
 }
 

@@ -25,6 +25,7 @@ const (
 	updateReleaseDownloadURL  = "https://github.com/" + updateRepoSlug + "/releases/download/"
 	updateCertificateIssuer   = "https://token.actions.githubusercontent.com"
 	updateCertificateIdentity = `^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$`
+	updateBundleSuffix        = ".bundle.json"
 )
 
 var errReleaseNotReady = errors.New("latest release is not ready")
@@ -36,7 +37,7 @@ var (
 	updateGOOS       = runtime.GOOS
 	updateGOARCH     = runtime.GOARCH
 	updateFetch      = fetchURL
-	updateVerify     = verifyInstaller
+	updateVerify     = verifyReleaseArtifact
 	updateRun        = runProcess
 	updateExecutable = os.Executable
 	updateInvocation = invokedExecutable
@@ -47,9 +48,10 @@ var updateCmd = &cobra.Command{
 	Short: "Update crantcli to the latest release",
 	Long: `Check for a newer crantcli release and update in place.
 
-The update authenticates the release's platform installer with cosign, then
+The update authenticates the release's platform installer with Sigstore, then
 runs it to verify and install the latest binary. It returns only after the
-binary has been atomically replaced. Cosign must be available on PATH.`,
+binary has been atomically replaced. Signature verification is built in; no
+separate cosign installation is required.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return runUpdate(cmd)
@@ -79,6 +81,10 @@ func runUpdate(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("locate running installation: %w", err)
 	}
+	verifierPath, err := updateExecutable()
+	if err != nil {
+		return fmt.Errorf("locate update verifier: %w", err)
+	}
 
 	scriptName := installerScriptName(updateGOOS)
 	releaseURL := updateReleaseDownloadURL + latest + "/"
@@ -87,7 +93,7 @@ func runUpdate(cmd *cobra.Command) error {
 		return fmt.Errorf("download %s: %w", scriptName, err)
 	}
 	defer os.Remove(scriptPath)
-	bundleName := scriptName + ".sigstore.json"
+	bundleName := scriptName + updateBundleSuffix
 	bundlePath, err := downloadInstaller(releaseURL+bundleName, bundleName)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", bundleName, err)
@@ -99,7 +105,7 @@ func runUpdate(cmd *cobra.Command) error {
 
 	name, args := installerCommand(updateGOOS, scriptPath)
 	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, latest)
-	if err := updateRun(name, args, installerEnv(os.Environ(), installDir, latest)); err != nil {
+	if err := updateRun(name, args, installerEnv(os.Environ(), installDir, latest, verifierPath)); err != nil {
 		return fmt.Errorf("run installer: %w", err)
 	}
 	fmt.Fprintf(out, "Updated crantcli to %s\n", latest)
@@ -150,9 +156,9 @@ func latestReleaseTag() (string, error) {
 	required := []string{
 		"checksums.txt",
 		binaryName,
-		binaryName + ".sigstore.json",
+		binaryName + updateBundleSuffix,
 		scriptName,
-		scriptName + ".sigstore.json",
+		scriptName + updateBundleSuffix,
 	}
 	available := make(map[string]bool, len(payload.Assets))
 	for _, asset := range payload.Assets {
@@ -229,23 +235,6 @@ func fetchURL(url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, httpx.MaxResponseBody))
 }
 
-func verifyInstaller(scriptPath, bundlePath string) error {
-	cosign, err := exec.LookPath("cosign")
-	if err != nil {
-		return errors.New("cosign is required to authenticate the installer")
-	}
-	proc := exec.Command(cosign,
-		"verify-blob",
-		"--bundle", bundlePath,
-		"--certificate-oidc-issuer", updateCertificateIssuer,
-		"--certificate-identity-regexp", updateCertificateIdentity,
-		scriptPath,
-	)
-	proc.Stdout = os.Stdout
-	proc.Stderr = os.Stderr
-	return proc.Run()
-}
-
 func runProcess(name string, args []string, env []string) error {
 	proc := exec.Command(name, args...)
 	proc.Stdout = os.Stdout
@@ -313,17 +302,22 @@ func executableNameMatches(name, want string) bool {
 }
 
 // installerEnv builds the installer environment. Any inherited
-// CRANTCLI_VERSION is replaced with the resolved release tag, and update mode
-// requires the installer to authenticate the binary signature rather than
-// falling back to the mutable checksum manifest.
+// CRANTCLI_VERSION is replaced with the resolved release tag. Update mode
+// requires the installer to authenticate the binary signature with the
+// running crantcli binary rather than falling back to the mutable checksum
+// manifest or relying on an external cosign installation.
 // CRANTCLI_INSTALL_DIR defaults to the running executable's directory so the
 // update targets the current installation even when it sits in a custom
 // directory the installer cannot infer on its own (e.g. a one-shot
 // /usr/local/bin install). An explicitly exported CRANTCLI_INSTALL_DIR wins.
-func installerEnv(env []string, installDir, version string) []string {
+func installerEnv(env []string, installDir, version, verifierPath string) []string {
 	filtered := withoutEnv(env, "CRANTCLI_VERSION")
 	filtered = withoutEnv(filtered, "CRANTCLI_REQUIRE_SIGNATURE")
+	filtered = withoutEnv(filtered, "CRANTCLI_VERIFY_BINARY")
 	filtered = append(filtered, "CRANTCLI_REQUIRE_SIGNATURE=1")
+	if verifierPath != "" {
+		filtered = append(filtered, "CRANTCLI_VERIFY_BINARY="+verifierPath)
+	}
 	if version != "" {
 		filtered = append(filtered, "CRANTCLI_VERSION="+version)
 	}

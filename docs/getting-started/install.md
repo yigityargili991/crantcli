@@ -78,6 +78,21 @@ irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 
 
 Replace `vX.Y.Z` with a tag from the [Releases page](https://github.com/yigityargili991/crantcli/releases).
 
+## Updating
+
+`crantcli update` verifies the downloaded installer and binary with Sigstore
+before replacing the current executable. Verification is built into crantcli,
+so no separate Cosign installation is required:
+
+```bash
+crantcli update
+```
+
+!!! note "Updating from v0.17.0"
+    The v0.17.0 updater still requires Cosign to install this transition
+    release. Install Cosign once or rerun the platform installer to reach
+    v0.17.1; later updates use the built-in verifier.
+
 ## Build from source
 
 Building requires the Go version declared in `go.mod` or newer.

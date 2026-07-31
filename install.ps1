@@ -266,31 +266,48 @@ function Install-CrantCli {
             Write-InstallerMessage "Verified checksum for $asset"
         }
 
-        $cosign = Get-Command cosign -ErrorAction SilentlyContinue
-        if ($null -ne $cosign) {
-            $bundle = Join-Path $temporaryDirectory "$asset.sigstore.json"
-            if (Test-InstallerDownload -Uri "$releaseBase/$asset.sigstore.json" -OutFile $bundle -Version $version) {
-                & $cosign.Source verify-blob --bundle $bundle `
-                    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" `
-                    --certificate-identity-regexp "^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$" `
-                    $downloadedBinary | Out-Null
-                if ($LASTEXITCODE -ne 0) {
-                    throw "cosign signature verification failed for $asset"
-                }
-                Write-InstallerMessage "Verified cosign signature for $asset"
+        if (-not [string]::IsNullOrWhiteSpace($env:CRANTCLI_VERIFY_BINARY)) {
+            $bundle = Join-Path $temporaryDirectory "$asset.bundle.json"
+            try {
+                Invoke-InstallerDownload -Uri "$releaseBase/$asset.bundle.json" -OutFile $bundle -Version $version
             }
-            elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
-                throw "could not download the cosign signature bundle for $asset; refusing an unauthenticated update"
+            catch {
+                throw "could not download the Sigstore bundle for $asset; refusing an unauthenticated update"
             }
-            else {
-                Write-Warning "no cosign signature bundle found for $version; relying on checksum verification"
+
+            & $env:CRANTCLI_VERIFY_BINARY __verify-release $downloadedBinary $bundle
+            if ($LASTEXITCODE -ne 0) {
+                throw "Sigstore signature verification failed for $asset"
             }
-        }
-        elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
-            throw "cosign is required to authenticate update binaries"
+            Write-InstallerMessage "Verified Sigstore signature for $asset"
         }
         else {
-            Write-Warning "cosign not installed; relying on checksum verification (install cosign for signature verification)"
+            $cosign = Get-Command cosign -ErrorAction SilentlyContinue
+            if ($null -ne $cosign) {
+                $bundle = Join-Path $temporaryDirectory "$asset.sigstore.json"
+                if (Test-InstallerDownload -Uri "$releaseBase/$asset.sigstore.json" -OutFile $bundle -Version $version) {
+                    & $cosign.Source verify-blob --bundle $bundle `
+                        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" `
+                        --certificate-identity-regexp "^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$" `
+                        $downloadedBinary | Out-Null
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "cosign signature verification failed for $asset"
+                    }
+                    Write-InstallerMessage "Verified cosign signature for $asset"
+                }
+                elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
+                    throw "could not download the cosign signature bundle for $asset; refusing an unauthenticated update"
+                }
+                else {
+                    Write-Warning "no cosign signature bundle found for $version; relying on checksum verification"
+                }
+            }
+            elseif ($env:CRANTCLI_REQUIRE_SIGNATURE -eq "1") {
+                throw "the running crantcli verifier is required to authenticate update binaries"
+            }
+            else {
+                Write-Warning "cosign not installed; relying on checksum verification (install cosign for signature verification)"
+            }
         }
 
         New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
