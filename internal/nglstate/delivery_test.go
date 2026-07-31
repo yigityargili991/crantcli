@@ -176,3 +176,35 @@ func TestDeliverStateFailsWhenNoDestinationReceivesURL(t *testing.T) {
 		t.Errorf("stderr = %q, want the clipboard warning", stderr.String())
 	}
 }
+
+func TestDeliverStateReportsEncodingFailure(t *testing.T) {
+	_, _ = isolateDelivery(t)
+	result := &LoadResult{
+		State:  map[string]interface{}{"unsupported": make(chan struct{})},
+		Source: SourceTemplate,
+	}
+	err := DeliverState(result, DeliveryOptions{Open: true})
+	if err == nil || !strings.Contains(err.Error(), "encoding Neuroglancer URL") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDeliverStateReportsJSONOutputFailure(t *testing.T) {
+	_, _ = isolateDelivery(t)
+	deliveryStdout = failingWriter{err: errors.New("broken stdout")}
+	err := DeliverState(deliveryFixture(SourceStdin), DeliveryOptions{})
+	if err == nil || !strings.Contains(err.Error(), "writing state JSON") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDeliverStateReportsBrowserFailure(t *testing.T) {
+	_, _ = isolateDelivery(t)
+	deliveryBrowserOpen = func(string) (browser.OpenResult, error) {
+		return browser.OpenResult{}, errors.New("desktop unavailable")
+	}
+	err := DeliverState(deliveryFixture(SourceStdin), DeliveryOptions{Open: true})
+	if err == nil || !strings.Contains(err.Error(), "opening browser") {
+		t.Fatalf("error = %v", err)
+	}
+}

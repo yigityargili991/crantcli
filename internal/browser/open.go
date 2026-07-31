@@ -50,7 +50,11 @@ func (w *cappedOutput) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-var runPlatformCommand = runOpenCommand
+var (
+	openPlatform       = platformOpenURL
+	runPlatformCommand = runOpenCommand
+	openCommandTimeout = openerTimeout
+)
 
 // OpenURL opens an HTTP(S) URL in the system default browser.
 func OpenURL(rawURL string) error {
@@ -69,11 +73,11 @@ func OpenURLWithResult(rawURL string) (OpenResult, error) {
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return OpenResult{}, fmt.Errorf("invalid browser URL")
 	}
-	return platformOpenURL(rawURL)
+	return openPlatform(rawURL)
 }
 
 func runOpenCommand(backend Backend, name string, args ...string) (OpenResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), openerTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), openCommandTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -83,7 +87,7 @@ func runOpenCommand(backend Backend, name string, args ...string) (OpenResult, e
 	cmd.Stderr = &output
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return OpenResult{}, fmt.Errorf("%s timed out after %s", name, openerTimeout)
+			return OpenResult{}, fmt.Errorf("%s timed out after %s", name, openCommandTimeout)
 		}
 		message := strings.TrimSpace(output.String())
 		if len(message) > 4096 {

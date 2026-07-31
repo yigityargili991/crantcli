@@ -27,6 +27,8 @@ const (
 
 var openViaPortal = openURLViaPortal
 
+var errPortalCancelled = errors.New("portal request was cancelled")
+
 type portalConnection interface {
 	Close() error
 	Signal(chan<- *dbus.Signal)
@@ -66,6 +68,8 @@ func platformOpenURL(rawURL string) (OpenResult, error) {
 	var failures []error
 	if result, err := openViaPortal(rawURL); err == nil {
 		return result, nil
+	} else if errors.Is(err, errPortalCancelled) {
+		return OpenResult{}, err
 	} else {
 		failures = append(failures, fmt.Errorf("XDG desktop portal: %w", err))
 	}
@@ -101,7 +105,7 @@ func openURLViaPortal(rawURL string) (OpenResult, error) {
 	object := session.object
 	defer conn.Close()
 
-	token, err := handoffToken()
+	token, err := generateHandoffToken()
 	if err != nil {
 		return OpenResult{}, err
 	}
@@ -161,7 +165,7 @@ func waitForPortalResponse(ctx context.Context, signals <-chan *dbus.Signal, req
 			case 0:
 				return OpenResult{Backend: BackendXDGPortal}, nil
 			case 1:
-				return OpenResult{}, fmt.Errorf("request was cancelled")
+				return OpenResult{}, errPortalCancelled
 			default:
 				return OpenResult{}, fmt.Errorf("request failed with status %d", status)
 			}

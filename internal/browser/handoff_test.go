@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -9,6 +10,22 @@ import (
 	"testing"
 	"time"
 )
+
+type fakeHandoffFile struct {
+	writeErr error
+	syncErr  error
+	closeErr error
+}
+
+func (f *fakeHandoffFile) WriteString(value string) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return len(value), nil
+}
+
+func (f *fakeHandoffFile) Sync() error  { return f.syncErr }
+func (f *fakeHandoffFile) Close() error { return f.closeErr }
 
 func TestCommandOpenURLPassesShortURLsThrough(t *testing.T) {
 	short := "https://example.org/#!%7B%7D"
@@ -53,6 +70,67 @@ func TestCommandOpenURLReportsUnavailableCacheForStagedURLs(t *testing.T) {
 	long := "https://example.org/#!" + strings.Repeat("a", maxSafeOpenArgument)
 	if _, err := commandOpenURL(long); err == nil {
 		t.Fatal("staged open unexpectedly succeeded with an unusable cache")
+	}
+}
+
+func TestCommandOpenURLReportsTokenAndFileCreationFailures(t *testing.T) {
+	previousToken := generateHandoffToken
+	t.Cleanup(func() { generateHandoffToken = previousToken })
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	long := "https://example.org/#!" + strings.Repeat("a", maxSafeOpenArgument)
+
+	generateHandoffToken = func() (string, error) {
+		return "", os.ErrPermission
+	}
+	if _, err := commandOpenURL(long); err == nil || !strings.Contains(err.Error(), "permission") {
+		t.Fatalf("token error = %v", err)
+	}
+
+	generateHandoffToken = func() (string, error) {
+		return "crantcli_existing", nil
+	}
+	dir, err := handoffDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "crantcli_existing.html"), []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commandOpenURL(long); err == nil || !strings.Contains(err.Error(), "creating browser handoff") {
+		t.Fatalf("file creation error = %v", err)
+	}
+}
+
+func TestCommandOpenURLReportsHandoffFileFailures(t *testing.T) {
+	previousToken := generateHandoffToken
+	previousOpen := openBrowserHandoffFile
+	t.Cleanup(func() {
+		generateHandoffToken = previousToken
+		openBrowserHandoffFile = previousOpen
+	})
+	generateHandoffToken = func() (string, error) { return "crantcli_test", nil }
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	long := "https://example.org/#!" + strings.Repeat("a", maxSafeOpenArgument)
+
+	for _, test := range []struct {
+		name string
+		file *fakeHandoffFile
+		want string
+	}{
+		{name: "write", file: &fakeHandoffFile{writeErr: errors.New("disk full")}, want: "writing browser handoff"},
+		{name: "sync", file: &fakeHandoffFile{syncErr: errors.New("sync failed")}, want: "syncing browser handoff"},
+		{name: "close", file: &fakeHandoffFile{closeErr: errors.New("close failed")}, want: "closing browser handoff"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			openBrowserHandoffFile = func(string) (browserHandoffFile, error) {
+				return test.file, nil
+			}
+			if _, err := commandOpenURL(long); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -213,6 +291,77 @@ func TestHandoffDirRejectsNonDirectory(t *testing.T) {
 	}
 	if _, err := handoffDir(); err == nil || !strings.Contains(err.Error(), "not a private directory") {
 		t.Fatalf("handoffDir error = %v", err)
+	}
+}
+
+func TestHandoffDirFallbackAndFailures(t *testing.T) {
+	previousCache := handoffUserCacheDir
+	previousTemp := handoffTempDir
+	previousMkdir := makeHandoffDirs
+	previousChmod := secureHandoffDir
+	t.Cleanup(func() {
+		handoffUserCacheDir = previousCache
+		handoffTempDir = previousTemp
+		makeHandoffDirs = previousMkdir
+		secureHandoffDir = previousChmod
+	})
+
+	t.Run("stable temporary fallback", func(t *testing.T) {
+		tempRoot := t.TempDir()
+		handoffUserCacheDir = func() (string, error) { return "", errors.New("no cache") }
+		handoffTempDir = func() string { return tempRoot }
+		first, err := handoffDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := handoffDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first != second || first != filepath.Join(tempRoot, "crantcli-browser-handoffs") {
+			t.Fatalf("fallback directories = %q and %q", first, second)
+		}
+		stale := filepath.Join(first, "crantcli_stale.html")
+		if err := os.WriteFile(stale, []byte("state"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-handoffLifetime - time.Hour)
+		if err := os.Chtimes(stale, old, old); err != nil {
+			t.Fatal(err)
+		}
+		sweepStaleHandoffs()
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Fatalf("stale fallback handoff survived: %v", err)
+		}
+	})
+
+	t.Run("mkdir failure", func(t *testing.T) {
+		handoffUserCacheDir = func() (string, error) { return t.TempDir(), nil }
+		handoffTempDir = previousTemp
+		makeHandoffDirs = func(string, os.FileMode) error { return errors.New("mkdir denied") }
+		if _, err := handoffDir(); err == nil || !strings.Contains(err.Error(), "creating browser handoff directory") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("chmod failure", func(t *testing.T) {
+		handoffUserCacheDir = func() (string, error) { return t.TempDir(), nil }
+		makeHandoffDirs = previousMkdir
+		secureHandoffDir = func(string, os.FileMode) error { return errors.New("chmod denied") }
+		if _, err := handoffDir(); err == nil || !strings.Contains(err.Error(), "securing browser handoff directory") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestHandoffTokenReportsRandomFailure(t *testing.T) {
+	previousRead := handoffRandomRead
+	handoffRandomRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy unavailable")
+	}
+	t.Cleanup(func() { handoffRandomRead = previousRead })
+	if _, err := handoffToken(); err == nil || !strings.Contains(err.Error(), "entropy unavailable") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

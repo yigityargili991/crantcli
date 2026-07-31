@@ -66,8 +66,9 @@ var linuxWriteTools = []clipTool{
 var errNoLinuxClipboardTool = errors.New("no external Linux clipboard helper found")
 
 var (
-	linuxNativeRead  = readBuiltInLinux
-	linuxNativeWrite = writeBuiltInLinux
+	clipboardRuntimeGOOS = runtime.GOOS
+	linuxNativeRead      = readBuiltInLinux
+	linuxNativeWrite     = writeBuiltInLinux
 )
 
 // maxClipboardBytes bounds clipboard reads and the payload sent to the
@@ -106,7 +107,7 @@ func Read() (string, error) {
 }
 
 func ReadText() (ReadResult, error) {
-	switch runtime.GOOS {
+	switch clipboardRuntimeGOOS {
 	case "darwin":
 		return readCommand("pbpaste", BackendPBPaste, nil)
 	case "linux":
@@ -144,7 +145,7 @@ func ReadText() (ReadResult, error) {
 	case "windows":
 		return readCommand("powershell", BackendPowerShell, []string{"-NoProfile", "-NonInteractive", "-Command", "Get-Clipboard"})
 	default:
-		return ReadResult{}, fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
+		return ReadResult{}, fmt.Errorf("clipboard not supported on %s", clipboardRuntimeGOOS)
 	}
 }
 
@@ -172,7 +173,7 @@ func WriteText(content string) (WriteResult, error) {
 		return WriteResult{}, fmt.Errorf("clipboard content exceeds %d bytes", maxClipboardBytes)
 	}
 
-	switch runtime.GOOS {
+	switch clipboardRuntimeGOOS {
 	case "darwin":
 		return writeCommand("pbcopy", BackendPBCopy, nil, content)
 	case "linux":
@@ -202,7 +203,7 @@ func WriteText(content string) (WriteResult, error) {
 	case "windows":
 		return writeCommand("clip", BackendWindowsClip, nil, content)
 	default:
-		return WriteResult{}, fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
+		return WriteResult{}, fmt.Errorf("clipboard not supported on %s", clipboardRuntimeGOOS)
 	}
 }
 

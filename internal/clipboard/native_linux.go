@@ -40,6 +40,7 @@ var (
 	nativeClipboardRead  = xclipboard.Read
 	nativeClipboardWrite = xclipboard.Write
 	nativeExecutable     = os.Executable
+	nativeTimeout        = nativeOperationTimeout
 )
 
 // openDevNull discards a helper's stderr without the pipe and copier goroutine
@@ -58,7 +59,7 @@ func readBuiltInLinux() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("locating crantcli executable: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), nativeOperationTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), nativeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, executable, NativeReaderCommandName)
 	cmd.Env = procenv.Sanitized()
@@ -84,7 +85,7 @@ func readBuiltInLinux() (string, error) {
 	if readErr != nil {
 		_ = cmd.Wait()
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("clipboard read timed out after %s", nativeOperationTimeout)
+			return "", fmt.Errorf("clipboard read timed out after %s", nativeTimeout)
 		}
 		return "", fmt.Errorf("clipboard reader exited before sending data: %w", readErr)
 	}
@@ -105,13 +106,13 @@ func readBuiltInLinux() (string, error) {
 	if _, err := io.ReadFull(reader, data); err != nil {
 		_ = cmd.Wait()
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("clipboard read timed out after %s", nativeOperationTimeout)
+			return "", fmt.Errorf("clipboard read timed out after %s", nativeTimeout)
 		}
 		return "", fmt.Errorf("reading native clipboard data: %w", err)
 	}
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("clipboard read timed out after %s", nativeOperationTimeout)
+			return "", fmt.Errorf("clipboard read timed out after %s", nativeTimeout)
 		}
 		return "", fmt.Errorf("clipboard reader failed: %w", err)
 	}
@@ -188,7 +189,7 @@ func writeBuiltInLinux(content string) error {
 		return cause
 	}
 
-	timer := time.NewTimer(nativeOperationTimeout)
+	timer := time.NewTimer(nativeTimeout)
 	defer timer.Stop()
 	select {
 	case result := <-response:
@@ -210,7 +211,7 @@ func writeBuiltInLinux(content string) error {
 		}
 		return fail(fmt.Errorf("unexpected clipboard owner response %q", result.line))
 	case <-timer.C:
-		return fail(fmt.Errorf("clipboard owner did not become ready within %s", nativeOperationTimeout))
+		return fail(fmt.Errorf("clipboard owner did not become ready within %s", nativeTimeout))
 	}
 }
 

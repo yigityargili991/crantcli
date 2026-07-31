@@ -22,11 +22,13 @@ func isolateLinuxOpeners(t *testing.T) {
 	previousPrepare := prepareCommandOpenURL
 	previousCommand := runPlatformCommand
 	previousConnect := connectPortalSession
+	previousToken := generateHandoffToken
 	t.Cleanup(func() {
 		openViaPortal = previousPortal
 		prepareCommandOpenURL = previousPrepare
 		runPlatformCommand = previousCommand
 		connectPortalSession = previousConnect
+		generateHandoffToken = previousToken
 	})
 }
 
@@ -117,6 +119,26 @@ func TestPlatformOpenReportsPreparationFailure(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not contain %q", err, want)
 		}
+	}
+}
+
+func TestPlatformOpenStopsAfterPortalCancellation(t *testing.T) {
+	isolateLinuxOpeners(t)
+	openViaPortal = func(string) (OpenResult, error) {
+		return OpenResult{}, errPortalCancelled
+	}
+	prepareCommandOpenURL = func(string) (string, error) {
+		t.Fatal("command fallback was prepared after portal cancellation")
+		return "", nil
+	}
+	runPlatformCommand = func(Backend, string, ...string) (OpenResult, error) {
+		t.Fatal("command fallback ran after portal cancellation")
+		return OpenResult{}, nil
+	}
+
+	_, err := platformOpenURL("https://example.org/")
+	if !errors.Is(err, errPortalCancelled) {
+		t.Fatalf("error = %v, want portal cancellation", err)
 	}
 }
 
@@ -376,6 +398,24 @@ func TestOpenURLViaPortal(t *testing.T) {
 		}
 	})
 
+	t.Run("token failure", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		connection := &fakePortalConnection{}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: &fakePortalObject{}}, nil
+		}
+		generateHandoffToken = func() (string, error) {
+			return "", errors.New("random unavailable")
+		}
+		_, err := openURLViaPortal("https://example.org/")
+		if err == nil || !strings.Contains(err.Error(), "random unavailable") {
+			t.Fatalf("error = %v", err)
+		}
+		if !connection.closed {
+			t.Fatal("connection was not closed")
+		}
+	})
+
 	t.Run("match failure", func(t *testing.T) {
 		isolateLinuxOpeners(t)
 		connection := &fakePortalConnection{addMatchErr: errors.New("match denied")}
@@ -460,4 +500,11 @@ func TestOpenURLViaPortal(t *testing.T) {
 			t.Fatalf("options = %#v", object.options)
 		}
 	})
+}
+
+func TestNewPortalSessionReportsConnectionFailure(t *testing.T) {
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "invalid:")
+	if _, err := newPortalSession(); err == nil {
+		t.Fatal("newPortalSession unexpectedly connected")
+	}
 }

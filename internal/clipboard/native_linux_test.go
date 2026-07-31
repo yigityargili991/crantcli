@@ -58,6 +58,8 @@ func isolateNativeClipboard(t *testing.T) {
 	previousRead := nativeClipboardRead
 	previousWrite := nativeClipboardWrite
 	previousExecutable := nativeExecutable
+	previousTimeout := nativeTimeout
+	previousRuntimeGOOS := clipboardRuntimeGOOS
 	previousLinuxRead := linuxNativeRead
 	previousLinuxWrite := linuxNativeWrite
 	t.Cleanup(func() {
@@ -65,6 +67,8 @@ func isolateNativeClipboard(t *testing.T) {
 		nativeClipboardRead = previousRead
 		nativeClipboardWrite = previousWrite
 		nativeExecutable = previousExecutable
+		nativeTimeout = previousTimeout
+		clipboardRuntimeGOOS = previousRuntimeGOOS
 		linuxNativeRead = previousLinuxRead
 		linuxNativeWrite = previousLinuxWrite
 	})
@@ -233,6 +237,39 @@ func TestReadBuiltInLinuxRejectsInvalidProtocol(t *testing.T) {
 	}
 }
 
+func TestReadBuiltInLinuxProcessFailures(t *testing.T) {
+	t.Run("start failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeExecutable = func() (string, error) {
+			return filepath.Join(t.TempDir(), "missing"), nil
+		}
+		if _, err := readBuiltInLinux(); err == nil || !strings.Contains(err.Error(), "starting clipboard reader") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "header timeout", body: "exec sleep 1"},
+		{name: "data timeout", body: "printf '" + nativeDataPrefix + "5\\n'; exec sleep 1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateNativeClipboard(t)
+			nativeTimeout = 10 * time.Millisecond
+			script := filepath.Join(t.TempDir(), "reader")
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n"+test.body+"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			nativeExecutable = func() (string, error) { return script, nil }
+			if _, err := readBuiltInLinux(); err == nil || !strings.Contains(err.Error(), "timed out") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func TestWriteBuiltInLinuxSelfExecHandshake(t *testing.T) {
 	isolateNativeClipboard(t)
 	dir := t.TempDir()
@@ -298,6 +335,31 @@ func TestWriteBuiltInLinuxRejectsInvalidHandshake(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteBuiltInLinuxProcessFailures(t *testing.T) {
+	t.Run("start failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeExecutable = func() (string, error) {
+			return filepath.Join(t.TempDir(), "missing"), nil
+		}
+		if err := writeBuiltInLinux("state URL"); err == nil || !strings.Contains(err.Error(), "starting clipboard owner") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("handshake timeout", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeTimeout = 10 * time.Millisecond
+		script := filepath.Join(t.TempDir(), "owner")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 1\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		nativeExecutable = func() (string, error) { return script, nil }
+		if err := writeBuiltInLinux("state URL"); err == nil || !strings.Contains(err.Error(), "did not become ready") {
+			t.Fatalf("error = %v", err)
+		}
+	})
 }
 
 func TestNativeClipboardDirectFailures(t *testing.T) {
@@ -542,6 +604,78 @@ func TestLinuxClipboardHighLevelBranches(t *testing.T) {
 		}
 		if args, err := os.ReadFile(argsPath); err != nil || string(args) != "--clear" {
 			t.Fatalf("args = %q, err = %v", args, err)
+		}
+	})
+
+	t.Run("oversized write", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		_, err := WriteText(strings.Repeat("x", maxClipboardBytes+1))
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestClipboardPlatformCommandBranches(t *testing.T) {
+	t.Run("darwin", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		clipboardRuntimeGOOS = "darwin"
+		dir := t.TempDir()
+		copyPath := filepath.Join(dir, "copied")
+		if err := os.WriteFile(filepath.Join(dir, "pbpaste"), []byte("#!/bin/sh\nprintf 'darwin value\\n'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pbcopy"), []byte("#!/bin/sh\n/bin/cat >\"$CRANTCLI_TEST_COPY\"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("CRANTCLI_TEST_COPY", copyPath)
+
+		read, err := ReadText()
+		if err != nil || read.Text != "darwin value" || read.Backend != BackendPBPaste {
+			t.Fatalf("ReadText = (%#v, %v)", read, err)
+		}
+		write, err := WriteText("darwin copy")
+		if err != nil || write.Backend != BackendPBCopy {
+			t.Fatalf("WriteText = (%#v, %v)", write, err)
+		}
+		if copied, err := os.ReadFile(copyPath); err != nil || string(copied) != "darwin copy" {
+			t.Fatalf("copied = %q, err = %v", copied, err)
+		}
+	})
+
+	t.Run("windows", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		clipboardRuntimeGOOS = "windows"
+		dir := t.TempDir()
+		copyPath := filepath.Join(dir, "copied")
+		if err := os.WriteFile(filepath.Join(dir, "powershell"), []byte("#!/bin/sh\nprintf 'windows value\\n'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "clip"), []byte("#!/bin/sh\n/bin/cat >\"$CRANTCLI_TEST_COPY\"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		t.Setenv("CRANTCLI_TEST_COPY", copyPath)
+
+		read, err := ReadText()
+		if err != nil || read.Text != "windows value" || read.Backend != BackendPowerShell {
+			t.Fatalf("ReadText = (%#v, %v)", read, err)
+		}
+		write, err := WriteText("windows copy")
+		if err != nil || write.Backend != BackendWindowsClip {
+			t.Fatalf("WriteText = (%#v, %v)", write, err)
+		}
+	})
+
+	t.Run("unsupported", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		clipboardRuntimeGOOS = "plan9"
+		if _, err := ReadText(); err == nil || !strings.Contains(err.Error(), "plan9") {
+			t.Fatalf("ReadText error = %v", err)
+		}
+		if _, err := WriteText("value"); err == nil || !strings.Contains(err.Error(), "plan9") {
+			t.Fatalf("WriteText error = %v", err)
 		}
 	})
 }

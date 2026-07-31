@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,7 +20,26 @@ import (
 // staged through a private local redirect file instead. A URL the platform
 // cannot carry intact -- one whose quotes Windows would escape into the URL
 // itself -- is staged the same way regardless of length.
-var prepareCommandOpenURL = commandOpenURL
+var (
+	prepareCommandOpenURL  = commandOpenURL
+	generateHandoffToken   = handoffToken
+	handoffRandomRead      = rand.Read
+	handoffUserCacheDir    = os.UserCacheDir
+	handoffTempDir         = os.TempDir
+	makeHandoffDirs        = os.MkdirAll
+	secureHandoffDir       = os.Chmod
+	openBrowserHandoffFile = openHandoffFile
+)
+
+type browserHandoffFile interface {
+	io.StringWriter
+	Sync() error
+	Close() error
+}
+
+func openHandoffFile(path string) (browserHandoffFile, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
 
 // handoffLifetime bounds how long a staged redirect file is kept.
 const handoffLifetime = 24 * time.Hour
@@ -38,20 +58,17 @@ func commandOpenURL(rawURL string) (string, error) {
 	}
 	removeStaleHandoffs(dir)
 
-	token, err := handoffToken()
+	token, err := generateHandoffToken()
 	if err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, token+".html")
-	encodedURL, err := json.Marshal(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("encoding browser handoff URL: %w", err)
-	}
+	encodedURL, _ := json.Marshal(rawURL) // marshaling a string cannot fail
 	html := "<!doctype html><meta charset=utf-8>" +
 		"<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'\">" +
 		"<title>Opening Neuroglancer</title><script>location.replace(" + string(encodedURL) + ")</script>" +
 		"<noscript>JavaScript is required for this local Neuroglancer handoff.</noscript>\n"
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := openBrowserHandoffFile(path)
 	if err != nil {
 		return "", fmt.Errorf("creating browser handoff: %w", err)
 	}
@@ -73,26 +90,26 @@ func commandOpenURL(rawURL string) (string, error) {
 }
 
 func handoffDir() (string, error) {
-	cacheRoot, cacheErr := os.UserCacheDir()
+	cacheRoot, cacheErr := handoffUserCacheDir()
+	var dir string
 	if cacheErr != nil || cacheRoot == "" {
-		dir, err := os.MkdirTemp("", "crantcli-browser-handoffs-*")
-		if err != nil {
-			return "", fmt.Errorf("creating temporary browser handoff directory: %w", err)
-		}
-		return dir, nil
+		// Keep the fallback stable so later sweeps can rediscover staged state.
+		// The same symlink/type checks and 0700 mode enforcement below apply.
+		dir = filepath.Join(handoffTempDir(), "crantcli-browser-handoffs")
+	} else {
+		dir = filepath.Join(cacheRoot, "crantcli", "browser-handoffs")
 	}
 
-	dir := filepath.Join(cacheRoot, "crantcli", "browser-handoffs")
 	if info, err := os.Lstat(dir); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return "", fmt.Errorf("browser handoff path %s is not a private directory", dir)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("checking browser handoff directory: %w", err)
-	} else if err := os.MkdirAll(dir, 0o700); err != nil {
+	} else if err := makeHandoffDirs(dir, 0o700); err != nil {
 		return "", fmt.Errorf("creating browser handoff directory: %w", err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := secureHandoffDir(dir, 0o700); err != nil {
 		return "", fmt.Errorf("securing browser handoff directory: %w", err)
 	}
 	return dir, nil
@@ -139,7 +156,7 @@ func fileURL(path string) string {
 // and as an XDG portal handle_token, which admits only [A-Za-z0-9_].
 func handoffToken() (string, error) {
 	var random [12]byte
-	if _, err := rand.Read(random[:]); err != nil {
+	if _, err := handoffRandomRead(random[:]); err != nil {
 		return "", fmt.Errorf("generating browser handoff token: %w", err)
 	}
 	return "crantcli_" + strings.ToLower(hex.EncodeToString(random[:])), nil

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,8 +11,47 @@ import (
 	"testing"
 	"time"
 
+	"crantcli/internal/clipboard"
 	"crantcli/internal/seatable"
 )
+
+func TestDeliverRootIDs(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		copyResult clipboard.WriteResult
+		copyErr    error
+		wantStatus string
+	}{
+		{
+			name:       "clipboard success",
+			copyResult: clipboard.WriteResult{Backend: clipboard.BackendWLCopy},
+			wantStatus: "copied root IDs via wl-copy",
+		},
+		{
+			name:       "clipboard failure is warning",
+			copyErr:    errors.New("headless"),
+			wantStatus: "clipboard copy failed: headless",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			var copied string
+			err := deliverRootIDs([]string{"100", "200"}, &stdout, &stderr, func(value string) (clipboard.WriteResult, error) {
+				copied = value
+				return test.copyResult, test.copyErr
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout.String() != "100\n200\n" || copied != "100\n200" {
+				t.Fatalf("stdout = %q, copied = %q", stdout.String(), copied)
+			}
+			if !strings.Contains(stderr.String(), test.wantStatus) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), test.wantStatus)
+			}
+		})
+	}
+}
 
 func TestResolveAddRegionFilters(t *testing.T) {
 	t.Run("multiple bundles alias regions", func(t *testing.T) {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -251,18 +252,7 @@ func init() {
 
 		// Root IDs only mode
 		if addRootIDsOnly {
-			joined := strings.Join(allRootIDs, "\n")
-			fmt.Println(joined)
-			copyResult, err := clipboard.WriteText(joined)
-			if err != nil {
-				// The IDs already reached stdout, so this command succeeded.
-				// Failing here would break piping on headless and CI machines,
-				// where the clipboard is never available.
-				fmt.Fprintf(os.Stderr, "Warning: root IDs were printed, but clipboard copy failed: %v\n", err)
-				return nil
-			}
-			fmt.Fprintf(os.Stderr, "Clipboard: copied root IDs via %s\n", copyResult.Backend)
-			return nil
+			return deliverRootIDs(allRootIDs, os.Stdout, os.Stderr, clipboard.WriteText)
 		}
 
 		// Load state
@@ -298,6 +288,20 @@ func init() {
 	}
 
 	rootCmd.AddCommand(addCmd)
+}
+
+func deliverRootIDs(rootIDs []string, stdout, stderr io.Writer, copyText func(string) (clipboard.WriteResult, error)) error {
+	joined := strings.Join(rootIDs, "\n")
+	fmt.Fprintln(stdout, joined)
+	copyResult, err := copyText(joined)
+	if err != nil {
+		// The IDs already reached stdout, so this command succeeded. Failing
+		// here would break piping on headless and CI machines.
+		fmt.Fprintf(stderr, "Warning: root IDs were printed, but clipboard copy failed: %v\n", err)
+		return nil
+	}
+	fmt.Fprintf(stderr, "Clipboard: copied root IDs via %s\n", copyResult.Backend)
+	return nil
 }
 
 func extractRootIDs(rows []seatable.NeuronRow) []string {

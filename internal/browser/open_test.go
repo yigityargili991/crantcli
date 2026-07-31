@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCappedOpenerOutput(t *testing.T) {
@@ -30,6 +31,28 @@ func TestOpenURLRejectsInvalidValues(t *testing.T) {
 	}
 	if err := OpenURL(""); err == nil {
 		t.Error("OpenURL(\"\") unexpectedly succeeded")
+	}
+}
+
+func TestOpenURLUsesPlatformBackend(t *testing.T) {
+	previousPlatform := openPlatform
+	openPlatform = func(rawURL string) (OpenResult, error) {
+		if rawURL != "https://example.org/state" {
+			t.Fatalf("raw URL = %q", rawURL)
+		}
+		return OpenResult{Backend: BackendGIO}, nil
+	}
+	t.Cleanup(func() { openPlatform = previousPlatform })
+
+	if err := OpenURL("https://example.org/state"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := OpenURLWithResult("https://example.org/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Backend != BackendGIO {
+		t.Fatalf("backend = %q", result.Backend)
 	}
 }
 
@@ -76,6 +99,16 @@ func TestRunOpenCommand(t *testing.T) {
 		_, err := runOpenCommand(BackendGIO, writeScript(t, "exit 9"))
 		if err == nil || strings.Contains(err.Error(), "desktop unavailable") {
 			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+		previousTimeout := openCommandTimeout
+		openCommandTimeout = time.Millisecond
+		t.Cleanup(func() { openCommandTimeout = previousTimeout })
+		_, err := runOpenCommand(BackendGIO, writeScript(t, "exec sleep 1"))
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("error = %v, want timeout", err)
 		}
 	})
 }
