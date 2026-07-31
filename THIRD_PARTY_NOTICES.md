@@ -6,7 +6,7 @@ The `crantcli` release binaries include the following third-party software:
 | --- | --- | --- |
 | Go runtime and standard library | 1.25.5 | BSD 3-Clause and Go patent grant |
 | `github.com/spf13/cobra` | 1.10.2 | Apache License 2.0 |
-| `github.com/spf13/pflag` | 1.0.9 | BSD 3-Clause |
+| `github.com/spf13/pflag` | 1.0.10 | BSD 3-Clause |
 | `github.com/inconshreveable/mousetrap` | 1.1.0 | Apache License 2.0 |
 | `github.com/zalando/go-keyring` | 0.2.8 | MIT |
 | `github.com/danieljoos/wincred` | 1.2.3 | MIT |
@@ -15,19 +15,35 @@ The `crantcli` release binaries include the following third-party software:
 | `github.com/ebitengine/purego` | 0.10.1 | Apache License 2.0 |
 | `github.com/godbus/dbus/v5` | 5.2.2 | BSD 2-Clause |
 | `golang.org/x/exp/shiny` | 0.0.0-20250606033433-dcc06ee1d476 | BSD 3-Clause |
-| `golang.org/x/image` | 0.28.0 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/image` | 0.41.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/mobile` | 0.0.0-20250606033058-a2a15c67f36f | BSD 3-Clause and Go patent grant |
 | `golang.org/x/mod` | 0.38.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/sys` | 0.44.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/term` | 0.39.0 | BSD 3-Clause and Go patent grant |
+
+Version 0.17.1 also embeds Sigstore verification. Its runtime dependency
+inventory is listed below; exact module versions are recorded in `go.mod`
+and `go.sum`.
+
+| Component family | Modules | License |
+| --- | --- | --- |
+| Sigstore | `github.com/sigstore/sigstore-go`, `github.com/sigstore/sigstore`, `github.com/sigstore/rekor`, `github.com/sigstore/rekor-tiles/v2`, `github.com/sigstore/protobuf-specs`, `github.com/sigstore/timestamp-authority/v2` | Apache License 2.0 |
+| Supply-chain metadata and transparency | `github.com/theupdateframework/go-tuf/v2`, `github.com/secure-systems-lab/go-securesystemslib`, `github.com/in-toto/attestation`, `github.com/in-toto/in-toto-golang`, `github.com/transparency-dev/formats`, `github.com/transparency-dev/merkle`, `github.com/google/certificate-transparency-go` | Apache License 2.0 and MIT |
+| OpenAPI | `github.com/go-openapi/analysis`, `errors`, `jsonpointer`, `jsonreference`, `loads`, `runtime`, `spec`, `strfmt`, `swag` and its submodules, `validate` | Apache License 2.0; MIT for `runtime/middleware/denco` |
+| Cryptography and formats | `github.com/cyberphone/json-canonicalization`, `github.com/digitorus/pkcs7`, `github.com/digitorus/timestamp`, `github.com/opencontainers/go-digest`, `go.yaml.in/yaml/v3`, `golang.org/x/crypto` | Apache License 2.0, MIT, BSD 2-Clause, and BSD 3-Clause |
+| RPC and serialization | `github.com/grpc-ecosystem/grpc-gateway/v2`, `google.golang.org/genproto/googleapis/api`, `google.golang.org/genproto/googleapis/rpc`, `google.golang.org/grpc`, `google.golang.org/protobuf` | Apache License 2.0 and BSD 3-Clause |
+| Telemetry and storage | `go.opentelemetry.io/auto/sdk`, `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/metric`, `go.opentelemetry.io/otel/trace`, `go.mongodb.org/mongo-driver` | Apache License 2.0 |
+| Supporting libraries | `github.com/asaskevich/govalidator`, `github.com/blang/semver`, `github.com/cenkalti/backoff/v5`, `github.com/cpuguy83/go-md2man/v2`, `github.com/go-logr/logr`, `github.com/go-logr/stdr`, `github.com/go-viper/mapstructure/v2`, `github.com/google/go-containerregistry`, `github.com/google/uuid`, `github.com/oklog/ulid`, `github.com/pkg/errors`, `github.com/russross/blackfriday/v2`, `github.com/shibumi/go-pathspec` | Apache License 2.0, MIT, BSD 2-Clause, and BSD 3-Clause |
+| Go supplementary libraries | `golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/sync`, `golang.org/x/sys`, `golang.org/x/text` | BSD 3-Clause and Go patent grant |
 
 The applicable license and attribution texts follow.
 
 ## Apache License 2.0
 
 Applies to `github.com/spf13/cobra`,
-`github.com/inconshreveable/mousetrap`, and
-`github.com/ebitengine/purego`.
+`github.com/inconshreveable/mousetrap`,
+`github.com/ebitengine/purego`, and the components identified as Apache
+License 2.0 in the embedded-verifier inventory above.
 
 Copyright 2022 Alan Shreve (@inconshreveable)
 
@@ -233,6 +249,44 @@ Copyright 2022 Alan Shreve (@inconshreveable)
    See the License for the specific language governing permissions and
    limitations under the License.
 
+## MIT License (embedded verifier dependencies)
+
+Applies to the MIT-licensed embedded-verifier dependencies identified above.
+
+Copyright (c) 2014-2020 Alex Saskevich
+
+Copyright (c) 2014 Benedikt Lang <github at benediktlang.de>
+
+Copyright (c) 2014 Cenk Altı
+
+Copyright (c) 2014 Brian Goff
+
+Copyright (c) 2015 Andrew Smith
+
+Copyright (c) 2014 Naoya Inada <naoina@kuune.org>
+
+Copyright (c) 2013 Mitchell Hashimoto
+
+Copyright (c) 2021 NYU Secure Systems Lab
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## MIT License (`github.com/zalando/go-keyring`)
 
 Copyright (c) 2016 Zalando SE
@@ -298,6 +352,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Embedded verifier attribution notices
+
+Copyright 2015-2025 go-swagger maintainers. The `go-openapi` libraries include
+software developed by the go-swagger and go-openapi maintainers and software
+originally authored in 2013 by sigu-399.
+
+Copyright 2011-2016 Canonical Ltd. (`go.yaml.in/yaml/v3`)
+
+Copyright 2014 gRPC authors. (`google.golang.org/grpc`)
 
 ## BSD 3-Clause License (`github.com/spf13/pflag`)
 
@@ -392,9 +456,18 @@ infringement, or inducement of patent infringement, then any patent
 rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
-## BSD 2-Clause License (`github.com/godbus/dbus/v5`)
+## BSD 2-Clause License
+
+Applies to `github.com/godbus/dbus/v5`, `github.com/digitorus/timestamp`,
+`github.com/pkg/errors`, and `github.com/russross/blackfriday/v2`.
 
 Copyright (c) 2013, Georg Reinke (<guelfey at gmail dot com>), Google
+
+Copyright (c) 2017, Digitorus B.V.
+
+Copyright (c) 2015, Dave Cheney <dave@cheney.net>
+
+Copyright (c) 2011 Russ Ross
 
 All rights reserved.
 

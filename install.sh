@@ -174,10 +174,21 @@ else
 	log "Verified checksum for $asset"
 fi
 
-# Updates set CRANTCLI_REQUIRE_SIGNATURE=1 and fail closed unless the binary's
-# keyless signature bundle can be authenticated. Direct installs retain the
-# checksum-only fallback for older releases and environments without cosign.
-if command_exists cosign; then
+# Updates provide the running crantcli binary as a trusted verifier and fail
+# closed unless it authenticates the new binary. Direct installs retain the
+# optional cosign check and checksum-only fallback.
+if [ -n "${CRANTCLI_VERIFY_BINARY:-}" ]; then
+	bundle_url="$release_base/$asset.bundle.json"
+	if ! download "$bundle_url" "$tmp_dir/$asset.bundle.json"; then
+		die "could not download the Sigstore bundle for $asset; refusing an unauthenticated update"
+	fi
+	if "$CRANTCLI_VERIFY_BINARY" __verify-release \
+		"$tmp_dir/$asset" "$tmp_dir/$asset.bundle.json"; then
+		log "Verified Sigstore signature for $asset"
+	else
+		die "Sigstore signature verification failed for $asset"
+	fi
+elif command_exists cosign; then
 	bundle_url="$release_base/$asset.sigstore.json"
 	if download_optional "$bundle_url" "$tmp_dir/$asset.sigstore.json"; then
 		if cosign verify-blob --bundle "$tmp_dir/$asset.sigstore.json" \
@@ -194,7 +205,7 @@ if command_exists cosign; then
 		warn "no cosign signature bundle found for $version; relying on checksum verification"
 	fi
 elif [ "${CRANTCLI_REQUIRE_SIGNATURE:-}" = "1" ]; then
-	die "cosign is required to authenticate update binaries"
+	die "the running crantcli verifier is required to authenticate update binaries"
 else
 	warn "cosign not installed; relying on checksum verification (install cosign for signature verification)"
 fi

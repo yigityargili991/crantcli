@@ -7,6 +7,7 @@ fixtures="$test_root/fixtures"
 fake_bin="$test_root/bin"
 download_log="$test_root/downloads.log"
 cosign_log="$test_root/cosign.log"
+verifier_log="$test_root/verifier.log"
 
 cleanup() {
 	rm -rf "$test_root"
@@ -50,6 +51,7 @@ write_checksums
 for asset_path in "$fixtures"/crant_type_look-*; do
 	asset=${asset_path##*/}
 	printf '{"fixture":"%s"}\n' "$asset" >"$fixtures/$asset.sigstore.json"
+	printf '{"fixture":"%s"}\n' "$asset" >"$fixtures/$asset.bundle.json"
 done
 
 cat >"$fake_bin/uname" <<'EOF'
@@ -93,7 +95,13 @@ printf '%s\n' "$*" >>"$CRANTCLI_TEST_COSIGN_LOG"
 test "${CRANTCLI_TEST_COSIGN_FAIL:-0}" != "1"
 EOF
 
-chmod 0755 "$fake_bin/uname" "$fake_bin/curl" "$fake_bin/cosign"
+cat >"$fake_bin/crantcli-verifier" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$CRANTCLI_TEST_VERIFIER_LOG"
+test "${CRANTCLI_TEST_VERIFIER_FAIL:-0}" != "1"
+EOF
+
+chmod 0755 "$fake_bin/uname" "$fake_bin/curl" "$fake_bin/cosign" "$fake_bin/crantcli-verifier"
 
 run_install() {
 	system=$1
@@ -101,20 +109,28 @@ run_install() {
 	expected_os=$3
 	expected_arch=$4
 	version=$5
+	verification_mode=${6:-cosign}
+	verifier=""
+	if [ "$verification_mode" = builtin ]; then
+		verifier="$fake_bin/crantcli-verifier"
+	fi
 	install_dir="$test_root/install-$expected_os-$expected_arch"
 	mkdir -p "$install_dir"
 	printf '%s\n' "old fixture" >"$install_dir/crantcli"
 	: >"$download_log"
 	: >"$cosign_log"
+	: >"$verifier_log"
 
 	CRANTCLI_TEST_UNAME_S=$system \
 	CRANTCLI_TEST_UNAME_M=$machine \
 	CRANTCLI_TEST_FIXTURES=$fixtures \
 	CRANTCLI_TEST_DOWNLOAD_LOG=$download_log \
 	CRANTCLI_TEST_COSIGN_LOG=$cosign_log \
+	CRANTCLI_TEST_VERIFIER_LOG=$verifier_log \
 	CRANTCLI_INSTALL_DIR=$install_dir \
 	CRANTCLI_VERSION=$version \
 	CRANTCLI_REQUIRE_SIGNATURE= \
+	CRANTCLI_VERIFY_BINARY=$verifier \
 	CRANTCLI_GITHUB_TOKEN= \
 	PATH="$fake_bin:$PATH" \
 	sh "$repository_root/install.sh"
@@ -131,16 +147,25 @@ run_install() {
 	fi
 	grep -F "$release_path" "$download_log" >/dev/null ||
 		fail "installer used the wrong release URL for $version"
-	grep -F -- "--certificate-oidc-issuer https://token.actions.githubusercontent.com" "$cosign_log" >/dev/null ||
-		fail "installer did not constrain the signature issuer"
-	grep -F -- "--certificate-identity-regexp ^https://github\\.com/yigityargili991/crantcli/\\.github/workflows/release\\.yml@refs/tags/v[^/]+$" "$cosign_log" >/dev/null ||
-		fail "installer did not constrain the signing workflow identity"
+	if [ "$verification_mode" = builtin ]; then
+		grep -F -- "__verify-release" "$verifier_log" >/dev/null ||
+			fail "installer did not invoke the built-in verifier"
+		grep -F -- "$asset.bundle.json" "$download_log" >/dev/null ||
+			fail "installer did not download the standardized bundle"
+		test ! -s "$cosign_log" || fail "installer invoked cosign despite a built-in verifier"
+	else
+		grep -F -- "--certificate-oidc-issuer https://token.actions.githubusercontent.com" "$cosign_log" >/dev/null ||
+			fail "installer did not constrain the signature issuer"
+		grep -F -- "--certificate-identity-regexp ^https://github\\.com/yigityargili991/crantcli/\\.github/workflows/release\\.yml@refs/tags/v[^/]+$" "$cosign_log" >/dev/null ||
+			fail "installer did not constrain the signing workflow identity"
+	fi
 }
 
 run_install Linux x86_64 linux amd64 latest
 run_install Linux aarch64 linux arm64 v1.2.3
 run_install Darwin x86_64 darwin amd64 latest
 run_install Darwin arm64 darwin arm64 v1.2.3
+run_install Linux x86_64 linux amd64 latest builtin
 
 cp "$fixtures/checksums.txt" "$test_root/checksums.good"
 awk '{ print "0000000000000000000000000000000000000000000000000000000000000000  " $2 }' \
@@ -184,6 +209,51 @@ test ! -e "$signature_install_dir/crantcli" ||
 	fail "installer copied a binary after signature verification failed"
 grep -F "cosign signature verification failed" "$test_root/signature.out" >/dev/null ||
 	fail "signature failure did not report the verification error"
+
+builtin_signature_install_dir="$test_root/builtin-signature-failure"
+if CRANTCLI_TEST_UNAME_S=Linux \
+	CRANTCLI_TEST_UNAME_M=x86_64 \
+	CRANTCLI_TEST_FIXTURES=$fixtures \
+	CRANTCLI_TEST_DOWNLOAD_LOG=$download_log \
+	CRANTCLI_TEST_VERIFIER_LOG=$verifier_log \
+	CRANTCLI_TEST_VERIFIER_FAIL=1 \
+	CRANTCLI_INSTALL_DIR=$builtin_signature_install_dir \
+	CRANTCLI_VERSION=latest \
+	CRANTCLI_REQUIRE_SIGNATURE=1 \
+	CRANTCLI_VERIFY_BINARY="$fake_bin/crantcli-verifier" \
+	CRANTCLI_GITHUB_TOKEN= \
+	PATH="$fake_bin:$PATH" \
+	sh "$repository_root/install.sh" >"$test_root/builtin-signature.out" 2>&1; then
+	fail "installer accepted a signature rejected by the built-in verifier"
+fi
+test ! -e "$builtin_signature_install_dir/crantcli" ||
+	fail "installer copied a binary after built-in signature verification failed"
+grep -F "Sigstore signature verification failed" "$test_root/builtin-signature.out" >/dev/null ||
+	fail "built-in signature failure did not report the verification error"
+
+required_standard_bundle="$fixtures/crant_type_look-linux-amd64.bundle.json"
+saved_standard_bundle="$test_root/crant_type_look-linux-amd64.bundle.json"
+mv "$required_standard_bundle" "$saved_standard_bundle"
+missing_standard_bundle_dir="$test_root/missing-standard-bundle-failure"
+if CRANTCLI_TEST_UNAME_S=Linux \
+	CRANTCLI_TEST_UNAME_M=x86_64 \
+	CRANTCLI_TEST_FIXTURES=$fixtures \
+	CRANTCLI_TEST_DOWNLOAD_LOG=$download_log \
+	CRANTCLI_INSTALL_DIR=$missing_standard_bundle_dir \
+	CRANTCLI_VERSION=latest \
+	CRANTCLI_REQUIRE_SIGNATURE=1 \
+	CRANTCLI_VERIFY_BINARY="$fake_bin/crantcli-verifier" \
+	CRANTCLI_GITHUB_TOKEN= \
+	PATH="$fake_bin:$PATH" \
+	sh "$repository_root/install.sh" >"$test_root/missing-standard-bundle.out" 2>&1; then
+	mv "$saved_standard_bundle" "$required_standard_bundle"
+	fail "update mode accepted a binary without a standardized bundle"
+fi
+mv "$saved_standard_bundle" "$required_standard_bundle"
+test ! -e "$missing_standard_bundle_dir/crantcli" ||
+	fail "installer copied a binary without its required standardized bundle"
+grep -F "refusing an unauthenticated update" "$test_root/missing-standard-bundle.out" >/dev/null ||
+	fail "missing standardized bundle did not report a fail-closed error"
 
 required_bundle="$fixtures/crant_type_look-linux-amd64.sigstore.json"
 saved_bundle="$test_root/crant_type_look-linux-amd64.sigstore.json"

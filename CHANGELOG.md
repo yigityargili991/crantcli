@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.17.1 - 2026-07-31
+
+### Fixed
+
+- Authenticate release installers and binaries with the production-ready
+  Sigstore Go verifier built into crantcli, removing the external Cosign
+  dependency from updates. Transitional legacy bundles remain published so
+  v0.17.0 clients can still reach this release.
+
 ## v0.17.0 - 2026-07-31
 
 ### Added
