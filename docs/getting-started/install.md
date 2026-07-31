@@ -78,6 +78,28 @@ irm https://raw.githubusercontent.com/yigityargili991/crantcli/main/install.ps1 
 
 Replace `vX.Y.Z` with a tag from the [Releases page](https://github.com/yigityargili991/crantcli/releases).
 
+### Managed Windows and Defender ASR
+
+On company-, university-, or otherwise centrally managed Windows, the install
+usually completes but the command fails on first run:
+
+```
+Program 'crantcli.exe' failed to run: Access is denied
+```
+
+This is not a file permission problem, and reinstalling does not fix it. It
+comes from the Microsoft Defender Attack Surface Reduction rule *Block
+executable files from running unless they meet a prevalence, age, or trusted
+list criterion* (`c1db55ab-c21a-4637-bb3f-a12568109d35`). Released crantcli
+binaries are unsigned and downloaded by few enough people to have no
+established reputation, so the rule blocks them. Because the block follows the
+file rather than its location, copying the binary elsewhere or installing to a
+different directory changes nothing.
+
+See [Troubleshooting](../help/troubleshooting.md#windows-reports-access-is-denied)
+for how to confirm the diagnosis and what to do about it. Building from source
+is the reliable workaround: locally compiled binaries are unaffected.
+
 ## Updating
 
 `crantcli update` verifies the downloaded installer and binary with Sigstore

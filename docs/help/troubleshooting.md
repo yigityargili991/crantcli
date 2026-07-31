@@ -23,6 +23,65 @@ For a manually downloaded release:
 xattr -d com.apple.quarantine "$(which crantcli)"
 ```
 
+## Windows reports `Access is denied`
+
+On managed Windows, an install that reported success can still fail on first
+run:
+
+```
+Program 'crantcli.exe' failed to run: Access is denied
+```
+
+The file is present and readable, and your account owns it. The block comes
+from the Microsoft Defender Attack Surface Reduction rule *Block executable
+files from running unless they meet a prevalence, age, or trusted list
+criterion* (`c1db55ab-c21a-4637-bb3f-a12568109d35`), which organisations
+commonly enforce. Released binaries are unsigned and have too little download
+volume to earn a cloud reputation, so they fail the rule's criteria.
+
+Confirm it by looking for a matching block event:
+
+```powershell
+Get-WinEvent -FilterHashtable @{
+  LogName   = 'Microsoft-Windows-Windows Defender/Operational'
+  Id        = 1121
+  StartTime = (Get-Date).AddHours(-1)
+} | Select-Object -First 5 TimeCreated, Message
+```
+
+An event naming `crantcli.exe` and rule ID `C1DB55AB-...` confirms the
+diagnosis. To check whether your organisation enforces the rule, where `1`
+means block and `0` means off:
+
+```powershell
+Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR\Rules'
+```
+
+The block attaches to the downloaded file itself, not to a directory, so
+reinstalling, moving the binary, or setting `CRANTCLI_INSTALL_DIR` will not
+help. Two things do:
+
+**Build from source.** Locally compiled binaries are not subject to the rule
+and run normally, including from the standard install directory. See
+[Build from source](../getting-started/install.md#build-from-source).
+
+**Ask for an exclusion.** Because the rule is applied by policy, your IT
+administrators have to exclude the install path. With local administrator
+rights you can try it yourself:
+
+```powershell
+Add-MpPreference -AttackSurfaceReductionOnlyExclusions "$env:LOCALAPPDATA\Programs\crantcli\crantcli.exe"
+```
+
+Policy settings can be configured to ignore locally added exclusions, in which
+case only an administrator-side change works.
+
+!!! note "Multiple installed copies"
+    If an older crantcli is still on `PATH`, a blocked new install can be
+    masked by the old binary running instead — `crantcli --version` then
+    reports a stale version rather than failing. List every copy with
+    `Get-Command crantcli -All`.
+
 ## No SeaTable token is configured
 
 Run interactive setup:
