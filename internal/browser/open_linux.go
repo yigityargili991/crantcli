@@ -13,11 +13,12 @@ import (
 )
 
 const (
-	portalDestination = "org.freedesktop.portal.Desktop"
-	portalPath        = dbus.ObjectPath("/org/freedesktop/portal/desktop")
-	portalOpenURI     = "org.freedesktop.portal.OpenURI.OpenURI"
-	portalResponse    = "org.freedesktop.portal.Request.Response"
-	portalTimeout     = 15 * time.Second
+	portalDestination  = "org.freedesktop.portal.Desktop"
+	portalPath         = dbus.ObjectPath("/org/freedesktop/portal/desktop")
+	portalOpenURI      = "org.freedesktop.portal.OpenURI.OpenURI"
+	portalResponse     = "org.freedesktop.portal.Request.Response"
+	portalRequestClose = "org.freedesktop.portal.Request.Close"
+	portalTimeout      = 15 * time.Second
 
 	// MAX_ARG_STRLEN caps a single exec argument at 128 KiB on Linux. Leave
 	// headroom and hand anything larger to the command openers through a
@@ -25,9 +26,15 @@ const (
 	maxSafeOpenArgument = 96 << 10
 )
 
-var openViaPortal = openURLViaPortal
+var (
+	openViaPortal        = openURLViaPortal
+	portalRequestTimeout = portalTimeout
+)
 
-var errPortalCancelled = errors.New("portal request was cancelled")
+var (
+	errPortalCancelled      = errors.New("portal request was cancelled")
+	errPortalFallbackUnsafe = errors.New("portal request could not be safely abandoned")
+)
 
 type portalConnection interface {
 	Close() error
@@ -72,7 +79,7 @@ func platformOpenURL(rawURL string) (OpenResult, error) {
 	var failures []error
 	if result, err := openViaPortal(rawURL); err == nil {
 		return result, nil
-	} else if errors.Is(err, errPortalCancelled) {
+	} else if errors.Is(err, errPortalCancelled) || errors.Is(err, errPortalFallbackUnsafe) {
 		return OpenResult{}, err
 	} else {
 		failures = append(failures, fmt.Errorf("XDG desktop portal: %w", err))
@@ -121,7 +128,7 @@ func openURLViaPortal(rawURL string) (OpenResult, error) {
 		options["activation_token"] = dbus.MakeVariant(activationToken)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), portalTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), portalRequestTimeout)
 	defer cancel()
 
 	signals := make(chan *dbus.Signal, 4)
@@ -139,13 +146,27 @@ func openURLViaPortal(rawURL string) (OpenResult, error) {
 
 	var requestPath dbus.ObjectPath
 	if err := object.CallWithContext(ctx, portalOpenURI, 0, "", rawURL, options).Store(&requestPath); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return OpenResult{}, fmt.Errorf("%w: request timed out before returning a handle", errPortalFallbackUnsafe)
+		}
 		return OpenResult{}, fmt.Errorf("requesting URL open: %w", err)
 	}
 	if !requestPath.IsValid() {
 		return OpenResult{}, fmt.Errorf("portal returned invalid request path %q", requestPath)
 	}
 
-	return waitForPortalResponse(ctx, signals, requestPath)
+	result, err := waitForPortalResponse(ctx, signals, requestPath)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		return result, err
+	}
+
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelClose()
+	if closeErr := conn.Object(portalDestination, requestPath).
+		CallWithContext(closeCtx, portalRequestClose, 0).Err; closeErr != nil {
+		return OpenResult{}, fmt.Errorf("%w: closing timed-out request: %v", errPortalFallbackUnsafe, closeErr)
+	}
+	return OpenResult{}, err
 }
 
 func waitForPortalResponse(ctx context.Context, signals <-chan *dbus.Signal, requestPath dbus.ObjectPath) (OpenResult, error) {
@@ -174,7 +195,7 @@ func waitForPortalResponse(ctx context.Context, signals <-chan *dbus.Signal, req
 				return OpenResult{}, fmt.Errorf("request failed with status %d", status)
 			}
 		case <-ctx.Done():
-			return OpenResult{}, fmt.Errorf("request did not complete within %s", portalTimeout)
+			return OpenResult{}, fmt.Errorf("request did not complete: %w", ctx.Err())
 		}
 	}
 }

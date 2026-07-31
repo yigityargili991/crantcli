@@ -24,6 +24,7 @@ func isolateLinuxOpeners(t *testing.T) {
 	previousConnect := connectPortalSession
 	previousBus := connectPortalBus
 	previousToken := generateHandoffToken
+	previousTimeout := portalRequestTimeout
 	t.Cleanup(func() {
 		openViaPortal = previousPortal
 		prepareCommandOpenURL = previousPrepare
@@ -31,6 +32,7 @@ func isolateLinuxOpeners(t *testing.T) {
 		connectPortalSession = previousConnect
 		connectPortalBus = previousBus
 		generateHandoffToken = previousToken
+		portalRequestTimeout = previousTimeout
 	})
 }
 
@@ -124,23 +126,27 @@ func TestPlatformOpenReportsPreparationFailure(t *testing.T) {
 	}
 }
 
-func TestPlatformOpenStopsAfterPortalCancellation(t *testing.T) {
-	isolateLinuxOpeners(t)
-	openViaPortal = func(string) (OpenResult, error) {
-		return OpenResult{}, errPortalCancelled
-	}
-	prepareCommandOpenURL = func(string) (string, error) {
-		t.Fatal("command fallback was prepared after portal cancellation")
-		return "", nil
-	}
-	runPlatformCommand = func(Backend, string, ...string) (OpenResult, error) {
-		t.Fatal("command fallback ran after portal cancellation")
-		return OpenResult{}, nil
-	}
+func TestPlatformOpenStopsAfterTerminalPortalErrors(t *testing.T) {
+	for _, portalErr := range []error{errPortalCancelled, errPortalFallbackUnsafe} {
+		t.Run(portalErr.Error(), func(t *testing.T) {
+			isolateLinuxOpeners(t)
+			openViaPortal = func(string) (OpenResult, error) {
+				return OpenResult{}, portalErr
+			}
+			prepareCommandOpenURL = func(string) (string, error) {
+				t.Fatal("command fallback was prepared after terminal portal error")
+				return "", nil
+			}
+			runPlatformCommand = func(Backend, string, ...string) (OpenResult, error) {
+				t.Fatal("command fallback ran after terminal portal error")
+				return OpenResult{}, nil
+			}
 
-	_, err := platformOpenURL("https://example.org/")
-	if !errors.Is(err, errPortalCancelled) {
-		t.Fatalf("error = %v, want portal cancellation", err)
+			_, err := platformOpenURL("https://example.org/")
+			if !errors.Is(err, portalErr) {
+				t.Fatalf("error = %v, want %v", err, portalErr)
+			}
+		})
 	}
 }
 
@@ -332,11 +338,14 @@ func TestPortalInterfaceVersion(t *testing.T) {
 }
 
 type fakePortalConnection struct {
-	signals       chan<- *dbus.Signal
-	addMatchErr   error
-	closed        bool
-	signalRemoved bool
-	matchRemoved  bool
+	signals          chan<- *dbus.Signal
+	addMatchErr      error
+	requestCloseCall *dbus.Call
+	requestPath      dbus.ObjectPath
+	requestMethod    string
+	closed           bool
+	signalRemoved    bool
+	matchRemoved     bool
 }
 
 func (c *fakePortalConnection) Close() error {
@@ -344,8 +353,9 @@ func (c *fakePortalConnection) Close() error {
 	return nil
 }
 
-func (c *fakePortalConnection) Object(string, dbus.ObjectPath) dbus.BusObject {
-	return portalVersionObject{call: &dbus.Call{}}
+func (c *fakePortalConnection) Object(_ string, path dbus.ObjectPath) dbus.BusObject {
+	c.requestPath = path
+	return fakePortalRequestObject{connection: c}
 }
 
 func (c *fakePortalConnection) Signal(signals chan<- *dbus.Signal) {
@@ -363,6 +373,19 @@ func (c *fakePortalConnection) AddMatchSignal(...dbus.MatchOption) error {
 func (c *fakePortalConnection) RemoveMatchSignal(...dbus.MatchOption) error {
 	c.matchRemoved = true
 	return nil
+}
+
+type fakePortalRequestObject struct {
+	dbus.BusObject
+	connection *fakePortalConnection
+}
+
+func (o fakePortalRequestObject) CallWithContext(_ context.Context, method string, _ dbus.Flags, _ ...interface{}) *dbus.Call {
+	o.connection.requestMethod = method
+	if o.connection.requestCloseCall != nil {
+		return o.connection.requestCloseCall
+	}
+	return &dbus.Call{}
 }
 
 type fakePortalObject struct {
@@ -462,6 +485,24 @@ func TestOpenURLViaPortal(t *testing.T) {
 		}
 	})
 
+	t.Run("request timeout before handle is terminal", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		connection := &fakePortalConnection{}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(1))}},
+			openCall:    &dbus.Call{Err: context.DeadlineExceeded},
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+
+		_, err := openURLViaPortal("https://example.org/")
+		if !errors.Is(err, errPortalFallbackUnsafe) {
+			t.Fatalf("error = %v, want terminal timeout", err)
+		}
+	})
+
 	t.Run("invalid request path", func(t *testing.T) {
 		isolateLinuxOpeners(t)
 		connection := &fakePortalConnection{}
@@ -504,6 +545,48 @@ func TestOpenURLViaPortal(t *testing.T) {
 		}
 		if handle, ok := object.options["handle_token"]; !ok || !strings.HasPrefix(handle.Value().(string), "crantcli_") {
 			t.Fatalf("options = %#v", object.options)
+		}
+	})
+
+	t.Run("timeout closes request before fallback", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		portalRequestTimeout = time.Nanosecond
+		requestPath := dbus.ObjectPath("/org/freedesktop/portal/desktop/request/test")
+		connection := &fakePortalConnection{}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(1))}},
+			openCall:    &dbus.Call{Body: []interface{}{requestPath}},
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+
+		_, err := openURLViaPortal("https://example.org/")
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want deadline exceeded", err)
+		}
+		if connection.requestPath != requestPath || connection.requestMethod != portalRequestClose {
+			t.Fatalf("closed request = %q %q", connection.requestMethod, connection.requestPath)
+		}
+	})
+
+	t.Run("failed timeout close is terminal", func(t *testing.T) {
+		isolateLinuxOpeners(t)
+		portalRequestTimeout = time.Nanosecond
+		connection := &fakePortalConnection{requestCloseCall: &dbus.Call{Err: errors.New("close failed")}}
+		object := &fakePortalObject{
+			connection:  connection,
+			versionCall: &dbus.Call{Body: []interface{}{dbus.MakeVariant(uint32(1))}},
+			openCall:    &dbus.Call{Body: []interface{}{dbus.ObjectPath("/org/freedesktop/portal/desktop/request/test")}},
+		}
+		connectPortalSession = func() (*portalSession, error) {
+			return &portalSession{connection: connection, object: object}, nil
+		}
+
+		_, err := openURLViaPortal("https://example.org/")
+		if !errors.Is(err, errPortalFallbackUnsafe) || !strings.Contains(err.Error(), "close failed") {
+			t.Fatalf("error = %v, want terminal close failure", err)
 		}
 	})
 }
