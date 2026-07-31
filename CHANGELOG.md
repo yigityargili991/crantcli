@@ -34,6 +34,12 @@
   state URL as a command-line argument, which exceeds the Windows 32767-character
   limit for any realistic scene; oversized URLs now go through the same private
   redirect file already used on Linux.
+- Fix `Error parsing state: Expected property name or '}'` in the viewer for
+  every `--open` on Windows. Windows takes a single command line rather than an
+  argument vector, so the quotes in a state URL were escaped as `\"` and
+  rundll32 handed that escaping to the browser unchanged. Any URL the command
+  line cannot carry intact now goes through the redirect file, whatever its
+  size.
 - Fix Linux clipboard reads returning nothing for selections that offer no text
   target, where the external helper fallback was never tried.
 

@@ -1,15 +1,17 @@
 package browser
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestCommandOpenURLPassesShortURLsThrough(t *testing.T) {
-	short := "https://example.org/#!{\"layers\":[]}"
+	short := "https://example.org/#!%7B%7D"
 	target, err := commandOpenURL(short)
 	if err != nil {
 		t.Fatal(err)
@@ -17,6 +19,50 @@ func TestCommandOpenURLPassesShortURLsThrough(t *testing.T) {
 	if target != short {
 		t.Fatalf("target = %q, want the URL unchanged", target)
 	}
+}
+
+// A state URL carries literal quotes, which Windows escapes into the URL the
+// browser finally sees. Such a URL must never reach the opener as an argument,
+// however short it is.
+func TestCommandOpenURLStagesURLsTheOpenerCannotCarry(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	quoted := "https://example.org/#!{\"layers\":[]}"
+
+	target, err := commandOpenURL(quoted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openerArgumentIsSafe(quoted) {
+		if target != quoted {
+			t.Fatalf("target = %q, want the URL unchanged", target)
+		}
+		return
+	}
+	if !strings.HasPrefix(target, "file://") || strings.ContainsAny(target, "\"\\ \t") {
+		t.Fatalf("target = %q, want a file URL the command line carries intact", target)
+	}
+	data, err := os.ReadFile(handoffPath(t, target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "\\\"layers\\\"") {
+		t.Fatalf("staged file does not hold the state URL: %s", data)
+	}
+}
+
+// handoffPath turns a staged file URL back into a local path, undoing the
+// slash form and percent escaping fileURL applies.
+func handoffPath(t *testing.T, target string) string {
+	t.Helper()
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parsing staged target %q: %v", target, err)
+	}
+	if runtime.GOOS == "windows" {
+		return filepath.FromSlash(strings.TrimPrefix(parsed.Path, "/"))
+	}
+	return parsed.Path
 }
 
 func TestCommandOpenURLStagesOversizedURLs(t *testing.T) {
@@ -31,7 +77,7 @@ func TestCommandOpenURLStagesOversizedURLs(t *testing.T) {
 	if !strings.HasPrefix(target, "file://") || strings.Contains(target, "#!") {
 		t.Fatalf("target = %q, want a file URL with no inline state", target)
 	}
-	path := strings.TrimPrefix(target, "file://")
+	path := handoffPath(t, target)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

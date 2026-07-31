@@ -16,7 +16,9 @@ import (
 // prepareCommandOpenURL resolves the target handed to an argv-based opener.
 // Every platform caps the length of a single exec argument, and Neuroglancer
 // states routinely exceed the tightest of those caps, so oversized URLs are
-// staged through a private local redirect file instead.
+// staged through a private local redirect file instead. A URL the platform
+// cannot carry intact -- one whose quotes Windows would escape into the URL
+// itself -- is staged the same way regardless of length.
 var prepareCommandOpenURL = commandOpenURL
 
 // handoffLifetime bounds how long a staged redirect file is kept.
@@ -31,7 +33,7 @@ func commandOpenURL(rawURL string) (string, error) {
 	// single large state does not leave its URL on disk indefinitely.
 	removeStaleHandoffs(dir)
 
-	if len(rawURL) <= maxSafeOpenArgument {
+	if len(rawURL) <= maxSafeOpenArgument && openerArgumentIsSafe(rawURL) {
 		return rawURL, nil
 	}
 
