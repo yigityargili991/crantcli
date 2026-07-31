@@ -71,12 +71,13 @@ function Write-Checksums {
 function Test-Install {
     param(
         [Parameter(Mandatory = $true)][ValidateSet("AMD64", "ARM64")][string]$Architecture,
-        [Parameter(Mandatory = $true)][string]$Version
+        [Parameter(Mandatory = $true)][string]$Version,
+        [string]$InstallSuffix = ""
     )
 
     $assetArchitecture = $Architecture.ToLowerInvariant()
     $asset = "crant_type_look-windows-$assetArchitecture.exe"
-    $installDirectory = Join-Path $testRoot "install-$assetArchitecture"
+    $installDirectory = Join-Path $testRoot "install-$assetArchitecture$InstallSuffix"
     $installedFile = Join-Path $installDirectory "crantcli.exe"
     New-Item -ItemType Directory -Path $installDirectory | Out-Null
     Set-Content -LiteralPath $installedFile -Value "old fixture" -NoNewline
@@ -157,7 +158,7 @@ try {
     Test-Install -Architecture "ARM64" -Version "v1.2.3"
 
     $env:CRANTCLI_VERIFY_BINARY = Join-Path $fakeBin "crantcli-verifier.cmd"
-    Test-Install -Architecture "AMD64" -Version "latest"
+    Test-Install -Architecture "AMD64" -Version "latest" -InstallSuffix "-builtin"
     $env:CRANTCLI_VERIFY_BINARY = $null
 
     Write-Checksums -Invalid
