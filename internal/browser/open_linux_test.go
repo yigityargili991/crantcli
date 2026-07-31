@@ -22,12 +22,14 @@ func isolateLinuxOpeners(t *testing.T) {
 	previousPrepare := prepareCommandOpenURL
 	previousCommand := runPlatformCommand
 	previousConnect := connectPortalSession
+	previousBus := connectPortalBus
 	previousToken := generateHandoffToken
 	t.Cleanup(func() {
 		openViaPortal = previousPortal
 		prepareCommandOpenURL = previousPrepare
 		runPlatformCommand = previousCommand
 		connectPortalSession = previousConnect
+		connectPortalBus = previousBus
 		generateHandoffToken = previousToken
 	})
 }
@@ -342,6 +344,10 @@ func (c *fakePortalConnection) Close() error {
 	return nil
 }
 
+func (c *fakePortalConnection) Object(string, dbus.ObjectPath) dbus.BusObject {
+	return portalVersionObject{call: &dbus.Call{}}
+}
+
 func (c *fakePortalConnection) Signal(signals chan<- *dbus.Signal) {
 	c.signals = signals
 }
@@ -503,8 +509,39 @@ func TestOpenURLViaPortal(t *testing.T) {
 }
 
 func TestNewPortalSessionReportsConnectionFailure(t *testing.T) {
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "invalid:")
-	if _, err := newPortalSession(); err == nil {
-		t.Fatal("newPortalSession unexpectedly connected")
-	}
+	previousBus := connectPortalBus
+	t.Cleanup(func() { connectPortalBus = previousBus })
+
+	t.Run("default connector failure", func(t *testing.T) {
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "invalid:")
+		connectPortalBus = previousBus
+		connection, err := connectPortalBus()
+		if err == nil {
+			connection.Close()
+			t.Fatal("default connector unexpectedly connected")
+		}
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		connectPortalBus = func() (portalConnection, error) {
+			return nil, errors.New("no bus")
+		}
+		if _, err := newPortalSession(); err == nil {
+			t.Fatal("newPortalSession unexpectedly connected")
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		connection := &fakePortalConnection{}
+		connectPortalBus = func() (portalConnection, error) {
+			return connection, nil
+		}
+		session, err := newPortalSession()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if session.connection != connection || session.object == nil {
+			t.Fatalf("session = %#v", session)
+		}
+	})
 }

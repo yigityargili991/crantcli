@@ -69,33 +69,40 @@ clipboard, overwriting its current contents.`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
-func init() {
-	var (
-		addSuperClass   string
-		addCellClasses  []string
-		addCellTypes    []string
-		addCellSubtypes []string
-		addIntersect    bool
-		addSide         string
-		addRegions      []string
-		addBundles      []string
-		addTract        string
-		addProofread    string
-		addState        string
-		addGenerate     bool
-		addOutput       string
-		addLayer        string
-		addColor        string
-		addColorBy      string
-		addReplace      bool
-		addRootIDsOnly  bool
-		addOpen         bool
-		addColorSub     bool
-		addLabels       bool
-		addLabelsTTL    time.Duration
-		addLabelsHook   string
-	)
+var (
+	addSuperClass   string
+	addCellClasses  []string
+	addCellTypes    []string
+	addCellSubtypes []string
+	addIntersect    bool
+	addSide         string
+	addRegions      []string
+	addBundles      []string
+	addTract        string
+	addProofread    string
+	addState        string
+	addGenerate     bool
+	addOutput       string
+	addLayer        string
+	addColor        string
+	addColorBy      string
+	addReplace      bool
+	addRootIDsOnly  bool
+	addOpen         bool
+	addColorSub     bool
+	addLabels       bool
+	addLabelsTTL    time.Duration
+	addLabelsHook   string
 
+	addNewClient             = seatable.NewClient
+	addQueryNeurons          = seatable.QueryNeurons
+	addLoadState             = nglstate.LoadState
+	addFindSegmentationLayer = nglstate.FindSegmentationLayer
+	addDeliverState          = nglstate.DeliverState
+	addClipboardWrite        = clipboard.WriteText
+)
+
+func init() {
 	addCmd.Flags().StringVar(&addSuperClass, "super-class", "", "Filter by super_class")
 	addCmd.Flags().StringArrayVar(&addCellClasses, "cell-class", nil, "Filter by cell_class (repeatable for multiple classes)")
 	addCmd.Flags().StringArrayVar(&addCellTypes, "cell-type", nil, "Filter by cell_type (repeatable for multiple types)")
@@ -188,7 +195,7 @@ func init() {
 		}
 
 		// Query SeaTable
-		client, err := seatable.NewClient()
+		client, err := addNewClient()
 		if err != nil {
 			return err
 		}
@@ -206,7 +213,7 @@ func init() {
 		}
 
 		for _, s := range specs {
-			rows, err := seatable.QueryNeurons(client, &s.filters)
+			rows, err := addQueryNeurons(client, &s.filters)
 			if err != nil {
 				return err
 			}
@@ -252,11 +259,11 @@ func init() {
 
 		// Root IDs only mode
 		if addRootIDsOnly {
-			return deliverRootIDs(allRootIDs, os.Stdout, os.Stderr, clipboard.WriteText)
+			return deliverRootIDs(allRootIDs, cmd.OutOrStdout(), cmd.ErrOrStderr(), addClipboardWrite)
 		}
 
 		// Load state
-		result, err := nglstate.LoadState(addState, addGenerate)
+		result, err := addLoadState(addState, addGenerate)
 		if err != nil {
 			return err
 		}
@@ -264,7 +271,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.Source)
 
 		// Find segmentation layer and inject
-		layer, _, err := nglstate.FindSegmentationLayer(result.State, addLayer)
+		layer, _, err := addFindSegmentationLayer(result.State, addLayer)
 		if err != nil {
 			return err
 		}
@@ -281,7 +288,7 @@ func init() {
 
 		// Deliver file/stdout/clipboard output and the browser request as
 		// independent actions so one desktop failure cannot suppress another.
-		return nglstate.DeliverState(result, nglstate.DeliveryOptions{
+		return addDeliverState(result, nglstate.DeliveryOptions{
 			OutputFile: addOutput,
 			Open:       addOpen,
 		})

@@ -41,13 +41,15 @@ var (
 	nativeClipboardWrite = xclipboard.Write
 	nativeExecutable     = os.Executable
 	nativeTimeout        = nativeOperationTimeout
+	nativeOpenFile       = os.OpenFile
+	nativeReleaseProcess = func(process *os.Process) error { return process.Release() }
 )
 
 // openDevNull discards a helper's stderr without the pipe and copier goroutine
 // that a non-file io.Writer would require. A nil result leaves stderr inherited,
 // which is noisier but never wrong.
 func openDevNull() *os.File {
-	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	devNull, err := nativeOpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
 		return nil
 	}
@@ -67,10 +69,7 @@ func readBuiltInLinux() (string, error) {
 		defer devNull.Close()
 		cmd.Stderr = devNull
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("creating clipboard reader output: %w", err)
-	}
+	stdout, _ := cmd.StdoutPipe() // Stdout is unset and the command has not started.
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("starting clipboard reader: %w", err)
 	}
@@ -143,15 +142,8 @@ func writeBuiltInLinux(content string) error {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("creating clipboard owner input: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return fmt.Errorf("creating clipboard owner handshake: %w", err)
-	}
+	stdin, _ := cmd.StdinPipe()   // Stdin is unset and the command has not started.
+	stdout, _ := cmd.StdoutPipe() // Stdout is unset and the command has not started.
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
@@ -198,8 +190,8 @@ func writeBuiltInLinux(content string) error {
 				return fail(fmt.Errorf("sending clipboard contents to owner: %w", writeErr))
 			}
 			_ = stdout.Close()
-			if err := cmd.Process.Release(); err != nil {
-				return fmt.Errorf("detaching clipboard owner: %w", err)
+			if err := nativeReleaseProcess(cmd.Process); err != nil {
+				return fail(fmt.Errorf("detaching clipboard owner: %w", err))
 			}
 			return nil
 		}

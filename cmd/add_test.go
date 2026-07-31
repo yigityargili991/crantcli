@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"crantcli/internal/clipboard"
+	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
 )
 
@@ -51,6 +52,166 @@ func TestDeliverRootIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func isolateAddCommandRun(t *testing.T) {
+	t.Helper()
+	previousOptions := struct {
+		superClass                       string
+		cellClasses, cellTypes, subtypes []string
+		intersect                        bool
+		side                             string
+		regions, bundles                 []string
+		tract, proofread                 string
+		state                            string
+		generate                         bool
+		output, layer, color, colorBy    string
+		replace, rootIDsOnly, open       bool
+		colorSub, labels                 bool
+		labelsHook                       string
+	}{
+		addSuperClass,
+		addCellClasses,
+		addCellTypes,
+		addCellSubtypes,
+		addIntersect,
+		addSide,
+		addRegions,
+		addBundles,
+		addTract,
+		addProofread,
+		addState,
+		addGenerate,
+		addOutput,
+		addLayer,
+		addColor,
+		addColorBy,
+		addReplace,
+		addRootIDsOnly,
+		addOpen,
+		addColorSub,
+		addLabels,
+		addLabelsHook,
+	}
+	previousNewClient := addNewClient
+	previousQuery := addQueryNeurons
+	previousLoad := addLoadState
+	previousFind := addFindSegmentationLayer
+	previousDeliver := addDeliverState
+	previousClipboard := addClipboardWrite
+	t.Cleanup(func() {
+		addSuperClass = previousOptions.superClass
+		addCellClasses = previousOptions.cellClasses
+		addCellTypes = previousOptions.cellTypes
+		addCellSubtypes = previousOptions.subtypes
+		addIntersect = previousOptions.intersect
+		addSide = previousOptions.side
+		addRegions = previousOptions.regions
+		addBundles = previousOptions.bundles
+		addTract = previousOptions.tract
+		addProofread = previousOptions.proofread
+		addState = previousOptions.state
+		addGenerate = previousOptions.generate
+		addOutput = previousOptions.output
+		addLayer = previousOptions.layer
+		addColor = previousOptions.color
+		addColorBy = previousOptions.colorBy
+		addReplace = previousOptions.replace
+		addRootIDsOnly = previousOptions.rootIDsOnly
+		addOpen = previousOptions.open
+		addColorSub = previousOptions.colorSub
+		addLabels = previousOptions.labels
+		addLabelsHook = previousOptions.labelsHook
+		addNewClient = previousNewClient
+		addQueryNeurons = previousQuery
+		addLoadState = previousLoad
+		addFindSegmentationLayer = previousFind
+		addDeliverState = previousDeliver
+		addClipboardWrite = previousClipboard
+		addCmd.SetOut(nil)
+		addCmd.SetErr(nil)
+	})
+
+	addSuperClass = ""
+	addCellClasses = nil
+	addCellTypes = nil
+	addCellSubtypes = nil
+	addIntersect = false
+	addSide = ""
+	addRegions = []string{"LX"}
+	addBundles = nil
+	addTract = ""
+	addProofread = ""
+	addState = ""
+	addGenerate = false
+	addOutput = ""
+	addLayer = ""
+	addColor = ""
+	addColorBy = ""
+	addReplace = false
+	addOpen = false
+	addColorSub = false
+	addLabels = false
+	addLabelsHook = ""
+
+	addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
+	addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+		return []seatable.NeuronRow{{RootID: "100"}}, nil
+	}
+}
+
+func TestAddCommandDeliveryBranches(t *testing.T) {
+	t.Run("root IDs only", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addRootIDsOnly = true
+		var stdout, stderr bytes.Buffer
+		addCmd.SetOut(&stdout)
+		addCmd.SetErr(&stderr)
+		addClipboardWrite = func(value string) (clipboard.WriteResult, error) {
+			if value != "100" {
+				t.Fatalf("clipboard value = %q", value)
+			}
+			return clipboard.WriteResult{Backend: clipboard.BackendWLCopy}, nil
+		}
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		if stdout.String() != "100\n" {
+			t.Fatalf("stdout = %q", stdout.String())
+		}
+	})
+
+	t.Run("state delivery", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addRootIDsOnly = false
+		layer := map[string]interface{}{"type": "segmentation"}
+		result := &nglstate.LoadResult{
+			State:  map[string]interface{}{"layers": []interface{}{layer}},
+			Source: nglstate.SourceTemplate,
+		}
+		addLoadState = func(string, bool) (*nglstate.LoadResult, error) {
+			return result, nil
+		}
+		addFindSegmentationLayer = func(map[string]interface{}, string) (map[string]interface{}, int, error) {
+			return layer, 0, nil
+		}
+		delivered := false
+		addDeliverState = func(got *nglstate.LoadResult, options nglstate.DeliveryOptions) error {
+			delivered = true
+			if got != result || options != (nglstate.DeliveryOptions{}) {
+				t.Fatalf("delivery = (%#v, %#v)", got, options)
+			}
+			return nil
+		}
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		if !delivered {
+			t.Fatal("state was not delivered")
+		}
+	})
 }
 
 func TestResolveAddRegionFilters(t *testing.T) {

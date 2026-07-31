@@ -59,6 +59,8 @@ func isolateNativeClipboard(t *testing.T) {
 	previousWrite := nativeClipboardWrite
 	previousExecutable := nativeExecutable
 	previousTimeout := nativeTimeout
+	previousOpenFile := nativeOpenFile
+	previousRelease := nativeReleaseProcess
 	previousRuntimeGOOS := clipboardRuntimeGOOS
 	previousLinuxRead := linuxNativeRead
 	previousLinuxWrite := linuxNativeWrite
@@ -68,6 +70,8 @@ func isolateNativeClipboard(t *testing.T) {
 		nativeClipboardWrite = previousWrite
 		nativeExecutable = previousExecutable
 		nativeTimeout = previousTimeout
+		nativeOpenFile = previousOpenFile
+		nativeReleaseProcess = previousRelease
 		clipboardRuntimeGOOS = previousRuntimeGOOS
 		linuxNativeRead = previousLinuxRead
 		linuxNativeWrite = previousLinuxWrite
@@ -254,6 +258,7 @@ func TestReadBuiltInLinuxProcessFailures(t *testing.T) {
 	}{
 		{name: "header timeout", body: "exec sleep 1"},
 		{name: "data timeout", body: "printf '" + nativeDataPrefix + "5\\n'; exec sleep 1"},
+		{name: "wait timeout", body: "printf '" + nativeDataPrefix + "2\\nhi'; exec sleep 1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			isolateNativeClipboard(t)
@@ -267,6 +272,17 @@ func TestReadBuiltInLinuxProcessFailures(t *testing.T) {
 				t.Fatalf("error = %v", err)
 			}
 		})
+	}
+}
+
+func TestOpenDevNullFailure(t *testing.T) {
+	isolateNativeClipboard(t)
+	nativeOpenFile = func(string, int, os.FileMode) (*os.File, error) {
+		return nil, errors.New("dev null unavailable")
+	}
+	if got := openDevNull(); got != nil {
+		got.Close()
+		t.Fatalf("openDevNull = %v, want nil", got)
 	}
 }
 
@@ -357,6 +373,35 @@ func TestWriteBuiltInLinuxProcessFailures(t *testing.T) {
 		}
 		nativeExecutable = func() (string, error) { return script, nil }
 		if err := writeBuiltInLinux("state URL"); err == nil || !strings.Contains(err.Error(), "did not become ready") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("payload write failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		script := filepath.Join(t.TempDir(), "owner")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '"+nativeOwnerReadyPrefix+"\\n'\nexit 0\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		nativeExecutable = func() (string, error) { return script, nil }
+		err := writeBuiltInLinux(strings.Repeat("x", 8<<20))
+		if err == nil || !strings.Contains(err.Error(), "sending clipboard contents") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("release failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		script := filepath.Join(t.TempDir(), "owner")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\n/bin/cat >/dev/null\nprintf '"+nativeOwnerReadyPrefix+"\\n'\nexec sleep 1\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		nativeExecutable = func() (string, error) { return script, nil }
+		nativeReleaseProcess = func(*os.Process) error {
+			return errors.New("release failed")
+		}
+		err := writeBuiltInLinux("state URL")
+		if err == nil || !strings.Contains(err.Error(), "detaching clipboard owner") {
 			t.Fatalf("error = %v", err)
 		}
 	})

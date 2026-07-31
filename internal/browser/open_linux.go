@@ -31,6 +31,7 @@ var errPortalCancelled = errors.New("portal request was cancelled")
 
 type portalConnection interface {
 	Close() error
+	Object(string, dbus.ObjectPath) dbus.BusObject
 	Signal(chan<- *dbus.Signal)
 	RemoveSignal(chan<- *dbus.Signal)
 	AddMatchSignal(...dbus.MatchOption) error
@@ -46,10 +47,13 @@ type portalSession struct {
 	object     portalCaller
 }
 
-var connectPortalSession = newPortalSession
+var (
+	connectPortalBus     = func() (portalConnection, error) { return dbus.ConnectSessionBus() }
+	connectPortalSession = newPortalSession
+)
 
 func newPortalSession() (*portalSession, error) {
-	conn, err := dbus.ConnectSessionBus()
+	conn, err := connectPortalBus()
 	if err != nil {
 		return nil, err
 	}
