@@ -25,6 +25,32 @@ function Invoke-InstallerDownload {
         [Parameter(Mandatory = $true)][string]$Version
     )
 
+    # Retries cover mid-transfer failures (connection resets, truncated
+    # responses) and transient 5xx errors from the release host.
+    $maxAttempts = 3
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Invoke-InstallerDownloadOnce -Uri $Uri -OutFile $OutFile -Version $Version
+            return
+        }
+        catch {
+            if ($attempt -eq $maxAttempts) {
+                throw
+            }
+            $delay = $attempt * 2
+            Write-Warning "download failed; retrying in ${delay}s ($attempt/$($maxAttempts - 1) retries used)"
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
+
+function Invoke-InstallerDownloadOnce {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
     if (-not [string]::IsNullOrWhiteSpace($GithubToken)) {
         $gh = Get-Command gh -ErrorAction SilentlyContinue
         if ($null -eq $gh) {

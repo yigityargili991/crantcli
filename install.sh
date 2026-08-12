@@ -37,6 +37,20 @@ command_exists() {
 	command -v "$1" >/dev/null 2>&1
 }
 
+# Retries cover mid-transfer failures (connection resets, truncated
+# responses) that curl --retry and wget retries do not.
+retry_download() {
+	retry_attempt=1
+	while ! "$@"; do
+		if [ "$retry_attempt" -ge 3 ]; then
+			return 1
+		fi
+		warn "download failed; retrying in $((retry_attempt * 2))s ($retry_attempt/2 retries used)"
+		sleep $((retry_attempt * 2))
+		retry_attempt=$((retry_attempt + 1))
+	done
+}
+
 download() {
 	url=$1
 	output=$2
@@ -47,16 +61,16 @@ download() {
 		fi
 		download_asset_name=${url##*/}
 		if [ "$version" = latest ]; then
-			GH_TOKEN=$github_token gh release download \
+			retry_download env GH_TOKEN="$github_token" gh release download \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output"
 		else
-			GH_TOKEN=$github_token gh release download "$version" \
+			retry_download env GH_TOKEN="$github_token" gh release download "$version" \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output"
 		fi
 	elif command_exists curl; then
-		curl -fsSL "$url" -o "$output"
+		retry_download curl -fsSL "$url" -o "$output"
 	elif command_exists wget; then
-		wget -q "$url" -O "$output"
+		retry_download wget -q "$url" -O "$output"
 	else
 		die "curl or wget is required to download $binary_name"
 	fi
@@ -72,16 +86,16 @@ download_optional() {
 		fi
 		download_asset_name=${url##*/}
 		if [ "$version" = latest ]; then
-			GH_TOKEN=$github_token gh release download \
+			retry_download env GH_TOKEN="$github_token" gh release download \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output" >/dev/null 2>&1
 		else
-			GH_TOKEN=$github_token gh release download "$version" \
+			retry_download env GH_TOKEN="$github_token" gh release download "$version" \
 				--repo "$repo_slug" --pattern "$download_asset_name" --output "$output" >/dev/null 2>&1
 		fi
 	elif command_exists curl; then
-		curl -fsSL "$url" -o "$output" >/dev/null 2>&1
+		retry_download curl -fsSL "$url" -o "$output" >/dev/null 2>&1
 	elif command_exists wget; then
-		wget -q "$url" -O "$output" >/dev/null 2>&1
+		retry_download wget -q "$url" -O "$output" >/dev/null 2>&1
 	else
 		return 1
 	fi
