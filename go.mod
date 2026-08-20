@@ -1,6 +1,6 @@
 module crantcli
 
-go 1.25.8
+go 1.25.14
 
 require (
 	github.com/godbus/dbus/v5 v5.2.2

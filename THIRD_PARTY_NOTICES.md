@@ -4,7 +4,7 @@ The `crantcli` release binaries include the following third-party software:
 
 | Component | Version | License |
 | --- | --- | --- |
-| Go runtime and standard library | 1.25.8 | BSD 3-Clause and Go patent grant |
+| Go runtime and standard library | 1.25.14 | BSD 3-Clause and Go patent grant |
 | `github.com/spf13/cobra` | 1.10.2 | Apache License 2.0 |
 | `github.com/spf13/pflag` | 1.0.10 | BSD 3-Clause |
 | `github.com/inconshreveable/mousetrap` | 1.1.0 | Apache License 2.0 |
@@ -17,7 +17,7 @@ The `crantcli` release binaries include the following third-party software:
 | `golang.org/x/exp/shiny` | 0.0.0-20250606033433-dcc06ee1d476 | BSD 3-Clause |
 | `golang.org/x/image` | 0.41.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/mobile` | 0.0.0-20250606033058-a2a15c67f36f | BSD 3-Clause and Go patent grant |
-| `golang.org/x/mod` | 0.39.0 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/mod` | 0.40.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/sys` | 0.47.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/term` | 0.45.0 | BSD 3-Clause and Go patent grant |
 
