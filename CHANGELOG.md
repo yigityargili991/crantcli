@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.2 - 2026-08-20
+
+### Fixed
+
+- Retry transient GitHub release-asset downloads in the Unix and Windows
+  installers (connection resets, truncated transfers, 503s) instead of
+  failing on the first attempt.
+
+### Security
+
+- Build releases with Go 1.25.14.
+
 ## v0.17.1 - 2026-07-31
 
 ### Fixed
