@@ -4,7 +4,7 @@ The `crantcli` release binaries include the following third-party software:
 
 | Component | Version | License |
 | --- | --- | --- |
-| Go runtime and standard library | 1.25.14 | BSD 3-Clause and Go patent grant |
+| Go runtime and standard library | 1.26.7 | BSD 3-Clause and Go patent grant |
 | `github.com/spf13/cobra` | 1.10.2 | Apache License 2.0 |
 | `github.com/spf13/pflag` | 1.0.10 | BSD 3-Clause |
 | `github.com/inconshreveable/mousetrap` | 1.1.0 | Apache License 2.0 |
