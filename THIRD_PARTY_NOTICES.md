@@ -10,7 +10,7 @@ The `crantcli` release binaries include the following third-party software:
 | `github.com/inconshreveable/mousetrap` | 1.1.0 | Apache License 2.0 |
 | `github.com/zalando/go-keyring` | 0.2.8 | MIT |
 | `github.com/danieljoos/wincred` | 1.2.3 | MIT |
-| `golang.design/x/clipboard` | 0.8.0 | MIT |
+| `golang.design/x/clipboard` | 0.9.0 | MIT |
 | `golang.design/x/x11` | 0.2.0 | MIT |
 | `github.com/ebitengine/purego` | 0.10.1 | Apache License 2.0 |
 | `github.com/godbus/dbus/v5` | 5.2.2 | BSD 2-Clause |

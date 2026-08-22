@@ -36,9 +36,15 @@ const (
 )
 
 var (
-	nativeClipboardInit  = xclipboard.Init
-	nativeClipboardRead  = xclipboard.Read
-	nativeClipboardWrite = xclipboard.Write
+	nativeClipboardInit = xclipboard.Init
+	// The seams drop the upstream variadic options, which this package never
+	// passes, so a stub only has to spell the arguments that are actually used.
+	nativeClipboardRead = func(ctx context.Context, format xclipboard.Format) ([]byte, error) {
+		return xclipboard.Read(ctx, format)
+	}
+	nativeClipboardWrite = func(ctx context.Context, format xclipboard.Format, data []byte) (<-chan struct{}, error) {
+		return xclipboard.Write(ctx, format, data)
+	}
 	nativeExecutable     = os.Executable
 	nativeTimeout        = nativeOperationTimeout
 	nativeOpenFile       = os.OpenFile
@@ -230,7 +236,20 @@ func readNativeClipboardDirect() (data []byte, err error) {
 	if err := nativeClipboardInit(); err != nil {
 		return nil, nativeInitializationError(err)
 	}
-	data = nativeClipboardRead(xclipboard.FmtText)
+	// X11 applies this deadline to its own wire read. The foreground process
+	// kills the helper on the same budget slightly sooner, so this bounds the
+	// read only when the reader mode is invoked directly.
+	ctx, cancel := context.WithTimeout(context.Background(), nativeTimeout)
+	defer cancel()
+	data, err = nativeClipboardRead(ctx, xclipboard.FmtText)
+	switch {
+	case errors.Is(err, xclipboard.ErrNoData):
+		// An empty selection is not a failure: the reader frames zero bytes and
+		// the caller reports an empty clipboard.
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("reading native clipboard: %w", err)
+	}
 	if len(data) > maxClipboardBytes {
 		return nil, fmt.Errorf("clipboard content exceeds %d bytes", maxClipboardBytes)
 	}
@@ -263,7 +282,12 @@ func runNativeClipboardOwner(input io.Reader, ready io.WriteCloser) (err error) 
 	if err := nativeClipboardInit(); err != nil {
 		return nativeInitializationError(err)
 	}
-	changed := nativeClipboardWrite(xclipboard.FmtText, data)
+	// No deadline: the owner has to keep serving the selection until another
+	// application claims it, and a cancelled context would drop ownership.
+	changed, err := nativeClipboardWrite(context.Background(), xclipboard.FmtText, data)
+	if err != nil {
+		return fmt.Errorf("native clipboard rejected the write: %w", err)
+	}
 	if changed == nil {
 		return fmt.Errorf("native clipboard rejected the write")
 	}
