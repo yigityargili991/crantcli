@@ -4,6 +4,7 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -83,9 +84,9 @@ func TestRunNativeClipboardOwnerAcknowledgesThenServes(t *testing.T) {
 	nativeClipboardInit = func() error { return nil }
 	changed := make(chan struct{})
 	var received []byte
-	nativeClipboardWrite = func(_ xclipboard.Format, data []byte) <-chan struct{} {
+	nativeClipboardWrite = func(_ context.Context, _ xclipboard.Format, data []byte) (<-chan struct{}, error) {
 		received = append([]byte(nil), data...)
-		return changed
+		return changed, nil
 	}
 
 	ready := newSignalWriteCloser()
@@ -184,10 +185,66 @@ func TestLinuxExternalHelperFallback(t *testing.T) {
 func TestRunNativeClipboardReaderFramesBoundedData(t *testing.T) {
 	isolateNativeClipboard(t)
 	nativeClipboardInit = func() error { return nil }
-	nativeClipboardRead = func(xclipboard.Format) []byte { return []byte("clipboard data\nwith newline") }
+	nativeClipboardRead = func(context.Context, xclipboard.Format) ([]byte, error) {
+		return []byte("clipboard data\nwith newline"), nil
+	}
 	var output bytes.Buffer
 	RunNativeClipboardReader(nopWriteCloser{&output})
 	want := nativeDataPrefix + "27\nclipboard data\nwith newline"
+	if output.String() != want {
+		t.Fatalf("reader output = %q, want %q", output.String(), want)
+	}
+}
+
+func TestNativeClipboardReadCarriesDeadline(t *testing.T) {
+	isolateNativeClipboard(t)
+	nativeClipboardInit = func() error { return nil }
+	var deadline time.Time
+	var bounded bool
+	nativeClipboardRead = func(ctx context.Context, _ xclipboard.Format) ([]byte, error) {
+		deadline, bounded = ctx.Deadline()
+		return []byte("value"), nil
+	}
+	if _, err := readNativeClipboardDirect(); err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if !bounded {
+		t.Fatal("read context carried no deadline")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > nativeTimeout {
+		t.Fatalf("deadline is %s away, want within %s", remaining, nativeTimeout)
+	}
+}
+
+func TestNativeClipboardOwnerWriteIsNotCancellable(t *testing.T) {
+	isolateNativeClipboard(t)
+	nativeClipboardInit = func() error { return nil }
+	var cancellation <-chan struct{}
+	written := false
+	nativeClipboardWrite = func(ctx context.Context, _ xclipboard.Format, _ []byte) (<-chan struct{}, error) {
+		cancellation, written = ctx.Done(), true
+		return make(chan struct{}), nil
+	}
+	// A handshake that fails returns the owner instead of leaving it parked on
+	// the ownership channel for the rest of the test run.
+	_ = runNativeClipboardOwner(strings.NewReader("value"), &failingWriteCloser{writeErr: errors.New("stop")})
+	if !written {
+		t.Fatal("owner never reached the clipboard write")
+	}
+	if cancellation != nil {
+		t.Fatal("owner write context can be cancelled")
+	}
+}
+
+func TestRunNativeClipboardReaderFramesEmptySelection(t *testing.T) {
+	isolateNativeClipboard(t)
+	nativeClipboardInit = func() error { return nil }
+	nativeClipboardRead = func(context.Context, xclipboard.Format) ([]byte, error) {
+		return nil, xclipboard.ErrNoData
+	}
+	var output bytes.Buffer
+	RunNativeClipboardReader(nopWriteCloser{&output})
+	want := nativeDataPrefix + "0\n"
 	if output.String() != want {
 		t.Fatalf("reader output = %q, want %q", output.String(), want)
 	}
@@ -429,9 +486,26 @@ func TestNativeClipboardDirectFailures(t *testing.T) {
 	t.Run("reader size limit", func(t *testing.T) {
 		isolateNativeClipboard(t)
 		nativeClipboardInit = func() error { return nil }
-		nativeClipboardRead = func(xclipboard.Format) []byte { return make([]byte, maxClipboardBytes+1) }
+		nativeClipboardRead = func(context.Context, xclipboard.Format) ([]byte, error) {
+			return make([]byte, maxClipboardBytes+1), nil
+		}
 		if _, err := readNativeClipboardDirect(); err == nil || !strings.Contains(err.Error(), "exceeds") {
 			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("reader read failure", func(t *testing.T) {
+		isolateNativeClipboard(t)
+		nativeClipboardInit = func() error { return nil }
+		nativeClipboardRead = func(context.Context, xclipboard.Format) ([]byte, error) {
+			return nil, xclipboard.ErrUnavailable
+		}
+		_, err := readNativeClipboardDirect()
+		if err == nil || !strings.Contains(err.Error(), "reading native clipboard") {
+			t.Fatalf("error = %v", err)
+		}
+		if !errors.Is(err, xclipboard.ErrUnavailable) {
+			t.Fatalf("error does not wrap ErrUnavailable: %v", err)
 		}
 	})
 
@@ -473,7 +547,9 @@ func TestNativeClipboardOwnerFailures(t *testing.T) {
 			input: strings.NewReader("value"),
 			setup: func(*testing.T) {
 				nativeClipboardInit = func() error { return nil }
-				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} { return nil }
+				nativeClipboardWrite = func(context.Context, xclipboard.Format, []byte) (<-chan struct{}, error) {
+					return nil, nil
+				}
 			},
 			want: "rejected",
 		},
@@ -482,10 +558,10 @@ func TestNativeClipboardOwnerFailures(t *testing.T) {
 			input: strings.NewReader("value"),
 			setup: func(*testing.T) {
 				nativeClipboardInit = func() error { return nil }
-				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} {
+				nativeClipboardWrite = func(context.Context, xclipboard.Format, []byte) (<-chan struct{}, error) {
 					changed := make(chan struct{})
 					close(changed)
-					return changed
+					return changed, nil
 				}
 			},
 			want: "lost before startup",
@@ -495,7 +571,9 @@ func TestNativeClipboardOwnerFailures(t *testing.T) {
 			input: strings.NewReader("value"),
 			setup: func(*testing.T) {
 				nativeClipboardInit = func() error { return nil }
-				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} { return make(chan struct{}) }
+				nativeClipboardWrite = func(context.Context, xclipboard.Format, []byte) (<-chan struct{}, error) {
+					return make(chan struct{}), nil
+				}
 			},
 			ready: &failingWriteCloser{writeErr: errors.New("broken handshake")},
 			want:  "acknowledging clipboard ownership",
@@ -505,7 +583,9 @@ func TestNativeClipboardOwnerFailures(t *testing.T) {
 			input: strings.NewReader("value"),
 			setup: func(*testing.T) {
 				nativeClipboardInit = func() error { return nil }
-				nativeClipboardWrite = func(xclipboard.Format, []byte) <-chan struct{} { return make(chan struct{}) }
+				nativeClipboardWrite = func(context.Context, xclipboard.Format, []byte) (<-chan struct{}, error) {
+					return make(chan struct{}), nil
+				}
 			},
 			ready: &failingWriteCloser{closeErr: errors.New("close failed")},
 			want:  "closing clipboard owner handshake",
