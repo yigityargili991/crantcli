@@ -236,9 +236,10 @@ func readNativeClipboardDirect() (data []byte, err error) {
 	if err := nativeClipboardInit(); err != nil {
 		return nil, nativeInitializationError(err)
 	}
-	// X11 applies this deadline to its own wire read. The foreground process
-	// kills the helper on the same budget slightly sooner, so this bounds the
-	// read only when the reader mode is invoked directly.
+	// A bound for a direct invocation of the reader mode. Under the foreground
+	// process its kill lands first, and upstream caps an X11 read at 5s of its
+	// own while the Wayland backend drops the context after its entry check, so
+	// this deadline is the outermost of three rather than the effective one.
 	ctx, cancel := context.WithTimeout(context.Background(), nativeTimeout)
 	defer cancel()
 	data, err = nativeClipboardRead(ctx, xclipboard.FmtText)
@@ -282,8 +283,10 @@ func runNativeClipboardOwner(input io.Reader, ready io.WriteCloser) (err error) 
 	if err := nativeClipboardInit(); err != nil {
 		return nativeInitializationError(err)
 	}
-	// No deadline: the owner has to keep serving the selection until another
-	// application claims it, and a cancelled context would drop ownership.
+	// The owner has to keep serving the selection until another application
+	// claims it, so it must not be cancellable. Today's Linux backends drop the
+	// context once the write starts and end the serve only on SelectionClear or
+	// a socket error, so this states the requirement rather than relying on it.
 	changed, err := nativeClipboardWrite(context.Background(), xclipboard.FmtText, data)
 	if err != nil {
 		return fmt.Errorf("native clipboard rejected the write: %w", err)

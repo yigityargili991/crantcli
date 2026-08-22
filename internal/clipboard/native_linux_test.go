@@ -196,6 +196,46 @@ func TestRunNativeClipboardReaderFramesBoundedData(t *testing.T) {
 	}
 }
 
+func TestNativeClipboardReadCarriesDeadline(t *testing.T) {
+	isolateNativeClipboard(t)
+	nativeClipboardInit = func() error { return nil }
+	var deadline time.Time
+	var bounded bool
+	nativeClipboardRead = func(ctx context.Context, _ xclipboard.Format) ([]byte, error) {
+		deadline, bounded = ctx.Deadline()
+		return []byte("value"), nil
+	}
+	if _, err := readNativeClipboardDirect(); err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if !bounded {
+		t.Fatal("read context carried no deadline")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > nativeTimeout {
+		t.Fatalf("deadline is %s away, want within %s", remaining, nativeTimeout)
+	}
+}
+
+func TestNativeClipboardOwnerWriteIsNotCancellable(t *testing.T) {
+	isolateNativeClipboard(t)
+	nativeClipboardInit = func() error { return nil }
+	var cancellation <-chan struct{}
+	written := false
+	nativeClipboardWrite = func(ctx context.Context, _ xclipboard.Format, _ []byte) (<-chan struct{}, error) {
+		cancellation, written = ctx.Done(), true
+		return make(chan struct{}), nil
+	}
+	// A handshake that fails returns the owner instead of leaving it parked on
+	// the ownership channel for the rest of the test run.
+	_ = runNativeClipboardOwner(strings.NewReader("value"), &failingWriteCloser{writeErr: errors.New("stop")})
+	if !written {
+		t.Fatal("owner never reached the clipboard write")
+	}
+	if cancellation != nil {
+		t.Fatal("owner write context can be cancelled")
+	}
+}
+
 func TestRunNativeClipboardReaderFramesEmptySelection(t *testing.T) {
 	isolateNativeClipboard(t)
 	nativeClipboardInit = func() error { return nil }
