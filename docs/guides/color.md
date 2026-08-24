@@ -60,6 +60,7 @@ super_class   cell_class     cell_type       cell_subtype
 cell_instance column         side            region
 tract         nerve          hemilineage     proofread
 pos_x         pos_y          pos_z           root_id
+group
 ```
 
 The derived `column` field comes from `cell_instance`: Δ7 instances use the final four characters; other instances use the final two.
@@ -77,27 +78,21 @@ Hue then answers "which cell type", and tone answers "which subtype inside that 
 Two levels need several color families, so this form requires `colored`, which is the default when you omit `--color`. A named family or a hex color offers only one family, so `crantcli` warns and colors by the second field alone.
 
 !!! warning "`--color-sub` is deprecated"
-    `--color-sub` encodes two things at once: a palette family per query group, and a tone per `cell_subtype` inside that family. What replaces it depends on where your query groups come from. The flag still works and warns on use.
-
-    With one query group and a named family, `--color-by cell_subtype` produces the same scene:
+    `--color-sub` encoded two things at once: a palette family per query group, and a tone per `cell_subtype` inside that family. `--color-by group,cell_subtype` is exactly that, for every kind of query group:
 
     ```bash
     # before
     crantcli add --cell-type ER --color blue --color-sub
 
     # now
-    crantcli add --cell-type ER --color blue --color-by cell_subtype
+    crantcli add --cell-type ER --color blue --color-by group,cell_subtype
     ```
 
-    With `colored` the two differ. `--color-sub` keeps one family and varies tone, so a query matching seven subtypes renders in five colors and two pairs become indistinguishable. `--color-by cell_subtype` gives each subtype its own hue instead. That separates better and is usually what you want, but it is a different scene, not a reproduction.
+    The one difference is an improvement. `--color-sub` left neurons without a `cell_subtype` on whatever base tone their position in the group happened to give them, so they varied for no reason and could collide with a real subtype's tone. They now share the `(empty)` group's own tone.
 
-    When every query group is one value of the same field, `--color-by <that-field>,cell_subtype` keeps both levels:
+    The flag still works and warns on use, and it will be removed in a later release.
 
-    ```bash
-    crantcli add --cell-type ER --cell-type EPG/PEG --color-by cell_type,cell_subtype
-    ```
-
-    Query groups can also come from a mixed union (`--cell-class LNO --cell-type PEN`) or an `--intersect` cross-product. Those groups are not values of any single field, so no `--color-by` form reproduces them yet; keep `--color-sub` for those.
+    If you do not need the family structure, `--color-by cell_subtype` is simpler. Under a named family it renders the same scene; under `colored` it gives each subtype its own hue rather than a tone of one family, which separates better but is a different scene.
 
 ## Color by position
 
@@ -116,6 +111,22 @@ crantcli add --cell-class ER --color-by pos_z --color blue
 Neurons whose `position` column is empty or malformed have nowhere to sit on the ramp. They take a neutral gray and are counted on their own line.
 
 A continuous field varies per neuron rather than splitting the result into groups, so it cannot join the two-field form.
+
+## Color by query group
+
+Repeated `--cell-class`, `--cell-type`, and `--cell-subtype` values each form a query group. `group` colors by which of them matched a neuron rather than by any value on the row:
+
+```bash
+crantcli add --cell-class LNO --cell-type PEN --color-by group
+```
+
+This is the one partition no metadata field can describe. A mixed union draws its groups from different columns, and `--intersect` builds a cross-product labelled `value1/value2`; neither is the set of values of any single field. `group` therefore also serves as the outer level of the two-field form:
+
+```bash
+crantcli add --cell-class LNO --cell-type PEN --color-by group,cell_subtype
+```
+
+Because the query groups are the outer level by construction, `group` can only be the first field. A query with no repeated classifier flags forms a single group, which `crantcli` warns about since there is nothing to separate.
 
 ## Give every neuron its own color
 

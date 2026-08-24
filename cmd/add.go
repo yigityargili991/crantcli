@@ -66,7 +66,10 @@ clipboard, overwriting its current contents.`,
   crantcli add --intersect --cell-class ER --cell-type ER
 
   # Color by cell_type, then vary tone by cell_subtype within each type
-  crantcli add --super-class sensory --color-by cell_type,cell_subtype`,
+  crantcli add --super-class sensory --color-by cell_type,cell_subtype
+
+  # Give each query group a hue and each subtype inside it a tone
+  crantcli add --cell-class LNO --cell-type PEN --color-by group,cell_subtype`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -121,10 +124,7 @@ func init() {
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: "+addColorByFieldList+". Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
-	mustMarkFlagDeprecated(addCmd, "color-sub",
-		"use --color-by cell_subtype, "+
-			"or --color-by QUERY_FIELD,cell_subtype when every query group is one value of QUERY_FIELD; "+
-			"mixed or intersected query groups have no exact --color-by form yet, so keep --color-sub for those (see the color guide)")
+	mustMarkFlagDeprecated(addCmd, "color-sub", "use --color-by group,cell_subtype")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -214,6 +214,9 @@ func init() {
 		// Union (each value its own group) is the default; --intersect opts into
 		// the cross-product (AND). buildQuerySpecs takes a union flag.
 		specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes, addCellSubtypes, !addIntersect)
+		if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField && len(specs) == 1 {
+			fmt.Fprintln(os.Stderr, "Warning: --color-by group found a single query group; repeat --cell-class/--cell-type/--cell-subtype to form groups worth separating")
+		}
 
 		var groups [][]string
 		var allRootIDs []string
@@ -253,6 +256,11 @@ func init() {
 		groups, allRootIDs, allRows = dedupeUnionResults(groups, allRows)
 		totalRows := len(allRows)
 
+		// --color-by rebinds groups to its own partition, so keep the query
+		// groups and their labels for --color-by group to build from.
+		queryGroups := groups
+		queryLabels := querySpecLabels(specs)
+
 		var nestedGroups [][][]string
 		var gradient *gradientColorBy
 		switch {
@@ -271,11 +279,13 @@ func init() {
 			}
 		case len(colorByFields) == 1:
 			var labels []string
-			groups, labels = buildColorByGroups(allRows, colorByFields[0])
+			groups, labels = colorByGroupsFromPartitions(
+				colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels))
 			reportColorByGroups(os.Stderr, colorByFields, groups, labels)
 		case len(colorByFields) == maxAddColorByFields:
 			var labels [][]string
-			nestedGroups, labels = buildNestedColorByGroups(allRows, colorByFields[0], colorByFields[1])
+			nestedGroups, labels = nestColorByPartitions(
+				colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels), colorByFields[1])
 			reportNestedColorByGroups(os.Stderr, colorByFields, nestedGroups, labels)
 		}
 
@@ -477,6 +487,11 @@ func resolveAddColorBy(colorBy string, colorSub bool) ([]string, error) {
 				return nil, fmt.Errorf("invalid --color-by %q: %q is continuous and cannot be combined with another field", colorBy, field)
 			}
 		}
+		// The query groups are the outer level by construction: they partition
+		// the result, and the second field then splits each one.
+		if fields[1] == queryGroupColorByField {
+			return nil, fmt.Errorf("invalid --color-by %q: %q names the query a neuron matched, so it can only be the first field", colorBy, queryGroupColorByField)
+		}
 	}
 	return fields, nil
 }
@@ -527,7 +542,14 @@ var addColorByFields = []string{
 	"pos_y",
 	"pos_z",
 	"root_id",
+	"group",
 }
+
+// queryGroupColorByField names the query group a neuron matched rather than a
+// value on the row, so it forms the outer level from the query itself. It is
+// what lets a two-field --color-by reproduce query groups that no single
+// metadata field describes: a mixed union, or an --intersect cross-product.
+const queryGroupColorByField = "group"
 
 // continuousAddColorByFields are the --color-by fields holding a number rather
 // than a category, so they spread segments along a ramp instead of grouping
@@ -563,6 +585,16 @@ func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error 
 type querySpec struct {
 	label   string
 	filters seatable.Filters
+}
+
+// querySpecLabels lists the query group labels in spec order, so they stay
+// aligned with the groups built alongside them.
+func querySpecLabels(specs []querySpec) []string {
+	labels := make([]string, 0, len(specs))
+	for _, s := range specs {
+		labels = append(labels, s.label)
+	}
+	return labels
 }
 
 // specDim is one grouping dimension (cell_class, cell_type, or cell_subtype)
@@ -743,8 +775,28 @@ func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRo
 	return nil
 }
 
-func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []string) {
-	groupsByValue := make(map[string][]string)
+// colorByPartition is one formed color-by group: the label describing it and
+// the rows it holds. A single --color-by colors the partitions themselves; a
+// two-field one splits each partition again by the second field.
+type colorByPartition struct {
+	label string
+	rows  []seatable.NeuronRow
+}
+
+// colorByOuterPartitions forms the outer level. Every field but "group" reads a
+// value off each row; "group" instead reuses the query groups, which is the one
+// partition no field can describe.
+func colorByOuterPartitions(rows []seatable.NeuronRow, field string, queryGroups [][]string, queryLabels []string) []colorByPartition {
+	if field == queryGroupColorByField {
+		return partitionRowsByQueryGroup(rows, queryGroups, queryLabels)
+	}
+	return partitionRowsByField(rows, field)
+}
+
+// partitionRowsByField collects the rows sharing each value of a field, in
+// ascending value order with the empty value last.
+func partitionRowsByField(rows []seatable.NeuronRow, field string) []colorByPartition {
+	rowsByValue := make(map[string][]seatable.NeuronRow)
 	var values []string
 
 	for _, row := range rows {
@@ -752,63 +804,106 @@ func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []
 			continue
 		}
 		value := addColorByFieldValue(row, field)
-		if _, ok := groupsByValue[value]; !ok {
+		if _, ok := rowsByValue[value]; !ok {
 			values = append(values, value)
 		}
-		groupsByValue[value] = append(groupsByValue[value], row.RootID)
+		rowsByValue[value] = append(rowsByValue[value], row)
 	}
 	sortColorByValues(values)
 
-	groups := make([][]string, 0, len(values))
-	labels := make([]string, 0, len(values))
+	partitions := make([]colorByPartition, 0, len(values))
 	for _, value := range values {
-		groups = append(groups, groupsByValue[value])
-		labels = append(labels, colorByLabel(field, value))
+		partitions = append(partitions, colorByPartition{label: colorByLabel(field, value), rows: rowsByValue[value]})
 	}
-	return groups, labels
+	return partitions
 }
 
-// buildNestedColorByGroups groups rows by the outer field, then by the inner
-// field within each outer group. The returned slices share one shape, so
-// labels[i][j] names groups[i][j].
-func buildNestedColorByGroups(rows []seatable.NeuronRow, outer, inner string) ([][][]string, [][]string) {
-	rootIDsByValues := make(map[string]map[string][]string)
-	var outerValues []string
-	innerValues := make(map[string][]string)
+// partitionRowsByQueryGroup rebuilds the query groups as partitions. After
+// dedupeUnionResults, queryGroups[i] holds exactly the root IDs spec i owns and
+// queryLabels[i] names that spec, so a row belongs to the group holding its
+// root ID. Groups left empty by deduplication are dropped rather than handed a
+// palette family that would color nothing.
+func partitionRowsByQueryGroup(rows []seatable.NeuronRow, queryGroups [][]string, queryLabels []string) []colorByPartition {
+	owner := make(map[string]int)
+	for i, group := range queryGroups {
+		for _, rootID := range group {
+			owner[rootID] = i
+		}
+	}
 
+	rowsByGroup := make([][]seatable.NeuronRow, len(queryGroups))
 	for _, row := range rows {
 		if row.RootID == "" {
 			continue
 		}
-		outerValue := addColorByFieldValue(row, outer)
-		innerValue := addColorByFieldValue(row, inner)
-		if _, ok := rootIDsByValues[outerValue]; !ok {
-			outerValues = append(outerValues, outerValue)
-			rootIDsByValues[outerValue] = make(map[string][]string)
+		i, ok := owner[row.RootID]
+		if !ok {
+			continue
 		}
-		if _, ok := rootIDsByValues[outerValue][innerValue]; !ok {
-			innerValues[outerValue] = append(innerValues[outerValue], innerValue)
-		}
-		rootIDsByValues[outerValue][innerValue] = append(rootIDsByValues[outerValue][innerValue], row.RootID)
+		rowsByGroup[i] = append(rowsByGroup[i], row)
 	}
-	sortColorByValues(outerValues)
 
-	groups := make([][][]string, 0, len(outerValues))
-	labels := make([][]string, 0, len(outerValues))
-	for _, outerValue := range outerValues {
-		values := innerValues[outerValue]
-		sortColorByValues(values)
+	partitions := make([]colorByPartition, 0, len(queryGroups))
+	for i, groupRows := range rowsByGroup {
+		if len(groupRows) == 0 {
+			continue
+		}
+		// A query with no repeated classifier flags forms one unnamed group.
+		// That is the whole result rather than a missing value, so it does not
+		// borrow the "(empty)" every other field uses for one.
+		label := queryLabels[i]
+		if label == "" {
+			label = "(all)"
+		}
+		partitions = append(partitions, colorByPartition{
+			label: colorByLabel(queryGroupColorByField, label),
+			rows:  groupRows,
+		})
+	}
+	return partitions
+}
 
-		family := make([][]string, 0, len(values))
-		familyLabels := make([]string, 0, len(values))
-		for _, innerValue := range values {
-			family = append(family, rootIDsByValues[outerValue][innerValue])
-			familyLabels = append(familyLabels, colorByLabel(outer, outerValue)+" / "+colorByLabel(inner, innerValue))
+// colorByGroupsFromPartitions flattens partitions into the root-ID groups the
+// coloring functions take, keeping labels aligned.
+func colorByGroupsFromPartitions(partitions []colorByPartition) ([][]string, []string) {
+	groups := make([][]string, 0, len(partitions))
+	labels := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		rootIDs := make([]string, 0, len(partition.rows))
+		for _, row := range partition.rows {
+			rootIDs = append(rootIDs, row.RootID)
+		}
+		groups = append(groups, rootIDs)
+		labels = append(labels, partition.label)
+	}
+	return groups, labels
+}
+
+// nestColorByPartitions splits every outer partition by the inner field. The
+// returned slices share one shape, so labels[i][j] names groups[i][j].
+func nestColorByPartitions(partitions []colorByPartition, inner string) ([][][]string, [][]string) {
+	groups := make([][][]string, 0, len(partitions))
+	labels := make([][]string, 0, len(partitions))
+	for _, partition := range partitions {
+		family, innerLabels := buildColorByGroups(partition.rows, inner)
+		familyLabels := make([]string, 0, len(innerLabels))
+		for _, innerLabel := range innerLabels {
+			familyLabels = append(familyLabels, partition.label+" / "+innerLabel)
 		}
 		groups = append(groups, family)
 		labels = append(labels, familyLabels)
 	}
 	return groups, labels
+}
+
+func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []string) {
+	return colorByGroupsFromPartitions(partitionRowsByField(rows, field))
+}
+
+// buildNestedColorByGroups groups rows by the outer field, then by the inner
+// field within each outer group.
+func buildNestedColorByGroups(rows []seatable.NeuronRow, outer, inner string) ([][][]string, [][]string) {
+	return nestColorByPartitions(partitionRowsByField(rows, outer), inner)
 }
 
 // gradientColorBy holds the per-neuron values a continuous --color-by field

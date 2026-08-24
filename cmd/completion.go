@@ -51,7 +51,9 @@ func completeColorByFields(_ *cobra.Command, _ []string, toComplete string) ([]s
 		if slices.Contains(used, field) {
 			continue
 		}
-		if prefix != "" && continuousAddColorByFields[field] {
+		// After a comma only fields that can be the tone remain: a continuous
+		// field stands alone, and the query group is always the outer level.
+		if prefix != "" && (continuousAddColorByFields[field] || field == queryGroupColorByField) {
 			continue
 		}
 		values = append(values, prefix+field)

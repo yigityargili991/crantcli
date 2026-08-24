@@ -276,6 +276,13 @@ func TestResolveAddColorBy(t *testing.T) {
 			colorBy:   "pos_z,cell_type",
 			wantError: `"pos_z" is continuous`,
 		},
+		{name: "query group as the hue", colorBy: "group,cell_subtype", want: []string{"group", "cell_subtype"}},
+		{name: "query group alone", colorBy: "group", want: []string{"group"}},
+		{
+			name:      "query group cannot be the tone",
+			colorBy:   "cell_type,group",
+			wantError: `"group" names the query a neuron matched`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -302,11 +309,12 @@ func TestResolveAddColorBy(t *testing.T) {
 
 // TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
 // flag keeps working, but it warns and no longer appears in help or the
-// generated command docs. Its migration advice must claim no more than it can
-// deliver. Query groups do not always correspond to cell_type, "matches one
-// metadata field" also describes a mixed union drawing on several fields, and
-// --color-by cell_subtype reproduces --color-sub only under a named family --
-// with colored it gives each subtype its own hue instead of a tone.
+// generated command docs. --color-by group,cell_subtype reproduces it for every
+// query group, so the advice is one unconditional line. The rejected phrasings
+// are the ones that claimed more than they delivered: query groups are not
+// always cell_type values, "matches one metadata field" also describes a mixed
+// union over several fields, and --color-by cell_subtype alone reproduces
+// --color-sub only under a named family.
 func TestAddColorSubIsDeprecated(t *testing.T) {
 	flag := addCmd.Flags().Lookup("color-sub")
 	if flag == nil {
@@ -315,12 +323,7 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 	if flag.Deprecated == "" {
 		t.Fatal("--color-sub carries no deprecation message")
 	}
-	wants := []string{
-		"--color-by cell_subtype",
-		"QUERY_FIELD,cell_subtype",
-		"one value of QUERY_FIELD",
-		"mixed or intersected query groups",
-	}
+	wants := []string{"--color-by group,cell_subtype"}
 	for _, want := range wants {
 		if !strings.Contains(flag.Deprecated, want) {
 			t.Fatalf("deprecation message = %q, want it to contain %q", flag.Deprecated, want)
@@ -330,6 +333,7 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 		"--color-by cell_type,cell_subtype": "assumes every query group is a cell_type",
 		"matches one metadata field":        "also describes a mixed union over several fields",
 		"for one query group":               "promises an equivalence that only holds under a named family",
+		"keep --color-sub":                  "--color-by group,cell_subtype now reproduces every query group",
 	}
 	for reject, why := range rejects {
 		if strings.Contains(flag.Deprecated, reject) {
@@ -685,6 +689,94 @@ func TestNamedPaletteTwoFieldColorByMatchesInnerFieldAlone(t *testing.T) {
 	}
 	if got["a1"] != got["b1"] {
 		t.Fatalf("same inner value in different outer groups must share a tone: a1=%v b1=%v", got["a1"], got["b1"])
+	}
+}
+
+// TestPartitionRowsByQueryGroup covers what no metadata field can describe: a
+// mixed union whose groups come from different columns.
+func TestPartitionRowsByQueryGroup(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "a1", CellClass: "LNO", CellSubtype: "PFNc"},
+		{RootID: "a2", CellClass: "LNO", CellSubtype: "PFNm3"},
+		{RootID: "b1", CellType: "PEN", CellSubtype: "PFNc"},
+		{RootID: "", CellClass: "LNO"},
+	}
+	queryGroups := [][]string{{"a1", "a2"}, {"b1"}, {}}
+	queryLabels := []string{"LNO", "PEN", "EPG"}
+
+	partitions := partitionRowsByQueryGroup(rows, queryGroups, queryLabels)
+
+	// The third spec matched nothing, so it takes no palette family.
+	if len(partitions) != 2 {
+		t.Fatalf("partitions = %d, want 2", len(partitions))
+	}
+	if partitions[0].label != "group=LNO" || partitions[1].label != "group=PEN" {
+		t.Fatalf("labels = %q, %q, want group=LNO, group=PEN", partitions[0].label, partitions[1].label)
+	}
+
+	groups, labels := colorByGroupsFromPartitions(partitions)
+	if !reflect.DeepEqual(groups, [][]string{{"a1", "a2"}, {"b1"}}) {
+		t.Fatalf("groups = %v, want [[a1 a2] [b1]]", groups)
+	}
+	if !reflect.DeepEqual(labels, []string{"group=LNO", "group=PEN"}) {
+		t.Fatalf("labels = %v, want [group=LNO group=PEN]", labels)
+	}
+}
+
+// TestPartitionRowsByQueryGroup_UnnamedGroupIsNotEmpty covers a query with no
+// repeated classifier flags: its single group holds the whole result, so it
+// must not be labelled the way a missing field value is.
+func TestPartitionRowsByQueryGroup_UnnamedGroupIsNotEmpty(t *testing.T) {
+	rows := []seatable.NeuronRow{{RootID: "a1"}, {RootID: "a2"}}
+
+	partitions := partitionRowsByQueryGroup(rows, [][]string{{"a1", "a2"}}, []string{""})
+
+	if len(partitions) != 1 {
+		t.Fatalf("partitions = %d, want 1", len(partitions))
+	}
+	if partitions[0].label != "group=(all)" {
+		t.Fatalf("label = %q, want group=(all)", partitions[0].label)
+	}
+}
+
+// TestNestColorByPartitions_QueryGroupsSplitByField is the case that lets
+// --color-sub retire: PFNc appears under two query groups drawn from different
+// columns, and each keeps its own family.
+func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "a1", CellClass: "LNO", CellSubtype: "PFNc"},
+		{RootID: "a2", CellClass: "LNO", CellSubtype: "PFNm3"},
+		{RootID: "b1", CellType: "PEN", CellSubtype: "PFNc"},
+	}
+	partitions := partitionRowsByQueryGroup(rows, [][]string{{"a1", "a2"}, {"b1"}}, []string{"LNO", "PEN"})
+
+	groups, labels := nestColorByPartitions(partitions, "cell_subtype")
+
+	wantGroups := [][][]string{{{"a1"}, {"a2"}}, {{"b1"}}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+	wantLabels := [][]string{
+		{"group=LNO / cell_subtype=PFNc", "group=LNO / cell_subtype=PFNm3"},
+		{"group=PEN / cell_subtype=PFNc"},
+	}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+
+	layer := map[string]interface{}{}
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"a1", "a2", "b1"},
+		nestedGroups:  groups,
+		color:         "colored",
+		colorByFields: []string{"group", "cell_subtype"},
+	})
+	colors := layer["segmentColors"].(map[string]interface{})
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("PFNc in different query groups shares a color: a1=%v b1=%v", colors["a1"], colors["b1"])
+	}
+	if colors["a1"] == colors["a2"] {
+		t.Fatalf("different subtypes in one query group share a tone: a1=%v a2=%v", colors["a1"], colors["a2"])
 	}
 }
 
