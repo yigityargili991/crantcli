@@ -174,15 +174,12 @@ func init() {
 		if len(colorByFields) > 0 && strings.HasPrefix(normalizedColor, "#") {
 			fmt.Fprintln(os.Stderr, "Warning: --color-by with a hex color assigns the same color to every group; use a named palette or 'colored' for distinct group colors")
 		}
-		// The second field varies tone inside its outer group's palette family,
-		// so it needs the several families only 'colored' spreads groups across.
-		// One family holds a single tone sequence, which the inner field alone
-		// already uses.
-		if len(colorByFields) == 2 && normalizedColor != "colored" {
+		fellBack := fallbackNestedColorByFields(colorByFields, normalizedColor)
+		if len(fellBack) != len(colorByFields) {
 			fmt.Fprintf(os.Stderr, "Warning: --color-by %s,%s needs --color colored to vary hue by %s; coloring by %s alone\n",
 				colorByFields[0], colorByFields[1], colorByFields[0], colorByFields[1])
-			colorByFields = colorByFields[1:]
 		}
+		colorByFields = fellBack
 		if addColorSub && normalizedColor == "" {
 			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
 			addColorSub = false
@@ -482,6 +479,16 @@ func resolveAddColorBy(colorBy string, colorSub bool) ([]string, error) {
 		}
 	}
 	return fields, nil
+}
+
+// fallbackNestedColorByFields drops the outer field when two-level hue/tone
+// cannot run. A named palette or hex has only one family, so grouping uses
+// the inner field alone.
+func fallbackNestedColorByFields(fields []string, color string) []string {
+	if len(fields) == 2 && color != "colored" {
+		return fields[1:]
+	}
+	return fields
 }
 
 func validateAddOptions(regions, bundles []string, color, colorBy string, colorSub bool) error {

@@ -593,6 +593,91 @@ func TestApplyAddSegmentColors_NestedColorByVariesHueThenTone(t *testing.T) {
 	}
 }
 
+func TestFallbackNestedColorByFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields []string
+		color  string
+		want   []string
+	}{
+		{
+			name:   "colored keeps both",
+			fields: []string{"cell_type", "cell_subtype"},
+			color:  "colored",
+			want:   []string{"cell_type", "cell_subtype"},
+		},
+		{
+			name:   "named drops outer",
+			fields: []string{"cell_type", "cell_subtype"},
+			color:  "green",
+			want:   []string{"cell_subtype"},
+		},
+		{
+			name:   "hex drops outer",
+			fields: []string{"cell_type", "cell_subtype"},
+			color:  "#ff0000",
+			want:   []string{"cell_subtype"},
+		},
+		{
+			name:   "single field unchanged",
+			fields: []string{"cell_subtype"},
+			color:  "green",
+			want:   []string{"cell_subtype"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fallbackNestedColorByFields(tt.fields, tt.color)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("fallbackNestedColorByFields(%v, %q) = %v, want %v", tt.fields, tt.color, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNamedPaletteTwoFieldColorByMatchesInnerFieldAlone(t *testing.T) {
+	// ER1 appears under ER and PEN. Flattening pairs would color a1 and b1
+	// differently; coloring by cell_subtype alone must share one tone.
+	rows := []seatable.NeuronRow{
+		{RootID: "a1", CellType: "ER", CellSubtype: "ER1"},
+		{RootID: "a2", CellType: "ER", CellSubtype: "ER2"},
+		{RootID: "b1", CellType: "PEN", CellSubtype: "ER1"},
+		{RootID: "b2", CellType: "PEN"},
+	}
+
+	fields := fallbackNestedColorByFields([]string{"cell_type", "cell_subtype"}, "green")
+	groups, _ := buildColorByGroups(rows, fields[0])
+	layer := map[string]interface{}{}
+	applyAddSegmentColors(layer, addColorPlan{
+		groups:        groups,
+		color:         "green",
+		colorByFields: fields,
+	})
+
+	innerGroups, _ := buildColorByGroups(rows, "cell_subtype")
+	wantLayer := map[string]interface{}{}
+	applyAddSegmentColors(wantLayer, addColorPlan{
+		groups:        innerGroups,
+		color:         "green",
+		colorByFields: []string{"cell_subtype"},
+	})
+
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	want, ok := wantLayer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("inner-field segmentColors missing or wrong type: %#v", wantLayer["segmentColors"])
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("segmentColors = %v, want inner-field coloring %v", got, want)
+	}
+	if got["a1"] != got["b1"] {
+		t.Fatalf("same inner value in different outer groups must share a tone: a1=%v b1=%v", got["a1"], got["b1"])
+	}
+}
+
 func TestBuildGradientColorByValues(t *testing.T) {
 	rows := []seatable.NeuronRow{
 		{RootID: "a", X: 30, Y: 5, Z: 1, PositionSet: true},

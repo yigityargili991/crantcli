@@ -283,15 +283,26 @@ func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]strin
 // so the first field reads as hue and the second as tone within that hue.
 // groups[i][j] holds the root IDs of inner group j inside outer group i.
 //
-// Two levels need more than one family, which only "colored" provides. A named
-// palette or a hex color carries a single family, so those fall back to one
-// color per inner group across the whole set.
+// Two levels need several families, so only "colored" encodes them. Flattening
+// outer×inner pairs under a named palette would give the same inner value a
+// different tone in each family; callers regroup by the inner field and use
+// SetSegmentColorByGroupValues. Hex still paints every segment the same color.
 func SetSegmentColorByNestedGroupValues(layer map[string]interface{}, groups [][][]string, colorInput string) {
 	if colorInput == "" {
 		return
 	}
 	if colorInput != "colored" {
-		SetSegmentColorByGroupValues(layer, flattenNestedGroups(groups), colorInput)
+		if strings.HasPrefix(colorInput, "#") {
+			colors := segmentColorMap(layer)
+			for _, family := range groups {
+				for _, group := range family {
+					for _, id := range group {
+						colors[id] = colorInput
+					}
+				}
+			}
+			layer["segmentColors"] = colors
+		}
 		return
 	}
 
@@ -308,16 +319,6 @@ func SetSegmentColorByNestedGroupValues(layer map[string]interface{}, groups [][
 	}
 
 	layer["segmentColors"] = colors
-}
-
-// flattenNestedGroups concatenates the inner groups of every outer group,
-// preserving order.
-func flattenNestedGroups(groups [][][]string) [][]string {
-	flat := make([][]string, 0, len(groups))
-	for _, family := range groups {
-		flat = append(flat, family...)
-	}
-	return flat
 }
 
 // viridisAnchors samples the viridis colormap: perceptually uniform,

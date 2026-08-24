@@ -663,9 +663,10 @@ func TestSetSegmentColorByNestedGroupValues_ToneWrapsWithinFamily(t *testing.T) 
 	}
 }
 
-func TestSetSegmentColorByNestedGroupValues_NamedPaletteFlattens(t *testing.T) {
-	// One named family cannot carry two levels, so every inner group across the
-	// whole set takes the next tone, exactly as a single-field --color-by would.
+func TestSetSegmentColorByNestedGroupValues_NamedPaletteDoesNotFlatten(t *testing.T) {
+	// a1 is ER/ER1 and b1 is PEN/ER1. Flattening pairs would give them
+	// different tones; coloring by the inner field alone must share one.
+	// This helper does not regroup, so a named family is left to the caller.
 	layer := map[string]interface{}{}
 	groups := [][][]string{
 		{{"a1"}, {"a2"}},
@@ -674,13 +675,8 @@ func TestSetSegmentColorByNestedGroupValues_NamedPaletteFlattens(t *testing.T) {
 
 	SetSegmentColorByNestedGroupValues(layer, groups, "green")
 
-	got := layer["segmentColors"].(map[string]interface{})
-	green := colorPalettes["green"]
-	want := map[string]string{"a1": green[0], "a2": green[1], "b1": green[2]}
-	for id, hex := range want {
-		if got[id] != hex {
-			t.Errorf("%s = %v, want %v", id, got[id], hex)
-		}
+	if _, ok := layer["segmentColors"]; ok {
+		t.Fatal("a named palette must not color nested groups; the caller regroups by the inner field")
 	}
 }
 
