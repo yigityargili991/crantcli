@@ -331,6 +331,10 @@ func SetSegmentColorByGradient(layer map[string]interface{}, values map[string]f
 	low, high := valueRange(values)
 	span := high - low
 	for id, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			colors[id] = unsetValueColor
+			continue
+		}
 		// One distinct value has no range to spread over, so it sits mid-ramp
 		// rather than at an arbitrary end.
 		fraction := 0.5
@@ -363,6 +367,9 @@ func valueRange(values map[string]float64) (float64, float64) {
 	var low, high float64
 	first := true
 	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			continue
+		}
 		if first || value < low {
 			low = value
 		}

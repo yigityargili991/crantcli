@@ -214,6 +214,88 @@ func TestAddCommandDeliveryBranches(t *testing.T) {
 	})
 }
 
+func addTestStateDelivery(t *testing.T) map[string]interface{} {
+	t.Helper()
+	layer := map[string]interface{}{"type": "segmentation"}
+	result := &nglstate.LoadResult{
+		State:  map[string]interface{}{"layers": []interface{}{layer}},
+		Source: nglstate.SourceTemplate,
+	}
+	addLoadState = func(string, bool) (*nglstate.LoadResult, error) { return result, nil }
+	addFindSegmentationLayer = func(map[string]interface{}, string) (map[string]interface{}, int, error) {
+		return layer, 0, nil
+	}
+	addDeliverState = func(got *nglstate.LoadResult, _ nglstate.DeliveryOptions) error {
+		if got != result {
+			t.Fatalf("delivered result = %#v, want %#v", got, result)
+		}
+		return nil
+	}
+	return layer
+}
+
+func TestAddCommandColorByPipelines(t *testing.T) {
+	t.Run("query group nested by subtype", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addRegions = nil
+		addCellClasses = []string{"LNO"}
+		addCellTypes = []string{"PEN"}
+		addColorBy = "group,cell_subtype"
+		addRootIDsOnly = false
+		addQueryNeurons = func(_ *seatable.Client, filters *seatable.Filters) ([]seatable.NeuronRow, error) {
+			switch {
+			case filters.CellClass == "LNO":
+				return []seatable.NeuronRow{
+					{RootID: "a1", CellSubtype: "PFNc"},
+					{RootID: "a2", CellSubtype: "PFNm3"},
+				}, nil
+			case filters.CellType == "PEN":
+				return []seatable.NeuronRow{{RootID: "b1", CellSubtype: "PFNc"}}, nil
+			default:
+				t.Fatalf("unexpected filters: %+v", *filters)
+				return nil, nil
+			}
+		}
+		layer := addTestStateDelivery(t)
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		colors := layer["segmentColors"].(map[string]interface{})
+		if colors["a1"] == colors["a2"] {
+			t.Fatalf("subtypes in one query group share a tone: %v", colors)
+		}
+		if colors["a1"] == colors["b1"] {
+			t.Fatalf("query groups share a palette family: %v", colors)
+		}
+	})
+
+	t.Run("position gradient", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addColorBy = "pos_z"
+		addRootIDsOnly = false
+		addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+			return []seatable.NeuronRow{
+				{RootID: "low", Z: 10, PositionSet: true},
+				{RootID: "high", Z: 30, PositionSet: true},
+				{RootID: "unset"},
+			}, nil
+		}
+		layer := addTestStateDelivery(t)
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		colors := layer["segmentColors"].(map[string]interface{})
+		if colors["low"] != "#440154" || colors["high"] != "#fde725" {
+			t.Fatalf("gradient endpoints = low:%v high:%v", colors["low"], colors["high"])
+		}
+		if colors["unset"] != "#808080" {
+			t.Fatalf("unset position = %v, want #808080", colors["unset"])
+		}
+	})
+}
+
 func TestResolveAddRegionFilters(t *testing.T) {
 	t.Run("multiple bundles alias regions", func(t *testing.T) {
 		got, err := resolveAddRegionFilters(nil, []string{" RW ", "RX", "RW", ""})

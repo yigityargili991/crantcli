@@ -2,6 +2,7 @@ package seatable
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -648,6 +649,32 @@ func TestParsePositionValueRejectsMalformedArrays(t *testing.T) {
 			}
 			if x != 0 || y != 0 || z != 0 {
 				t.Fatalf("parsePositionValue(%v) = (%v, %v, %v), want zeros for rejected input", tt.pos, x, y, z)
+			}
+		})
+	}
+}
+
+func TestParsePositionValueRejectsNonFiniteCoordinates(t *testing.T) {
+	tests := []struct {
+		name string
+		pos  interface{}
+	}{
+		{name: "NaN in string", pos: "1, NaN, 3"},
+		{name: "positive infinity in string", pos: "1, 2, +Inf"},
+		{name: "negative infinity in array", pos: []interface{}{1.0, math.Inf(-1), 3.0}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			x, y, z, err := parsePositionValue(tt.pos)
+			if err == nil {
+				t.Fatalf("parsePositionValue(%v) returned nil error", tt.pos)
+			}
+			if x != 0 || y != 0 || z != 0 {
+				t.Fatalf("parsePositionValue(%v) = (%v, %v, %v), want zeros", tt.pos, x, y, z)
+			}
+			if !strings.Contains(err.Error(), "not finite") {
+				t.Fatalf("error = %q, want a non-finite diagnostic", err)
 			}
 		})
 	}

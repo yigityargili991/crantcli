@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -735,6 +736,25 @@ func TestSetSegmentColorByGradient_UnsetTakesNeutralGray(t *testing.T) {
 	}
 	if got["a"] == unsetValueColor {
 		t.Fatalf("a = %v, want a ramp color rather than the unset gray", got["a"])
+	}
+}
+
+func TestSetSegmentColorByGradient_NonFiniteValuesTakeNeutralGray(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{
+		"low":  1,
+		"high": 9,
+		"nan":  math.NaN(),
+		"inf":  math.Inf(1),
+	}, nil, "colored")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	if got["nan"] != unsetValueColor || got["inf"] != unsetValueColor {
+		t.Fatalf("nan=%v inf=%v, want both %v", got["nan"], got["inf"], unsetValueColor)
+	}
+	if got["low"] != viridisAnchors[0] || got["high"] != viridisAnchors[len(viridisAnchors)-1] {
+		t.Fatalf("finite range was distorted: low=%v high=%v", got["low"], got["high"])
 	}
 }
 
