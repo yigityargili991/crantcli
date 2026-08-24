@@ -1,5 +1,60 @@
 # Changelog
 
+## v0.18.0 - 2026-08-25
+
+### Added
+
+- Nest `--color-by` two levels deep: two comma-separated fields let the first
+  choose each group's color family and the second vary the tone within it, as
+  in `--color-by cell_type,cell_subtype`. Two levels need several families, so
+  this form requires `--color colored`, which is the default when `--color` is
+  omitted; a named family or a hex color warns and colors by the second field
+  alone.
+- Add `--color-by group`, which colors by the query group a neuron matched
+  rather than by any value on its row. It is the one partition no metadata
+  field describes: a mixed union draws its groups from different columns, and
+  `--intersect` builds a `value1/value2` cross-product. Because the query
+  groups are the outer level by construction, `group` can only be the first
+  field.
+- Add continuous `--color-by pos_x`, `pos_y`, and `pos_z`, which spread the
+  matched neurons along a ramp taken from the soma position rather than sorting
+  them into groups — viridis under `colored`, dark to light under a named
+  family. Neurons whose `position` is empty or malformed take a neutral gray
+  and are counted on their own line.
+- Add `--color-by root_id` for one color per neuron, reported as a total rather
+  than one line per group.
+- Complete the new `--color-by` fields in both level positions.
+
+### Changed
+
+- Deprecate `--color-sub`, which still works, warns on use, and will be removed
+  in v0.19.0. `--color-by group,cell_subtype` is the exact replacement under
+  `--color colored`; for a named family, ask for the field directly with
+  `--color blue --color-by cell_subtype`. Three behaviors do not survive the
+  move, each of them dropping something that carried no meaning: neurons
+  without a `cell_subtype` now share the `(empty)` group's own tone instead of
+  keeping whatever base tone their position in the group happened to give them,
+  a query group holding no root IDs of its own no longer reserves a color
+  family and is now named in the output, and tones under a named family are
+  assigned once across the whole result rather than restarting inside every
+  group.
+- Report Linux X11 clipboard read failures instead of reading them as an empty
+  clipboard, and return immediately when no application owns the selection
+  rather than blocking for the full read deadline.
+
+### Fixed
+
+- Publish a release only after every binary, signature, installer, and
+  `checksums.txt` is uploaded. `install.sh` and `install.ps1` resolve
+  `releases/latest`, so an install started during a release run could fail for
+  minutes with `curl: (22) The requested URL returned error: 404`; it now gets
+  the previous complete release until the new one is ready.
+
+### Security
+
+- Build releases with Go 1.26.7. Go 1.25 reached the end of its support window,
+  and 1.26 is the last line that still runs on macOS 12 Monterey.
+
 ## v0.17.2 - 2026-08-20
 
 ### Fixed
