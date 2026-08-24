@@ -147,7 +147,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 	}
 
 	rowsRaw, err := executePagedSelect(client,
-		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
+		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`, `position`",
 		buildWhere(sqlFilters),
 	)
 	if err != nil {
@@ -161,7 +161,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 		}
 
 		regionValues := resolveSelectValues(r["region"], regionOpts)
-		rows = append(rows, NeuronRow{
+		row := NeuronRow{
 			RootID:         toString(r["root_id"]),
 			SuperClass:     toString(r["super_class"]),
 			CellClass:      toString(r["cell_class"]),
@@ -175,7 +175,14 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			Nerve:          toString(r["nerve"]),
 			Hemilineage:    toString(r["hemilineage"]),
 			Proofread:      toString(r["proofread"]),
-		})
+		}
+		// A missing or malformed position is common and never fatal here: the
+		// row still carries its classification, only without coordinates.
+		if x, y, z, err := parsePositionValue(r["position"]); err == nil {
+			row.X, row.Y, row.Z = x, y, z
+			row.PositionSet = true
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }

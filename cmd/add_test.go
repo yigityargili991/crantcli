@@ -265,6 +265,17 @@ func TestResolveAddColorBy(t *testing.T) {
 		},
 		{name: "empty field", colorBy: "cell_type,", wantError: "empty field"},
 		{name: "repeated field", colorBy: "cell_type,cell_type", wantError: `"cell_type" is repeated`},
+		{name: "continuous field alone", colorBy: "pos_z", want: []string{"pos_z"}},
+		{
+			name:      "continuous field cannot be the tone",
+			colorBy:   "cell_type,pos_z",
+			wantError: `"pos_z" is continuous`,
+		},
+		{
+			name:      "continuous field cannot be the hue",
+			colorBy:   "pos_z,cell_type",
+			wantError: `"pos_z" is continuous`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -567,6 +578,61 @@ func TestApplyAddSegmentColors_NestedColorByVariesHueThenTone(t *testing.T) {
 	}
 	if colors["a2"] == colors["b2"] {
 		t.Fatalf("different families share a tone: a2=%v b2=%v", colors["a2"], colors["b2"])
+	}
+}
+
+func TestBuildGradientColorByValues(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "a", X: 30, Y: 5, Z: 1, PositionSet: true},
+		{RootID: "b", X: 10, Y: 5, Z: 2, PositionSet: true},
+		{RootID: "c"},
+		{RootID: "", X: 99, PositionSet: true},
+	}
+
+	got := buildGradientColorByValues(rows, "pos_x")
+
+	wantValues := map[string]float64{"a": 30, "b": 10}
+	if !reflect.DeepEqual(got.values, wantValues) {
+		t.Fatalf("values = %v, want %v", got.values, wantValues)
+	}
+	if !reflect.DeepEqual(got.unset, []string{"c"}) {
+		t.Fatalf("unset = %v, want [c]", got.unset)
+	}
+	if got.low != 10 || got.high != 30 {
+		t.Fatalf("range = %g to %g, want 10 to 30", got.low, got.high)
+	}
+}
+
+// TestApplyAddSegmentColors_GradientSpreadsAlongRamp covers the continuous
+// path: one color per neuron along the ramp, and a neutral gray for the
+// neurons the field has no value for.
+func TestApplyAddSegmentColors_GradientSpreadsAlongRamp(t *testing.T) {
+	layer := map[string]interface{}{}
+	gradient := gradientColorBy{
+		values: map[string]float64{"low": 0, "mid": 5, "high": 10},
+		unset:  []string{"none"},
+		low:    0,
+		high:   10,
+	}
+
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"low", "mid", "high", "none"},
+		gradient:      &gradient,
+		color:         "colored",
+		colorByFields: []string{"pos_z"},
+	})
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	for _, pair := range [][2]string{{"low", "mid"}, {"mid", "high"}, {"low", "high"}} {
+		if colors[pair[0]] == colors[pair[1]] {
+			t.Fatalf("%s and %s share a color: %v", pair[0], pair[1], colors[pair[0]])
+		}
+	}
+	if colors["none"] != "#808080" {
+		t.Fatalf("none = %v, want the unset gray #808080", colors["none"])
 	}
 }
 

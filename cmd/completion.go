@@ -38,9 +38,20 @@ func completeColorByFields(_ *cobra.Command, _ []string, toComplete string) ([]s
 	}
 
 	used := strings.Split(prefix, ",")
+	// A continuous field varies per neuron rather than forming groups, so it
+	// never pairs with a second field.
+	for _, field := range used {
+		if continuousAddColorByFields[field] {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
+
 	values := make([]string, 0, len(addColorByFields))
 	for _, field := range addColorByFields {
 		if slices.Contains(used, field) {
+			continue
+		}
+		if prefix != "" && continuousAddColorByFields[field] {
 			continue
 		}
 		values = append(values, prefix+field)

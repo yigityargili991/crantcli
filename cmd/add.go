@@ -254,14 +254,28 @@ func init() {
 		totalRows := len(allRows)
 
 		var nestedGroups [][][]string
-		switch len(colorByFields) {
-		case 1:
+		var gradient *gradientColorBy
+		switch {
+		case len(colorByFields) == 1 && continuousAddColorByFields[colorByFields[0]]:
+			// A continuous field has one value per neuron, so report its span
+			// rather than a line for every distinct value.
+			built := buildGradientColorByValues(allRows, colorByFields[0])
+			gradient = &built
+			if len(built.values) == 0 {
+				fmt.Fprintf(os.Stderr, "  %s: no neuron carries a position; all take the unset color\n", colorByFields[0])
+			} else {
+				fmt.Fprintf(os.Stderr, "  %s: %d with root IDs, %g to %g\n", colorByFields[0], len(built.values), built.low, built.high)
+			}
+			if len(built.unset) > 0 {
+				fmt.Fprintf(os.Stderr, "  %s=(unset): %d without a position\n", colorByFields[0], len(built.unset))
+			}
+		case len(colorByFields) == 1:
 			var labels []string
 			groups, labels = buildColorByGroups(allRows, colorByFields[0])
 			for i, group := range groups {
 				fmt.Fprintf(os.Stderr, "  %s: %d with root IDs\n", labels[i], len(group))
 			}
-		case 2:
+		case len(colorByFields) == maxAddColorByFields:
 			var labels [][]string
 			nestedGroups, labels = buildNestedColorByGroups(allRows, colorByFields[0], colorByFields[1])
 			for i, family := range nestedGroups {
@@ -303,6 +317,7 @@ func init() {
 			rootIDs:       allRootIDs,
 			groups:        groups,
 			nestedGroups:  nestedGroups,
+			gradient:      gradient,
 			subtypeMap:    subtypeMap,
 			color:         normalizedColor,
 			colorByFields: colorByFields,
@@ -459,6 +474,16 @@ func resolveAddColorBy(colorBy string, colorSub bool) ([]string, error) {
 		}
 		fields = append(fields, field)
 	}
+
+	// A continuous field spreads segments along a ramp rather than splitting
+	// them into the groups a level needs, so it can only stand alone.
+	if len(fields) == maxAddColorByFields {
+		for _, field := range fields {
+			if continuousAddColorByFields[field] {
+				return nil, fmt.Errorf("invalid --color-by %q: %q is continuous and cannot be combined with another field", colorBy, field)
+			}
+		}
+	}
 	return fields, nil
 }
 
@@ -494,7 +519,15 @@ var addColorByFields = []string{
 	"nerve",
 	"hemilineage",
 	"proofread",
+	"pos_x",
+	"pos_y",
+	"pos_z",
 }
+
+// continuousAddColorByFields are the --color-by fields holding a number rather
+// than a category, so they spread segments along a ramp instead of grouping
+// them by value.
+var continuousAddColorByFields = fieldSet([]string{"pos_x", "pos_y", "pos_z"})
 
 var validAddColorByFields = fieldSet(addColorByFields)
 
@@ -632,6 +665,7 @@ type addColorPlan struct {
 	rootIDs       []string     // every injected root ID, for whole-set coloring
 	groups        [][]string   // query groups, or one group per single --color-by value
 	nestedGroups  [][][]string // set only for a two-field --color-by
+	gradient      *gradientColorBy
 	subtypeMap    map[string]string
 	color         string
 	colorByFields []string
@@ -640,11 +674,14 @@ type addColorPlan struct {
 
 func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
 	if len(plan.colorByFields) > 0 && plan.color != "" {
-		if len(plan.colorByFields) == maxAddColorByFields {
+		switch {
+		case plan.gradient != nil:
+			nglstate.SetSegmentColorByGradient(layer, plan.gradient.values, plan.gradient.unset, plan.color)
+		case len(plan.colorByFields) == maxAddColorByFields:
 			nglstate.SetSegmentColorByNestedGroupValues(layer, plan.nestedGroups, plan.color)
-			return
+		default:
+			nglstate.SetSegmentColorByGroupValues(layer, plan.groups, plan.color)
 		}
-		nglstate.SetSegmentColorByGroupValues(layer, plan.groups, plan.color)
 		return
 	}
 
@@ -765,6 +802,60 @@ func buildNestedColorByGroups(rows []seatable.NeuronRow, outer, inner string) ([
 		labels = append(labels, familyLabels)
 	}
 	return groups, labels
+}
+
+// gradientColorBy holds the per-neuron values a continuous --color-by field
+// spreads along the ramp, plus the root IDs it has no value for.
+type gradientColorBy struct {
+	values    map[string]float64
+	unset     []string
+	low, high float64
+}
+
+// buildGradientColorByValues reads a continuous field off every matched row.
+// Rows the field has no number for are collected separately so they can be
+// marked rather than silently placed somewhere on the ramp.
+func buildGradientColorByValues(rows []seatable.NeuronRow, field string) gradientColorBy {
+	gradient := gradientColorBy{values: make(map[string]float64, len(rows))}
+	first := true
+
+	for _, row := range rows {
+		if row.RootID == "" {
+			continue
+		}
+		value, ok := addColorByFieldNumber(row, field)
+		if !ok {
+			gradient.unset = append(gradient.unset, row.RootID)
+			continue
+		}
+		gradient.values[row.RootID] = value
+		if first || value < gradient.low {
+			gradient.low = value
+		}
+		if first || value > gradient.high {
+			gradient.high = value
+		}
+		first = false
+	}
+	return gradient
+}
+
+// addColorByFieldNumber returns the value of a continuous --color-by field and
+// whether the row carries one.
+func addColorByFieldNumber(row seatable.NeuronRow, field string) (float64, bool) {
+	if !row.PositionSet {
+		return 0, false
+	}
+	switch field {
+	case "pos_x":
+		return row.X, true
+	case "pos_y":
+		return row.Y, true
+	case "pos_z":
+		return row.Z, true
+	default:
+		return 0, false
+	}
 }
 
 func colorByLabel(field, value string) string {

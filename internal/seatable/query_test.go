@@ -748,3 +748,53 @@ func regionMetadata() *MetadataResponse {
 		},
 	}
 }
+
+func TestQueryNeuronsParsesPositionAndToleratesMissingOnes(t *testing.T) {
+	positioned := neuronSQLRow("root-pos", []interface{}{"452098"})
+	positioned["position"] = "30400, 19771, 2964"
+	malformed := neuronSQLRow("root-bad", []interface{}{"452098"})
+	malformed["position"] = "not a position"
+	absent := neuronSQLRow("root-none", []interface{}{"452098"})
+
+	var sqls []string
+	client := &Client{
+		executeSQLFunc: func(sql string) (*SQLResponse, error) {
+			sqls = append(sqls, sql)
+			return &SQLResponse{Results: []map[string]interface{}{positioned, malformed, absent}}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
+		},
+	}
+
+	rows, err := QueryNeurons(client, &Filters{})
+	if err != nil {
+		t.Fatalf("QueryNeurons returned error: %v", err)
+	}
+	if len(sqls) != 1 {
+		t.Fatalf("ExecuteSQL called %d times, want 1", len(sqls))
+	}
+	if !strings.Contains(sqls[0], "`position`") {
+		t.Fatalf("QueryNeurons SQL = %q, want it to select `position`", sqls[0])
+	}
+	if len(rows) != 3 {
+		t.Fatalf("QueryNeurons returned %d rows, want 3", len(rows))
+	}
+
+	if !rows[0].PositionSet {
+		t.Fatal("root-pos should carry a position")
+	}
+	if rows[0].X != 30400 || rows[0].Y != 19771 || rows[0].Z != 2964 {
+		t.Fatalf("root-pos position = (%g, %g, %g), want (30400, 19771, 2964)", rows[0].X, rows[0].Y, rows[0].Z)
+	}
+	// A row still counts, and keeps its classification, when its position is
+	// unusable; only PositionSet reports the difference.
+	for _, row := range rows[1:] {
+		if row.PositionSet {
+			t.Fatalf("%s should carry no position", row.RootID)
+		}
+		if row.CellType != "EPG/PEG" {
+			t.Fatalf("%s cell_type = %q, want EPG/PEG", row.RootID, row.CellType)
+		}
+	}
+}

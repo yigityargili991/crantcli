@@ -59,6 +59,7 @@ Supported fields:
 super_class   cell_class     cell_type       cell_subtype
 cell_instance column         side            region
 tract         nerve          hemilineage     proofread
+pos_x         pos_y          pos_z
 ```
 
 The derived `column` field comes from `cell_instance`: Δ7 instances use the final four characters; other instances use the final two.
@@ -85,6 +86,24 @@ Two levels need several color families, so this form requires `colored`, which i
     # now
     crantcli add --cell-type ER --color blue --color-by cell_subtype
     ```
+
+## Color by position
+
+`pos_x`, `pos_y`, and `pos_z` read the soma position and spread the matched neurons along a ramp instead of sorting them into groups:
+
+```bash
+crantcli add --cell-class ER --color-by pos_z
+```
+
+The ramp runs from the lowest value in the result to the highest, so each query sets its own endpoints. `colored`, the default, ramps through viridis; a named family ramps through its own tones, dark to light:
+
+```bash
+crantcli add --cell-class ER --color-by pos_z --color blue
+```
+
+Neurons whose `position` column is empty or malformed have nowhere to sit on the ramp. They take a neutral gray and are counted on their own line.
+
+A continuous field varies per neuron rather than splitting the result into groups, so it cannot join the two-field form.
 
 !!! tip "Choose color for the question"
     Use `--color-by` when the metadata field is the analysis dimension. Use repeated query groups when the populations themselves define the comparison.
