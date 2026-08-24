@@ -56,8 +56,11 @@ crantcli add [flags]
   # Intersect classifiers instead
   crantcli add --intersect --cell-class ER --cell-type ER
 
-  # Sub-color by cell_subtype within each query group
-  crantcli add --cell-type ER --color-sub --color blue
+  # Color by cell_type, then vary tone by cell_subtype within each type
+  crantcli add --super-class sensory --color-by cell_type,cell_subtype
+
+  # Give each query group a hue and each subtype inside it a tone
+  crantcli add --cell-class LNO --cell-type PEN --color-by group,cell_subtype
 ```
 
 ## Options
@@ -68,8 +71,7 @@ crantcli add [flags]
       --cell-subtype stringArray   Filter by cell_subtype (repeatable for multiple subtypes)
       --cell-type stringArray      Filter by cell_type (repeatable for multiple types)
       --color string               Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)
-      --color-by string            Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread
-      --color-sub                  Sub-color neurons by cell_subtype within each query group
+      --color-by string            Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread, pos_x, pos_y, pos_z, root_id, group. Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)
   -g, --generate                   Use the configured or built-in default state instead of the clipboard
   -h, --help                       help for add
       --intersect                  Intersect --cell-class/--cell-type/--cell-subtype as a cross-product (AND) instead of the default union (OR, each value its own group); rarely needed since these classifiers are hierarchical. Other filters (--super-class, --side, --region, ...) always apply to every group

@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -155,6 +156,17 @@ func countPaletteTones(layer map[string]interface{}, palette []string) int {
 	return len(seen)
 }
 
+// segmentColorMap returns the layer's segmentColors map, ready to write into.
+// A missing or malformed map is replaced with a fresh one, so callers can
+// assign unconditionally and store the result back on the layer.
+func segmentColorMap(layer map[string]interface{}) map[string]interface{} {
+	colors, _ := layer["segmentColors"].(map[string]interface{})
+	if colors == nil {
+		colors = make(map[string]interface{})
+	}
+	return colors
+}
+
 // paletteNames is the ordered list of palettes for automatic per-type assignment.
 var paletteNames = []string{
 	"blue", "red", "green", "turquoise",
@@ -203,14 +215,7 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 		return
 	}
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	switch {
 	case colorInput == "colored":
@@ -253,14 +258,7 @@ func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]strin
 		return
 	}
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	for i, group := range groups {
 		groupColor := colorInput
@@ -277,6 +275,142 @@ func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]strin
 	}
 
 	layer["segmentColors"] = colors
+}
+
+// SetSegmentColorByNestedGroupValues colors two nested levels of --color-by
+// groups: each outer group takes its own palette family (spaced for maximum
+// separation) and each inner group within it takes one tone from that family,
+// so the first field reads as hue and the second as tone within that hue.
+// groups[i][j] holds the root IDs of inner group j inside outer group i.
+//
+// Two levels need several families, which only the "colored" palette cycle
+// spreads groups across. That leaves one legal color input, so this takes none:
+// a caller holding a named family or a hex color has a single family to draw
+// on, and regroups by the inner field for SetSegmentColorByGroupValues instead.
+func SetSegmentColorByNestedGroupValues(layer map[string]interface{}, groups [][][]string) {
+	colors := segmentColorMap(layer)
+
+	for i, family := range groups {
+		palette := colorPalettes[paletteNames[groupPaletteDistinct(i, len(groups))]]
+		for j, group := range family {
+			tone := palette[j%len(palette)]
+			for _, id := range group {
+				colors[id] = tone
+			}
+		}
+	}
+
+	layer["segmentColors"] = colors
+}
+
+// viridisAnchors samples the viridis colormap: perceptually uniform,
+// colorblind-safe, and the usual choice for continuous scientific data.
+// Gradient colors interpolate between neighbouring anchors.
+var viridisAnchors = []string{
+	"#440154", "#482878", "#3e4989", "#31688e", "#26828e",
+	"#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725",
+}
+
+// unsetValueColor marks segments a continuous field has no value for, keeping
+// them visible without reading as a point on the ramp.
+const unsetValueColor = "#808080"
+
+// SetSegmentColorByGradient colors segments along a sequential ramp running
+// from the lowest value to the highest. "colored" uses viridis; a named family
+// ramps through its own tones, dark to light; a hex color flattens the ramp to
+// that single color. Root IDs listed in unset carry no value and take a neutral
+// gray instead.
+func SetSegmentColorByGradient(layer map[string]interface{}, values map[string]float64, unset []string, colorInput string) {
+	if colorInput == "" {
+		return
+	}
+
+	colors := segmentColorMap(layer)
+
+	anchors := gradientAnchors(colorInput)
+	low, high := valueRange(values)
+	span := high - low
+	for id, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			colors[id] = unsetValueColor
+			continue
+		}
+		// One distinct value has no range to spread over, so it sits mid-ramp
+		// rather than at an arbitrary end.
+		fraction := 0.5
+		if span > 0 {
+			fraction = (value - low) / span
+		}
+		colors[id] = interpolateHex(anchors, fraction)
+	}
+	for _, id := range unset {
+		colors[id] = unsetValueColor
+	}
+
+	layer["segmentColors"] = colors
+}
+
+// gradientAnchors picks the ramp a color input describes: a named family ramps
+// through its own tones, "colored" through viridis, and a hex color is a ramp
+// of one.
+func gradientAnchors(colorInput string) []string {
+	if palette := colorPalettes[colorInput]; palette != nil {
+		return palette
+	}
+	if colorInput == "colored" {
+		return viridisAnchors
+	}
+	return []string{colorInput}
+}
+
+func valueRange(values map[string]float64) (float64, float64) {
+	var low, high float64
+	first := true
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			continue
+		}
+		if first || value < low {
+			low = value
+		}
+		if first || value > high {
+			high = value
+		}
+		first = false
+	}
+	return low, high
+}
+
+// interpolateHex returns the color at fraction (0 to 1) along the anchors,
+// blending the two neighbouring anchors in sRGB.
+func interpolateHex(anchors []string, fraction float64) string {
+	if len(anchors) == 1 {
+		return anchors[0]
+	}
+	fraction = math.Min(1, math.Max(0, fraction))
+
+	position := fraction * float64(len(anchors)-1)
+	lower := int(position)
+	if lower >= len(anchors)-1 {
+		return anchors[len(anchors)-1]
+	}
+	blend := position - float64(lower)
+
+	lowR, lowG, lowB := hexToRGB(anchors[lower])
+	highR, highG, highB := hexToRGB(anchors[lower+1])
+	return fmt.Sprintf("#%02x%02x%02x",
+		colorByte(lowR+(highR-lowR)*blend),
+		colorByte(lowG+(highG-lowG)*blend),
+		colorByte(lowB+(highB-lowB)*blend))
+}
+
+// hexToRGB splits a "#rrggbb" color into components in the 0 to 1 range.
+func hexToRGB(hex string) (float64, float64, float64) {
+	value, err := strconv.ParseUint(strings.TrimPrefix(hex, "#"), 16, 32)
+	if err != nil {
+		return 0, 0, 0
+	}
+	return float64((value>>16)&0xff) / 255, float64((value>>8)&0xff) / 255, float64(value&0xff) / 255
 }
 
 func categoricalGroupColor(groupIdx int) string {
@@ -342,14 +476,7 @@ func SetSegmentColorBySubtype(layer map[string]interface{}, groups [][]string, s
 		return
 	}
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	for i, group := range groups {
 		var palette []string

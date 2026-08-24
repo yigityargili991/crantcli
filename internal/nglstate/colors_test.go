@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -614,5 +615,162 @@ func TestNormalizeColorInput(t *testing.T) {
 				t.Fatalf("NormalizeColorInput(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_Colored(t *testing.T) {
+	// Two outer groups with "colored": outer 0 gets blue tones, outer 1 gets
+	// yellow tones (with 2 groups, palettes are spaced at indices 0 and 6).
+	// Inner groups take successive tones from their family.
+	layer := map[string]interface{}{}
+	groups := [][][]string{
+		{{"a1", "a2"}, {"a3"}},
+		{{"b1"}, {"b2"}},
+	}
+
+	SetSegmentColorByNestedGroupValues(layer, groups)
+
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+	}
+
+	blue := colorPalettes["blue"]
+	yellow := colorPalettes["yellow"]
+	want := map[string]string{
+		"a1": blue[0],
+		"a2": blue[0],
+		"a3": blue[1],
+		"b1": yellow[0],
+		"b2": yellow[1],
+	}
+	for id, hex := range want {
+		if got[id] != hex {
+			t.Errorf("%s = %v, want %v", id, got[id], hex)
+		}
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_ToneWrapsWithinFamily(t *testing.T) {
+	// A family carries five tones, so a sixth inner group reuses the first.
+	layer := map[string]interface{}{}
+	groups := [][][]string{{{"a1"}, {"a2"}, {"a3"}, {"a4"}, {"a5"}, {"a6"}}}
+
+	SetSegmentColorByNestedGroupValues(layer, groups)
+
+	got := layer["segmentColors"].(map[string]interface{})
+	if got["a6"] != got["a1"] {
+		t.Fatalf("a6 = %v, want the wrapped first tone %v", got["a6"], got["a1"])
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_NilGroups(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByNestedGroupValues(layer, nil)
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+	}
+	if len(got) != 0 {
+		t.Fatalf("segmentColors = %v, want empty", got)
+	}
+}
+
+func TestSetSegmentColorByGradient_ViridisEndpoints(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{"low": 1, "mid": 3, "high": 5}, nil, "colored")
+
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+	}
+	if got["low"] != viridisAnchors[0] {
+		t.Errorf("low = %v, want the first viridis anchor %v", got["low"], viridisAnchors[0])
+	}
+	last := viridisAnchors[len(viridisAnchors)-1]
+	if got["high"] != last {
+		t.Errorf("high = %v, want the last viridis anchor %v", got["high"], last)
+	}
+	if got["mid"] == got["low"] || got["mid"] == got["high"] {
+		t.Errorf("mid = %v, want a color between the ends", got["mid"])
+	}
+}
+
+func TestSetSegmentColorByGradient_NamedFamilyRampsThroughItsTones(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{"low": 0, "mid": 1, "high": 2}, nil, "blue")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	blue := colorPalettes["blue"]
+	want := map[string]string{"low": blue[0], "mid": blue[2], "high": blue[4]}
+	for id, hex := range want {
+		if got[id] != hex {
+			t.Errorf("%s = %v, want %v", id, got[id], hex)
+		}
+	}
+}
+
+func TestSetSegmentColorByGradient_OneValueSitsMidRamp(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{"a": 7, "b": 7}, nil, "blue")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	blue := colorPalettes["blue"]
+	if got["a"] != blue[2] || got["b"] != blue[2] {
+		t.Fatalf("a=%v b=%v, want both at the mid tone %v", got["a"], got["b"], blue[2])
+	}
+}
+
+func TestSetSegmentColorByGradient_UnsetTakesNeutralGray(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{"a": 1}, []string{"b"}, "colored")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	if got["b"] != unsetValueColor {
+		t.Fatalf("b = %v, want %v", got["b"], unsetValueColor)
+	}
+	if got["a"] == unsetValueColor {
+		t.Fatalf("a = %v, want a ramp color rather than the unset gray", got["a"])
+	}
+}
+
+func TestSetSegmentColorByGradient_NonFiniteValuesTakeNeutralGray(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{
+		"low":  1,
+		"high": 9,
+		"nan":  math.NaN(),
+		"inf":  math.Inf(1),
+	}, nil, "colored")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	if got["nan"] != unsetValueColor || got["inf"] != unsetValueColor {
+		t.Fatalf("nan=%v inf=%v, want both %v", got["nan"], got["inf"], unsetValueColor)
+	}
+	if got["low"] != viridisAnchors[0] || got["high"] != viridisAnchors[len(viridisAnchors)-1] {
+		t.Fatalf("finite range was distorted: low=%v high=%v", got["low"], got["high"])
+	}
+}
+
+func TestSetSegmentColorByGradient_HexFlattensRampAndEmptyIsNoop(t *testing.T) {
+	layer := map[string]interface{}{}
+
+	SetSegmentColorByGradient(layer, map[string]float64{"a": 1, "b": 9}, nil, "#ff0000")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	if got["a"] != "#ff0000" || got["b"] != "#ff0000" {
+		t.Fatalf("a=%v b=%v, want both #ff0000", got["a"], got["b"])
+	}
+
+	empty := map[string]interface{}{}
+	SetSegmentColorByGradient(empty, map[string]float64{"a": 1}, []string{"b"}, "")
+	if _, ok := empty["segmentColors"]; ok {
+		t.Fatal("an empty color should not create segmentColors")
 	}
 }

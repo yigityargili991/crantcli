@@ -3,6 +3,7 @@ package seatable
 import (
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,7 +148,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 	}
 
 	rowsRaw, err := executePagedSelect(client,
-		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`",
+		"`root_id`, `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, `proofread`, `position`",
 		buildWhere(sqlFilters),
 	)
 	if err != nil {
@@ -161,7 +162,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 		}
 
 		regionValues := resolveSelectValues(r["region"], regionOpts)
-		rows = append(rows, NeuronRow{
+		row := NeuronRow{
 			RootID:         toString(r["root_id"]),
 			SuperClass:     toString(r["super_class"]),
 			CellClass:      toString(r["cell_class"]),
@@ -175,7 +176,14 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			Nerve:          toString(r["nerve"]),
 			Hemilineage:    toString(r["hemilineage"]),
 			Proofread:      toString(r["proofread"]),
-		})
+		}
+		// A missing or malformed position is common and never fatal here: the
+		// row still carries its classification, only without coordinates.
+		if x, y, z, err := parsePositionValue(r["position"]); err == nil {
+			row.X, row.Y, row.Z = x, y, z
+			row.PositionSet = true
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
@@ -821,15 +829,15 @@ func parsePositionValue(v interface{}) (float64, float64, float64, error) {
 		if len(parts) != 3 {
 			return 0, 0, 0, fmt.Errorf("position string has %d components, want 3: %q", len(parts), val)
 		}
-		x, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		x, err := parsePositionComponent(parts[0])
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("parsing x component %q: %w", strings.TrimSpace(parts[0]), err)
 		}
-		y, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		y, err := parsePositionComponent(parts[1])
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("parsing y component %q: %w", strings.TrimSpace(parts[1]), err)
 		}
-		z, err := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+		z, err := parsePositionComponent(parts[2])
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("parsing z component %q: %w", strings.TrimSpace(parts[2]), err)
 		}
@@ -864,6 +872,9 @@ func parsePositionComponent(v interface{}) (float64, error) {
 	case nil:
 		return 0, fmt.Errorf("component is nil")
 	case float64:
+		if math.IsNaN(val) || math.IsInf(val, 0) {
+			return 0, fmt.Errorf("component is not finite")
+		}
 		return val, nil
 	case string:
 		trimmed := strings.TrimSpace(val)
@@ -873,6 +884,9 @@ func parsePositionComponent(v interface{}) (float64, error) {
 		f, err := strconv.ParseFloat(trimmed, 64)
 		if err != nil {
 			return 0, fmt.Errorf("invalid numeric value %q: %w", trimmed, err)
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, fmt.Errorf("numeric value %q is not finite", trimmed)
 		}
 		return f, nil
 	default:

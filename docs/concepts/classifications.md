@@ -53,6 +53,8 @@ crantcli add \
 
 Scalar filters such as `--side left` apply to every group.
 
+Query groups are also a coloring dimension of their own: `--color-by group` gives each one its own color, and `--color-by group,<field>` varies tone by a metadata field inside each. See [Color a scene](../guides/color.md#color-by-query-group).
+
 `--intersect` changes the behavior only when two or more classifier levels are present:
 
 ```bash

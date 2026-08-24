@@ -15,6 +15,11 @@ type NeuronRow struct {
 	Nerve          string   `json:"nerve"`
 	Hemilineage    string   `json:"hemilineage"`
 	Proofread      string   `json:"proofread"`
+	// X, Y, Z hold the soma position when PositionSet is true. A row whose
+	// position column is empty or malformed keeps PositionSet false rather than
+	// failing the query, since most callers do not need coordinates.
+	X, Y, Z     float64 `json:"-"`
+	PositionSet bool    `json:"-"`
 }
 
 // NeuronPositionRow represents a row with position coordinates from the CRANTb_meta table.

@@ -214,6 +214,88 @@ func TestAddCommandDeliveryBranches(t *testing.T) {
 	})
 }
 
+func addTestStateDelivery(t *testing.T) map[string]interface{} {
+	t.Helper()
+	layer := map[string]interface{}{"type": "segmentation"}
+	result := &nglstate.LoadResult{
+		State:  map[string]interface{}{"layers": []interface{}{layer}},
+		Source: nglstate.SourceTemplate,
+	}
+	addLoadState = func(string, bool) (*nglstate.LoadResult, error) { return result, nil }
+	addFindSegmentationLayer = func(map[string]interface{}, string) (map[string]interface{}, int, error) {
+		return layer, 0, nil
+	}
+	addDeliverState = func(got *nglstate.LoadResult, _ nglstate.DeliveryOptions) error {
+		if got != result {
+			t.Fatalf("delivered result = %#v, want %#v", got, result)
+		}
+		return nil
+	}
+	return layer
+}
+
+func TestAddCommandColorByPipelines(t *testing.T) {
+	t.Run("query group nested by subtype", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addRegions = nil
+		addCellClasses = []string{"LNO"}
+		addCellTypes = []string{"PEN"}
+		addColorBy = "group,cell_subtype"
+		addRootIDsOnly = false
+		addQueryNeurons = func(_ *seatable.Client, filters *seatable.Filters) ([]seatable.NeuronRow, error) {
+			switch {
+			case filters.CellClass == "LNO":
+				return []seatable.NeuronRow{
+					{RootID: "a1", CellSubtype: "PFNc"},
+					{RootID: "a2", CellSubtype: "PFNm3"},
+				}, nil
+			case filters.CellType == "PEN":
+				return []seatable.NeuronRow{{RootID: "b1", CellSubtype: "PFNc"}}, nil
+			default:
+				t.Fatalf("unexpected filters: %+v", *filters)
+				return nil, nil
+			}
+		}
+		layer := addTestStateDelivery(t)
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		colors := layer["segmentColors"].(map[string]interface{})
+		if colors["a1"] == colors["a2"] {
+			t.Fatalf("subtypes in one query group share a tone: %v", colors)
+		}
+		if colors["a1"] == colors["b1"] {
+			t.Fatalf("query groups share a palette family: %v", colors)
+		}
+	})
+
+	t.Run("position gradient", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addColorBy = "pos_z"
+		addRootIDsOnly = false
+		addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+			return []seatable.NeuronRow{
+				{RootID: "low", Z: 10, PositionSet: true},
+				{RootID: "high", Z: 30, PositionSet: true},
+				{RootID: "unset"},
+			}, nil
+		}
+		layer := addTestStateDelivery(t)
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		colors := layer["segmentColors"].(map[string]interface{})
+		if colors["low"] != "#440154" || colors["high"] != "#fde725" {
+			t.Fatalf("gradient endpoints = low:%v high:%v", colors["low"], colors["high"])
+		}
+		if colors["unset"] != "#808080" {
+			t.Fatalf("unset position = %v, want #808080", colors["unset"])
+		}
+	})
+}
+
 func TestResolveAddRegionFilters(t *testing.T) {
 	t.Run("multiple bundles alias regions", func(t *testing.T) {
 		got, err := resolveAddRegionFilters(nil, []string{" RW ", "RX", "RW", ""})
@@ -235,39 +317,120 @@ func TestResolveAddRegionFilters(t *testing.T) {
 }
 
 func TestResolveAddColorBy(t *testing.T) {
-	t.Run("valid field", func(t *testing.T) {
-		got, err := resolveAddColorBy("cell_type", false)
-		if err != nil {
-			t.Fatalf("resolveAddColorBy returned error: %v", err)
-		}
-		if got != "cell_type" {
-			t.Fatalf("resolveAddColorBy = %q, want cell_type", got)
-		}
-	})
+	tests := []struct {
+		name      string
+		colorBy   string
+		colorSub  bool
+		want      []string
+		wantError string
+	}{
+		{name: "valid field", colorBy: "cell_type", want: []string{"cell_type"}},
+		{name: "two fields nest", colorBy: "cell_type,cell_subtype", want: []string{"cell_type", "cell_subtype"}},
+		{name: "surrounding space is trimmed", colorBy: " cell_type , cell_subtype ", want: []string{"cell_type", "cell_subtype"}},
+		{name: "color-sub validates without color-by grouping", colorSub: true},
+		{
+			name:      "conflict",
+			colorBy:   "cell_type",
+			colorSub:  true,
+			wantError: "--color-by and --color-sub cannot be used together",
+		},
+		{name: "invalid field", colorBy: "not_a_field", wantError: `invalid --color-by "not_a_field"`},
+		{
+			name:      "invalid second field",
+			colorBy:   "cell_type,not_a_field",
+			wantError: `invalid --color-by "not_a_field"`,
+		},
+		{
+			name:      "three fields",
+			colorBy:   "cell_type,cell_subtype,side",
+			wantError: "at most 2 comma-separated fields",
+		},
+		{name: "empty field", colorBy: "cell_type,", wantError: "empty field"},
+		{name: "repeated field", colorBy: "cell_type,cell_type", wantError: `"cell_type" is repeated`},
+		{name: "continuous field alone", colorBy: "pos_z", want: []string{"pos_z"}},
+		{
+			name:      "continuous field cannot be the tone",
+			colorBy:   "cell_type,pos_z",
+			wantError: `"pos_z" is continuous`,
+		},
+		{
+			name:      "continuous field cannot be the hue",
+			colorBy:   "pos_z,cell_type",
+			wantError: `"pos_z" is continuous`,
+		},
+		{name: "query group as the hue", colorBy: "group,cell_subtype", want: []string{"group", "cell_subtype"}},
+		{name: "query group alone", colorBy: "group", want: []string{"group"}},
+		{
+			name:      "query group cannot be the tone",
+			colorBy:   "cell_type,group",
+			wantError: `"group" names the query a neuron matched`,
+		},
+	}
 
-	t.Run("color-sub validates without color-by grouping", func(t *testing.T) {
-		got, err := resolveAddColorBy("", true)
-		if err != nil {
-			t.Fatalf("resolveAddColorBy returned error: %v", err)
-		}
-		if got != "" {
-			t.Fatalf("resolveAddColorBy = %q, want empty color-by field", got)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveAddColorBy(tt.colorBy, tt.colorSub)
+			if tt.wantError != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q", tt.wantError)
+				}
+				if !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveAddColorBy returned error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("resolveAddColorBy = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
 
-	t.Run("conflict", func(t *testing.T) {
-		_, err := resolveAddColorBy("cell_type", true)
-		if err == nil {
-			t.Fatal("expected conflict error")
+// TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
+// flag keeps working, but it warns and no longer appears in help or the
+// generated command docs. The advice has to name a color mode, since two-level
+// coloring falls back to the inner field alone under anything but colored --
+// advising group,cell_subtype on its own would be contradicted by that warning
+// one line later. The rejected phrasings are the ones that claimed more than
+// they delivered: query groups are not always cell_type values, and "matches
+// one metadata field" also describes a mixed union over several fields.
+func TestAddColorSubIsDeprecated(t *testing.T) {
+	flag := addCmd.Flags().Lookup("color-sub")
+	if flag == nil {
+		t.Fatal("--color-sub flag is missing")
+	}
+	if flag.Deprecated == "" {
+		t.Fatal("--color-sub carries no deprecation message")
+	}
+	wants := []string{
+		"--color-by group,cell_subtype with --color colored",
+		"--color-by cell_subtype with a named family",
+	}
+	for _, want := range wants {
+		if !strings.Contains(flag.Deprecated, want) {
+			t.Fatalf("deprecation message = %q, want it to contain %q", flag.Deprecated, want)
 		}
-	})
-
-	t.Run("invalid field", func(t *testing.T) {
-		_, err := resolveAddColorBy("not_a_field", false)
-		if err == nil {
-			t.Fatal("expected invalid field error")
+	}
+	rejects := map[string]string{
+		"--color-by cell_type,cell_subtype": "assumes every query group is a cell_type",
+		"matches one metadata field":        "also describes a mixed union over several fields",
+		"for one query group":               "promises an equivalence that only holds under a named family",
+		"keep --color-sub":                  "--color-by group,cell_subtype now reproduces every query group",
+	}
+	for reject, why := range rejects {
+		if strings.Contains(flag.Deprecated, reject) {
+			t.Fatalf("deprecation message %q: %s", flag.Deprecated, why)
 		}
-	})
+	}
+	if !flag.Hidden {
+		t.Fatal("a deprecated --color-sub should be hidden from help output")
+	}
+	if usage := addCmd.Flags().FlagUsages(); strings.Contains(usage, "--color-sub") {
+		t.Fatalf("flag usage still advertises --color-sub:\n%s", usage)
+	}
 }
 
 func TestValidateAddOptions(t *testing.T) {
@@ -417,7 +580,13 @@ func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.
 		"b2": "other",
 	}
 
-	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, subtypeMap, "colored", "", true)
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:    []string{"a1", "a2", "b1", "b2"},
+		groups:     groups,
+		subtypeMap: subtypeMap,
+		color:      "colored",
+		colorSub:   true,
+	})
 
 	colors, ok := layer["segmentColors"].(map[string]interface{})
 	if !ok {
@@ -441,7 +610,12 @@ func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
 		{"b1", "b2"},
 	}
 
-	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, nil, "colored", "column", false)
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"a1", "a2", "b1", "b2"},
+		groups:        groups,
+		color:         "colored",
+		colorByFields: []string{"column"},
+	})
 
 	colors, ok := layer["segmentColors"].(map[string]interface{})
 	if !ok {
@@ -455,6 +629,368 @@ func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
 	}
 	if colors["a1"] == colors["b1"] {
 		t.Fatalf("different color-by groups got the same color: %v", colors["a1"])
+	}
+}
+
+func TestBuildNestedColorByGroups(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "b1", CellType: "PEN", CellSubtype: "ER1"},
+		{RootID: "a2", CellType: "ER", CellSubtype: "ER2"},
+		{RootID: "a1", CellType: "ER", CellSubtype: "ER1"},
+		{RootID: "b2", CellType: "PEN"},
+		{RootID: "", CellType: "ER", CellSubtype: "ER1"},
+	}
+
+	groups, labels := buildNestedColorByGroups(rows, "cell_type", "cell_subtype")
+
+	wantGroups := [][][]string{
+		{{"a1"}, {"a2"}},
+		{{"b1"}, {"b2"}},
+	}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+
+	wantLabels := [][]string{
+		{"cell_type=ER / cell_subtype=ER1", "cell_type=ER / cell_subtype=ER2"},
+		{"cell_type=PEN / cell_subtype=ER1", "cell_type=PEN / cell_subtype=(empty)"},
+	}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+}
+
+// TestApplyAddSegmentColors_NestedColorByVariesHueThenTone covers what a
+// two-field --color-by has to show that a single field cannot: the outer value
+// picks the hue and the inner value the tone within it.
+func TestApplyAddSegmentColors_NestedColorByVariesHueThenTone(t *testing.T) {
+	layer := map[string]interface{}{}
+	nested := [][][]string{
+		{{"a1"}, {"a2"}},
+		{{"b1"}, {"b2"}},
+	}
+
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"a1", "a2", "b1", "b2"},
+		nestedGroups:  nested,
+		color:         "colored",
+		colorByFields: []string{"cell_type", "cell_subtype"},
+	})
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	if colors["a1"] == colors["a2"] {
+		t.Fatalf("inner groups in one family share a tone: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("the same inner value in different families shares a color: a1=%v b1=%v", colors["a1"], colors["b1"])
+	}
+	if colors["a2"] == colors["b2"] {
+		t.Fatalf("different families share a tone: a2=%v b2=%v", colors["a2"], colors["b2"])
+	}
+}
+
+func TestFallbackNestedColorByFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields []string
+		color  string
+		want   []string
+	}{
+		{
+			name:   "colored keeps both",
+			fields: []string{"cell_type", "cell_subtype"},
+			color:  "colored",
+			want:   []string{"cell_type", "cell_subtype"},
+		},
+		{
+			name:   "named drops outer",
+			fields: []string{"cell_type", "cell_subtype"},
+			color:  "green",
+			want:   []string{"cell_subtype"},
+		},
+		{
+			name:   "hex drops outer",
+			fields: []string{"cell_type", "cell_subtype"},
+			color:  "#ff0000",
+			want:   []string{"cell_subtype"},
+		},
+		{
+			name:   "single field unchanged",
+			fields: []string{"cell_subtype"},
+			color:  "green",
+			want:   []string{"cell_subtype"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fallbackNestedColorByFields(tt.fields, tt.color)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("fallbackNestedColorByFields(%v, %q) = %v, want %v", tt.fields, tt.color, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNamedPaletteTwoFieldColorByMatchesInnerFieldAlone(t *testing.T) {
+	// ER1 appears under ER and PEN. Flattening pairs would color a1 and b1
+	// differently; coloring by cell_subtype alone must share one tone.
+	rows := []seatable.NeuronRow{
+		{RootID: "a1", CellType: "ER", CellSubtype: "ER1"},
+		{RootID: "a2", CellType: "ER", CellSubtype: "ER2"},
+		{RootID: "b1", CellType: "PEN", CellSubtype: "ER1"},
+		{RootID: "b2", CellType: "PEN"},
+	}
+
+	fields := fallbackNestedColorByFields([]string{"cell_type", "cell_subtype"}, "green")
+	groups, _ := buildColorByGroups(rows, fields[0])
+	layer := map[string]interface{}{}
+	applyAddSegmentColors(layer, addColorPlan{
+		groups:        groups,
+		color:         "green",
+		colorByFields: fields,
+	})
+
+	innerGroups, _ := buildColorByGroups(rows, "cell_subtype")
+	wantLayer := map[string]interface{}{}
+	applyAddSegmentColors(wantLayer, addColorPlan{
+		groups:        innerGroups,
+		color:         "green",
+		colorByFields: []string{"cell_subtype"},
+	})
+
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	want, ok := wantLayer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("inner-field segmentColors missing or wrong type: %#v", wantLayer["segmentColors"])
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("segmentColors = %v, want inner-field coloring %v", got, want)
+	}
+	if got["a1"] != got["b1"] {
+		t.Fatalf("same inner value in different outer groups must share a tone: a1=%v b1=%v", got["a1"], got["b1"])
+	}
+}
+
+// TestPartitionRowsByQueryGroup covers what no metadata field can describe: a
+// mixed union whose groups come from different columns.
+func TestPartitionRowsByQueryGroup(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "a1", CellClass: "LNO", CellSubtype: "PFNc"},
+		{RootID: "a2", CellClass: "LNO", CellSubtype: "PFNm3"},
+		{RootID: "b1", CellType: "PEN", CellSubtype: "PFNc"},
+		{RootID: "", CellClass: "LNO"},
+	}
+	queryGroups := [][]string{{"a1", "a2"}, {"b1"}, {}}
+	queryLabels := []string{"LNO", "PEN", "EPG"}
+
+	partitions := partitionRowsByQueryGroup(rows, queryGroups, queryLabels)
+
+	// The third spec matched nothing, so it takes no palette family.
+	if len(partitions) != 2 {
+		t.Fatalf("partitions = %d, want 2", len(partitions))
+	}
+	if partitions[0].label != "group=LNO" || partitions[1].label != "group=PEN" {
+		t.Fatalf("labels = %q, %q, want group=LNO, group=PEN", partitions[0].label, partitions[1].label)
+	}
+
+	groups, labels := colorByGroupsFromPartitions(partitions)
+	if !reflect.DeepEqual(groups, [][]string{{"a1", "a2"}, {"b1"}}) {
+		t.Fatalf("groups = %v, want [[a1 a2] [b1]]", groups)
+	}
+	if !reflect.DeepEqual(labels, []string{"group=LNO", "group=PEN"}) {
+		t.Fatalf("labels = %v, want [group=LNO group=PEN]", labels)
+	}
+}
+
+// TestPartitionRowsByQueryGroup_UnnamedGroupIsNotEmpty covers a query with no
+// repeated classifier flags: its single group holds the whole result, so it
+// must not be labelled the way a missing field value is.
+func TestPartitionRowsByQueryGroup_UnnamedGroupIsNotEmpty(t *testing.T) {
+	rows := []seatable.NeuronRow{{RootID: "a1"}, {RootID: "a2"}}
+
+	partitions := partitionRowsByQueryGroup(rows, [][]string{{"a1", "a2"}}, []string{""})
+
+	if len(partitions) != 1 {
+		t.Fatalf("partitions = %d, want 1", len(partitions))
+	}
+	if partitions[0].label != "group=(all)" {
+		t.Fatalf("label = %q, want group=(all)", partitions[0].label)
+	}
+}
+
+// TestNestColorByPartitions_QueryGroupsSplitByField is the case that lets
+// --color-sub retire: PFNc appears under two query groups drawn from different
+// columns, and each keeps its own family.
+func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "a1", CellClass: "LNO", CellSubtype: "PFNc"},
+		{RootID: "a2", CellClass: "LNO", CellSubtype: "PFNm3"},
+		{RootID: "b1", CellType: "PEN", CellSubtype: "PFNc"},
+	}
+	partitions := partitionRowsByQueryGroup(rows, [][]string{{"a1", "a2"}, {"b1"}}, []string{"LNO", "PEN"})
+
+	groups, labels := nestColorByPartitions(partitions, "cell_subtype")
+
+	wantGroups := [][][]string{{{"a1"}, {"a2"}}, {{"b1"}}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+	wantLabels := [][]string{
+		{"group=LNO / cell_subtype=PFNc", "group=LNO / cell_subtype=PFNm3"},
+		{"group=PEN / cell_subtype=PFNc"},
+	}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+
+	layer := map[string]interface{}{}
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"a1", "a2", "b1"},
+		nestedGroups:  groups,
+		color:         "colored",
+		colorByFields: []string{"group", "cell_subtype"},
+	})
+	colors := layer["segmentColors"].(map[string]interface{})
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("PFNc in different query groups shares a color: a1=%v b1=%v", colors["a1"], colors["b1"])
+	}
+	if colors["a1"] == colors["a2"] {
+		t.Fatalf("different subtypes in one query group share a tone: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+}
+
+// TestReportUncoloredQueryGroups covers the groups --color-by group leaves out:
+// dropping one also respaces the palettes of the groups that remain, so it must
+// not happen silently.
+func TestReportUncoloredQueryGroups(t *testing.T) {
+	var report bytes.Buffer
+
+	reportUncoloredQueryGroups(&report, [][]string{{"a1"}, {}, {"c1"}}, []string{"ER", "ER1", "PEN"})
+
+	if want := "  group=ER1: no root IDs of its own; not colored\n"; report.String() != want {
+		t.Fatalf("report = %q, want %q", report.String(), want)
+	}
+
+	// An unnamed group is the whole result, and it keeps that name whether or
+	// not it holds anything.
+	var unnamed bytes.Buffer
+	reportUncoloredQueryGroups(&unnamed, [][]string{{}, {"b1"}}, []string{"", "PEN"})
+	if want := "  group=(all): no root IDs of its own; not colored\n"; unnamed.String() != want {
+		t.Fatalf("unnamed report = %q, want %q", unnamed.String(), want)
+	}
+
+	// A result where nothing matched has no coloring to be left out of.
+	var nothing bytes.Buffer
+	reportUncoloredQueryGroups(&nothing, [][]string{{}, {}}, []string{"", "PEN"})
+	if nothing.Len() != 0 {
+		t.Fatalf("report for an empty result = %q, want nothing", nothing.String())
+	}
+}
+
+func TestBuildGradientColorByValues(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "a", X: 30, Y: 5, Z: 1, PositionSet: true},
+		{RootID: "b", X: 10, Y: 5, Z: 2, PositionSet: true},
+		{RootID: "c"},
+		{RootID: "", X: 99, PositionSet: true},
+	}
+
+	got := buildGradientColorByValues(rows, "pos_x")
+
+	wantValues := map[string]float64{"a": 30, "b": 10}
+	if !reflect.DeepEqual(got.values, wantValues) {
+		t.Fatalf("values = %v, want %v", got.values, wantValues)
+	}
+	if !reflect.DeepEqual(got.unset, []string{"c"}) {
+		t.Fatalf("unset = %v, want [c]", got.unset)
+	}
+	if got.low != 10 || got.high != 30 {
+		t.Fatalf("range = %g to %g, want 10 to 30", got.low, got.high)
+	}
+}
+
+// TestApplyAddSegmentColors_GradientSpreadsAlongRamp covers the continuous
+// path: one color per neuron along the ramp, and a neutral gray for the
+// neurons the field has no value for.
+func TestApplyAddSegmentColors_GradientSpreadsAlongRamp(t *testing.T) {
+	layer := map[string]interface{}{}
+	gradient := gradientColorBy{
+		values: map[string]float64{"low": 0, "mid": 5, "high": 10},
+		unset:  []string{"none"},
+		low:    0,
+		high:   10,
+	}
+
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"low", "mid", "high", "none"},
+		gradient:      &gradient,
+		color:         "colored",
+		colorByFields: []string{"pos_z"},
+	})
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	for _, pair := range [][2]string{{"low", "mid"}, {"mid", "high"}, {"low", "high"}} {
+		if colors[pair[0]] == colors[pair[1]] {
+			t.Fatalf("%s and %s share a color: %v", pair[0], pair[1], colors[pair[0]])
+		}
+	}
+	if colors["none"] != "#808080" {
+		t.Fatalf("none = %v, want the unset gray #808080", colors["none"])
+	}
+}
+
+func TestBuildColorByGroups_RootIDGivesEveryNeuronItsOwnGroup(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "200", CellType: "ER"},
+		{RootID: "100", CellType: "ER"},
+		{RootID: "", CellType: "ER"},
+	}
+
+	groups, labels := buildColorByGroups(rows, "root_id")
+
+	wantGroups := [][]string{{"100"}, {"200"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+	wantLabels := []string{"root_id=100", "root_id=200"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+}
+
+// TestReportColorByGroups_RootIDReportsATotal pins the reason root_id needs its
+// own report: one line per group would be one line per neuron.
+func TestReportColorByGroups_RootIDReportsATotal(t *testing.T) {
+	groups := [][]string{{"a"}, {"b"}, {"c"}}
+	labels := []string{"root_id=a", "root_id=b", "root_id=c"}
+
+	var summary bytes.Buffer
+	reportColorByGroups(&summary, []string{"root_id"}, groups, labels)
+	if want := "  root_id: 3 neurons, one color each\n"; summary.String() != want {
+		t.Fatalf("root_id report = %q, want %q", summary.String(), want)
+	}
+
+	var perGroup bytes.Buffer
+	reportColorByGroups(&perGroup, []string{"cell_type"}, groups, []string{"cell_type=ER", "cell_type=PEN", "cell_type=ExR"})
+	if lines := strings.Count(perGroup.String(), "\n"); lines != 3 {
+		t.Fatalf("cell_type report = %q, want one line per group", perGroup.String())
+	}
+
+	var nested bytes.Buffer
+	reportNestedColorByGroups(&nested, []string{"cell_type", "root_id"},
+		[][][]string{{{"a"}, {"b"}}, {{"c"}}},
+		[][]string{{"cell_type=ER / root_id=a", "cell_type=ER / root_id=b"}, {"cell_type=PEN / root_id=c"}})
+	if want := "  cell_type,root_id: 3 neurons, one color each\n"; nested.String() != want {
+		t.Fatalf("nested root_id report = %q, want %q", nested.String(), want)
 	}
 }
 

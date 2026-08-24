@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,6 +44,58 @@ func TestCompleteStaticValuesFiltersCaseInsensitive(t *testing.T) {
 	}
 	if directive != cobra.ShellCompDirectiveNoFileComp {
 		t.Fatalf("directive = %v, want NoFileComp", directive)
+	}
+}
+
+func TestCompleteColorByFields(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		want       []string
+		wantAbsent []string
+	}{
+		{
+			name:  "first field includes every field kind",
+			input: "",
+			want:  []string{"cell_type", "pos_x", "root_id", "group"},
+		},
+		{
+			name:       "second field excludes the outer and outer-only fields",
+			input:      "cell_type,",
+			want:       []string{"cell_type,cell_subtype", "cell_type,root_id"},
+			wantAbsent: []string{"cell_type,cell_type", "cell_type,pos_x", "cell_type,group"},
+		},
+		{
+			name:  "second field filters by its prefix",
+			input: "group,cell_",
+			want:  []string{"group,cell_class", "group,cell_type", "group,cell_subtype", "group,cell_instance"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, directive := completeColorByFields(nil, nil, tt.input)
+			if directive != cobra.ShellCompDirectiveNoFileComp {
+				t.Fatalf("directive = %v, want NoFileComp", directive)
+			}
+			for _, want := range tt.want {
+				if !slices.Contains(got, want) {
+					t.Errorf("completions = %v, want %q", got, want)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if slices.Contains(got, absent) {
+					t.Errorf("completions = %v, should exclude %q", got, absent)
+				}
+			}
+		})
+	}
+
+	for _, input := range []string{"pos_x,", "cell_type,side,"} {
+		got, directive := completeColorByFields(nil, nil, input)
+		if len(got) != 0 || directive != cobra.ShellCompDirectiveNoFileComp {
+			t.Errorf("completeColorByFields(%q) = (%v, %v), want no completions", input, got, directive)
+		}
 	}
 }
 
