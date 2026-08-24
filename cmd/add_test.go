@@ -391,7 +391,10 @@ func TestResolveAddColorBy(t *testing.T) {
 
 // TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
 // flag keeps working, but it warns and no longer appears in help or the
-// generated command docs. The advice has to name a color mode, since two-level
+// generated command docs. The warning names the release that removes it, so a
+// caller reading it learns the deadline and not only the replacement; the same
+// version is promised in docs/guides/color.md. The advice has to name a color
+// mode, since two-level
 // coloring falls back to the inner field alone under anything but colored --
 // advising group,cell_subtype on its own would be contradicted by that warning
 // one line later. The rejected phrasings are the ones that claimed more than
@@ -406,6 +409,7 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 		t.Fatal("--color-sub carries no deprecation message")
 	}
 	wants := []string{
+		"removed in v0.19.0",
 		"--color-by group,cell_subtype with --color colored",
 		"--color-by cell_subtype with a named family",
 	}

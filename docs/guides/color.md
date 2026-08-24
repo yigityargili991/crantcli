@@ -88,7 +88,7 @@ Two levels need several color families, so this form requires `colored`, which i
     crantcli add --cell-type ER --color-by group,cell_subtype
     ```
 
-    The flag still works and warns on use, and it will be removed in a later release.
+    The flag still works and warns on use, and it will be removed in v0.19.0.
 
     Three differences are worth knowing if you compare an old scene against a new one. Each one drops a behavior that carried no meaning:
 
