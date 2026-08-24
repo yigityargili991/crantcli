@@ -636,6 +636,52 @@ func TestApplyAddSegmentColors_GradientSpreadsAlongRamp(t *testing.T) {
 	}
 }
 
+func TestBuildColorByGroups_RootIDGivesEveryNeuronItsOwnGroup(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "200", CellType: "ER"},
+		{RootID: "100", CellType: "ER"},
+		{RootID: "", CellType: "ER"},
+	}
+
+	groups, labels := buildColorByGroups(rows, "root_id")
+
+	wantGroups := [][]string{{"100"}, {"200"}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+	wantLabels := []string{"root_id=100", "root_id=200"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+}
+
+// TestReportColorByGroups_RootIDReportsATotal pins the reason root_id needs its
+// own report: one line per group would be one line per neuron.
+func TestReportColorByGroups_RootIDReportsATotal(t *testing.T) {
+	groups := [][]string{{"a"}, {"b"}, {"c"}}
+	labels := []string{"root_id=a", "root_id=b", "root_id=c"}
+
+	var summary bytes.Buffer
+	reportColorByGroups(&summary, []string{"root_id"}, groups, labels)
+	if want := "  root_id: 3 neurons, one color each\n"; summary.String() != want {
+		t.Fatalf("root_id report = %q, want %q", summary.String(), want)
+	}
+
+	var perGroup bytes.Buffer
+	reportColorByGroups(&perGroup, []string{"cell_type"}, groups, []string{"cell_type=ER", "cell_type=PEN", "cell_type=ExR"})
+	if lines := strings.Count(perGroup.String(), "\n"); lines != 3 {
+		t.Fatalf("cell_type report = %q, want one line per group", perGroup.String())
+	}
+
+	var nested bytes.Buffer
+	reportNestedColorByGroups(&nested, []string{"cell_type", "root_id"},
+		[][][]string{{{"a"}, {"b"}}, {{"c"}}},
+		[][]string{{"cell_type=ER / root_id=a", "cell_type=ER / root_id=b"}, {"cell_type=PEN / root_id=c"}})
+	if want := "  cell_type,root_id: 3 neurons, one color each\n"; nested.String() != want {
+		t.Fatalf("nested root_id report = %q, want %q", nested.String(), want)
+	}
+}
+
 func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test hook is a POSIX shell script")

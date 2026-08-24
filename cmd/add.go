@@ -272,17 +272,11 @@ func init() {
 		case len(colorByFields) == 1:
 			var labels []string
 			groups, labels = buildColorByGroups(allRows, colorByFields[0])
-			for i, group := range groups {
-				fmt.Fprintf(os.Stderr, "  %s: %d with root IDs\n", labels[i], len(group))
-			}
+			reportColorByGroups(os.Stderr, colorByFields, groups, labels)
 		case len(colorByFields) == maxAddColorByFields:
 			var labels [][]string
 			nestedGroups, labels = buildNestedColorByGroups(allRows, colorByFields[0], colorByFields[1])
-			for i, family := range nestedGroups {
-				for j, group := range family {
-					fmt.Fprintf(os.Stderr, "  %s: %d with root IDs\n", labels[i][j], len(group))
-				}
-			}
+			reportNestedColorByGroups(os.Stderr, colorByFields, nestedGroups, labels)
 		}
 
 		fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
@@ -522,6 +516,7 @@ var addColorByFields = []string{
 	"pos_x",
 	"pos_y",
 	"pos_z",
+	"root_id",
 }
 
 // continuousAddColorByFields are the --color-by fields holding a number rather
@@ -878,10 +873,49 @@ func sortColorByValues(values []string) {
 }
 
 func addColorByFieldValue(row seatable.NeuronRow, field string) string {
-	if field == "column" {
+	switch field {
+	case "column":
 		return columnFromCellInstance(row.CellInstance)
+	case "root_id":
+		return row.RootID
+	default:
+		return seatable.FieldValue(row, field)
 	}
-	return seatable.FieldValue(row, field)
+}
+
+// colorByGroupsAreNeurons reports whether a field gives every neuron a group of
+// its own, which turns a line-per-group report into a line per neuron.
+func colorByGroupsAreNeurons(fields []string) bool {
+	return slices.Contains(fields, "root_id")
+}
+
+// reportColorByGroups prints how many root IDs each color-by group holds.
+func reportColorByGroups(w io.Writer, fields []string, groups [][]string, labels []string) {
+	if colorByGroupsAreNeurons(fields) {
+		fmt.Fprintf(w, "  %s: %d neurons, one color each\n", strings.Join(fields, ","), len(groups))
+		return
+	}
+	for i, group := range groups {
+		fmt.Fprintf(w, "  %s: %d with root IDs\n", labels[i], len(group))
+	}
+}
+
+// reportNestedColorByGroups does the same for the two-field form, where every
+// inner group sits inside one outer group.
+func reportNestedColorByGroups(w io.Writer, fields []string, groups [][][]string, labels [][]string) {
+	if colorByGroupsAreNeurons(fields) {
+		inner := 0
+		for _, family := range groups {
+			inner += len(family)
+		}
+		fmt.Fprintf(w, "  %s: %d neurons, one color each\n", strings.Join(fields, ","), inner)
+		return
+	}
+	for i, family := range groups {
+		for j, group := range family {
+			fmt.Fprintf(w, "  %s: %d with root IDs\n", labels[i][j], len(group))
+		}
+	}
 }
 
 func columnFromCellInstance(instance string) string {

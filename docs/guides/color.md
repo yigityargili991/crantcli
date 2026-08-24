@@ -59,7 +59,7 @@ Supported fields:
 super_class   cell_class     cell_type       cell_subtype
 cell_instance column         side            region
 tract         nerve          hemilineage     proofread
-pos_x         pos_y          pos_z
+pos_x         pos_y          pos_z           root_id
 ```
 
 The derived `column` field comes from `cell_instance`: Δ7 instances use the final four characters; other instances use the final two.
@@ -104,6 +104,22 @@ crantcli add --cell-class ER --color-by pos_z --color blue
 Neurons whose `position` column is empty or malformed have nowhere to sit on the ramp. They take a neutral gray and are counted on their own line.
 
 A continuous field varies per neuron rather than splitting the result into groups, so it cannot join the two-field form.
+
+## Give every neuron its own color
+
+`root_id` puts each neuron in a group of its own, which is what you want when the population itself is the thing you are tracing rather than any annotation on it:
+
+```bash
+crantcli add --cell-type ER --color-by root_id
+```
+
+`colored` draws from a palette of well-separated hues and, past its length, keeps generating new ones, so large sets stay distinguishable. A named family has only five tones to cycle, so it repeats quickly.
+
+Because every group holds one neuron, `crantcli` reports a total rather than a line per group. `root_id` also works as the second field, giving one hue per outer value and a rotating tone per neuron inside it:
+
+```bash
+crantcli add --super-class sensory --color-by cell_type,root_id
+```
 
 !!! tip "Choose color for the question"
     Use `--color-by` when the metadata field is the analysis dimension. Use repeated query groups when the populations themselves define the comparison.
