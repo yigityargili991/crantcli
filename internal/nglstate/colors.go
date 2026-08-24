@@ -283,29 +283,11 @@ func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]strin
 // so the first field reads as hue and the second as tone within that hue.
 // groups[i][j] holds the root IDs of inner group j inside outer group i.
 //
-// Two levels need several families, so only "colored" encodes them. Flattening
-// outer×inner pairs under a named palette would give the same inner value a
-// different tone in each family; callers regroup by the inner field and use
-// SetSegmentColorByGroupValues. Hex still paints every segment the same color.
-func SetSegmentColorByNestedGroupValues(layer map[string]interface{}, groups [][][]string, colorInput string) {
-	if colorInput == "" {
-		return
-	}
-	if colorInput != "colored" {
-		if strings.HasPrefix(colorInput, "#") {
-			colors := segmentColorMap(layer)
-			for _, family := range groups {
-				for _, group := range family {
-					for _, id := range group {
-						colors[id] = colorInput
-					}
-				}
-			}
-			layer["segmentColors"] = colors
-		}
-		return
-	}
-
+// Two levels need several families, which only the "colored" palette cycle
+// spreads groups across. That leaves one legal color input, so this takes none:
+// a caller holding a named family or a hex color has a single family to draw
+// on, and regroups by the inner field for SetSegmentColorByGroupValues instead.
+func SetSegmentColorByNestedGroupValues(layer map[string]interface{}, groups [][][]string) {
 	colors := segmentColorMap(layer)
 
 	for i, family := range groups {

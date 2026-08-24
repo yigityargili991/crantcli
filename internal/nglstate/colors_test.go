@@ -627,7 +627,7 @@ func TestSetSegmentColorByNestedGroupValues_Colored(t *testing.T) {
 		{{"b1"}, {"b2"}},
 	}
 
-	SetSegmentColorByNestedGroupValues(layer, groups, "colored")
+	SetSegmentColorByNestedGroupValues(layer, groups)
 
 	got, ok := layer["segmentColors"].(map[string]interface{})
 	if !ok {
@@ -655,7 +655,7 @@ func TestSetSegmentColorByNestedGroupValues_ToneWrapsWithinFamily(t *testing.T) 
 	layer := map[string]interface{}{}
 	groups := [][][]string{{{"a1"}, {"a2"}, {"a3"}, {"a4"}, {"a5"}, {"a6"}}}
 
-	SetSegmentColorByNestedGroupValues(layer, groups, "colored")
+	SetSegmentColorByNestedGroupValues(layer, groups)
 
 	got := layer["segmentColors"].(map[string]interface{})
 	if got["a6"] != got["a1"] {
@@ -663,45 +663,10 @@ func TestSetSegmentColorByNestedGroupValues_ToneWrapsWithinFamily(t *testing.T) 
 	}
 }
 
-func TestSetSegmentColorByNestedGroupValues_NamedPaletteDoesNotFlatten(t *testing.T) {
-	// a1 is ER/ER1 and b1 is PEN/ER1. Flattening pairs would give them
-	// different tones; coloring by the inner field alone must share one.
-	// This helper does not regroup, so a named family is left to the caller.
+func TestSetSegmentColorByNestedGroupValues_NilGroups(t *testing.T) {
 	layer := map[string]interface{}{}
-	groups := [][][]string{
-		{{"a1"}, {"a2"}},
-		{{"b1"}},
-	}
 
-	SetSegmentColorByNestedGroupValues(layer, groups, "green")
-
-	if _, ok := layer["segmentColors"]; ok {
-		t.Fatal("a named palette must not color nested groups; the caller regroups by the inner field")
-	}
-}
-
-func TestSetSegmentColorByNestedGroupValues_HexSharesOneColor(t *testing.T) {
-	layer := map[string]interface{}{}
-	groups := [][][]string{{{"a1"}, {"a2"}}, {{"b1"}}}
-
-	SetSegmentColorByNestedGroupValues(layer, groups, "#ff0000")
-
-	got := layer["segmentColors"].(map[string]interface{})
-	for _, id := range []string{"a1", "a2", "b1"} {
-		if got[id] != "#ff0000" {
-			t.Errorf("%s = %v, want #ff0000", id, got[id])
-		}
-	}
-}
-
-func TestSetSegmentColorByNestedGroupValues_EmptyColorAndNilGroups(t *testing.T) {
-	layer := map[string]interface{}{}
-	SetSegmentColorByNestedGroupValues(layer, [][][]string{{{"a1"}}}, "")
-	if _, ok := layer["segmentColors"]; ok {
-		t.Fatal("an empty color should not create segmentColors")
-	}
-
-	SetSegmentColorByNestedGroupValues(layer, nil, "colored")
+	SetSegmentColorByNestedGroupValues(layer, nil)
 	got, ok := layer["segmentColors"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])

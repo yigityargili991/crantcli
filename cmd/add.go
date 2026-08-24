@@ -683,7 +683,9 @@ func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
 		case plan.gradient != nil:
 			nglstate.SetSegmentColorByGradient(layer, plan.gradient.values, plan.gradient.unset, plan.color)
 		case len(plan.colorByFields) == maxAddColorByFields:
-			nglstate.SetSegmentColorByNestedGroupValues(layer, plan.nestedGroups, plan.color)
+			// fallbackNestedColorByFields has already dropped the outer field
+			// unless the color is "colored", the one input two levels need.
+			nglstate.SetSegmentColorByNestedGroupValues(layer, plan.nestedGroups)
 		default:
 			nglstate.SetSegmentColorByGroupValues(layer, plan.groups, plan.color)
 		}
