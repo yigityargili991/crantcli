@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -24,7 +25,28 @@ var completionFields = []string{
 	"proofread",
 }
 
-var colorByCompletions = append(append([]string{}, completionFields...), "column")
+// completeColorByFields completes --color-by, including the field after a
+// comma ("cell_type,cell_" -> "cell_type,cell_subtype"). Fields already named
+// in the value are dropped, since --color-by rejects repeats.
+func completeColorByFields(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prefix := ""
+	if comma := strings.LastIndex(toComplete, ","); comma >= 0 {
+		prefix = toComplete[:comma+1]
+	}
+	if strings.Count(prefix, ",") >= maxAddColorByFields {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	used := strings.Split(prefix, ",")
+	values := make([]string, 0, len(addColorByFields))
+	for _, field := range addColorByFields {
+		if slices.Contains(used, field) {
+			continue
+		}
+		values = append(values, prefix+field)
+	}
+	return filterCompletionValues(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
 
 var colorCompletions = []string{
 	"colored",

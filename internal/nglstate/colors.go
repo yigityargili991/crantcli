@@ -155,6 +155,17 @@ func countPaletteTones(layer map[string]interface{}, palette []string) int {
 	return len(seen)
 }
 
+// segmentColorMap returns the layer's segmentColors map, ready to write into.
+// A missing or malformed map is replaced with a fresh one, so callers can
+// assign unconditionally and store the result back on the layer.
+func segmentColorMap(layer map[string]interface{}) map[string]interface{} {
+	colors, _ := layer["segmentColors"].(map[string]interface{})
+	if colors == nil {
+		colors = make(map[string]interface{})
+	}
+	return colors
+}
+
 // paletteNames is the ordered list of palettes for automatic per-type assignment.
 var paletteNames = []string{
 	"blue", "red", "green", "turquoise",
@@ -203,14 +214,7 @@ func SetSegmentColorByGroups(layer map[string]interface{}, groups [][]string, co
 		return
 	}
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	switch {
 	case colorInput == "colored":
@@ -253,14 +257,7 @@ func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]strin
 		return
 	}
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	for i, group := range groups {
 		groupColor := colorInput
@@ -277,6 +274,49 @@ func SetSegmentColorByGroupValues(layer map[string]interface{}, groups [][]strin
 	}
 
 	layer["segmentColors"] = colors
+}
+
+// SetSegmentColorByNestedGroupValues colors two nested levels of --color-by
+// groups: each outer group takes its own palette family (spaced for maximum
+// separation) and each inner group within it takes one tone from that family,
+// so the first field reads as hue and the second as tone within that hue.
+// groups[i][j] holds the root IDs of inner group j inside outer group i.
+//
+// Two levels need more than one family, which only "colored" provides. A named
+// palette or a hex color carries a single family, so those fall back to one
+// color per inner group across the whole set.
+func SetSegmentColorByNestedGroupValues(layer map[string]interface{}, groups [][][]string, colorInput string) {
+	if colorInput == "" {
+		return
+	}
+	if colorInput != "colored" {
+		SetSegmentColorByGroupValues(layer, flattenNestedGroups(groups), colorInput)
+		return
+	}
+
+	colors := segmentColorMap(layer)
+
+	for i, family := range groups {
+		palette := colorPalettes[paletteNames[groupPaletteDistinct(i, len(groups))]]
+		for j, group := range family {
+			tone := palette[j%len(palette)]
+			for _, id := range group {
+				colors[id] = tone
+			}
+		}
+	}
+
+	layer["segmentColors"] = colors
+}
+
+// flattenNestedGroups concatenates the inner groups of every outer group,
+// preserving order.
+func flattenNestedGroups(groups [][][]string) [][]string {
+	flat := make([][]string, 0, len(groups))
+	for _, family := range groups {
+		flat = append(flat, family...)
+	}
+	return flat
 }
 
 func categoricalGroupColor(groupIdx int) string {
@@ -342,14 +382,7 @@ func SetSegmentColorBySubtype(layer map[string]interface{}, groups [][]string, s
 		return
 	}
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	for i, group := range groups {
 		var palette []string

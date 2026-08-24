@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -64,8 +65,8 @@ clipboard, overwriting its current contents.`,
   # Intersect classifiers instead
   crantcli add --intersect --cell-class ER --cell-type ER
 
-  # Sub-color by cell_subtype within each query group
-  crantcli add --cell-type ER --color-sub --color blue`,
+  # Color by cell_type, then vary tone by cell_subtype within each type
+  crantcli add --super-class sensory --color-by cell_type,cell_subtype`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -118,8 +119,9 @@ func init() {
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
-	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread")
+	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: "+addColorByFieldList+". Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
+	mustMarkFlagDeprecated(addCmd, "color-sub", "use --color-by cell_type,cell_subtype instead")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -145,7 +147,7 @@ func init() {
 		"proofread",
 	)
 	mustRegisterFlagCompletion(addCmd, "color", completeStaticValues(colorCompletions))
-	mustRegisterFlagCompletion(addCmd, "color-by", completeStaticValues(colorByCompletions))
+	mustRegisterFlagCompletion(addCmd, "color-by", completeColorByFields)
 	mustRegisterFlagCompletion(addCmd, "layer", noFileCompletion)
 	mustRegisterFlagCompletion(addCmd, "labels-ttl", noFileCompletion)
 	mustRegisterFlagCompletion(addCmd, "labels-hook", noFileCompletion)
@@ -159,15 +161,24 @@ func init() {
 		if err != nil {
 			return err
 		}
-		colorByField, err := resolveAddColorBy(addColorBy, addColorSub)
+		colorByFields, err := resolveAddColorBy(addColorBy, addColorSub)
 		if err != nil {
 			return err
 		}
-		if colorByField != "" && normalizedColor == "" {
+		if len(colorByFields) > 0 && normalizedColor == "" {
 			normalizedColor = "colored"
 		}
-		if colorByField != "" && strings.HasPrefix(normalizedColor, "#") {
+		if len(colorByFields) > 0 && strings.HasPrefix(normalizedColor, "#") {
 			fmt.Fprintln(os.Stderr, "Warning: --color-by with a hex color assigns the same color to every group; use a named palette or 'colored' for distinct group colors")
+		}
+		// The second field varies tone inside its outer group's palette family,
+		// so it needs the several families only 'colored' spreads groups across.
+		// One family holds a single tone sequence, which the inner field alone
+		// already uses.
+		if len(colorByFields) == 2 && normalizedColor != "colored" {
+			fmt.Fprintf(os.Stderr, "Warning: --color-by %s,%s needs --color colored to vary hue by %s; coloring by %s alone\n",
+				colorByFields[0], colorByFields[1], colorByFields[0], colorByFields[1])
+			colorByFields = colorByFields[1:]
 		}
 		if addColorSub && normalizedColor == "" {
 			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
@@ -242,11 +253,21 @@ func init() {
 		groups, allRootIDs, allRows = dedupeUnionResults(groups, allRows)
 		totalRows := len(allRows)
 
-		if colorByField != "" {
+		var nestedGroups [][][]string
+		switch len(colorByFields) {
+		case 1:
 			var labels []string
-			groups, labels = buildColorByGroups(allRows, colorByField)
+			groups, labels = buildColorByGroups(allRows, colorByFields[0])
 			for i, group := range groups {
 				fmt.Fprintf(os.Stderr, "  %s: %d with root IDs\n", labels[i], len(group))
+			}
+		case 2:
+			var labels [][]string
+			nestedGroups, labels = buildNestedColorByGroups(allRows, colorByFields[0], colorByFields[1])
+			for i, family := range nestedGroups {
+				for j, group := range family {
+					fmt.Fprintf(os.Stderr, "  %s: %d with root IDs\n", labels[i][j], len(group))
+				}
 			}
 		}
 
@@ -278,7 +299,15 @@ func init() {
 
 		nglstate.AddSegments(layer, allRootIDs, addReplace)
 
-		applyAddSegmentColors(layer, allRootIDs, groups, subtypeMap, normalizedColor, colorByField, addColorSub)
+		applyAddSegmentColors(layer, addColorPlan{
+			rootIDs:       allRootIDs,
+			groups:        groups,
+			nestedGroups:  nestedGroups,
+			subtypeMap:    subtypeMap,
+			color:         normalizedColor,
+			colorByFields: colorByFields,
+			colorSub:      addColorSub,
+		})
 
 		if addLabels {
 			if err := attachCellTypeLabels(layer, allRows, addLabelsTTL, resolveLabelsHook(addLabelsHook)); err != nil {
@@ -399,21 +428,38 @@ func compactAddValues(values []string) []string {
 	return result
 }
 
-func resolveAddColorBy(colorBy string, colorSub bool) (string, error) {
+// resolveAddColorBy parses --color-by into its ordered fields. One field colors
+// one group per distinct value. Two comma-separated fields nest: the first picks
+// each group's palette family (hue), the second the tone within that family.
+func resolveAddColorBy(colorBy string, colorSub bool) ([]string, error) {
 	colorBy = strings.TrimSpace(colorBy)
 	if colorBy != "" && colorSub {
-		return "", fmt.Errorf("--color-by and --color-sub cannot be used together")
+		return nil, fmt.Errorf("--color-by and --color-sub cannot be used together")
 	}
-	if colorSub {
-		return "", nil
+	if colorSub || colorBy == "" {
+		return nil, nil
 	}
-	if colorBy == "" {
-		return "", nil
+
+	parts := strings.Split(colorBy, ",")
+	if len(parts) > maxAddColorByFields {
+		return nil, fmt.Errorf("invalid --color-by %q: at most %d comma-separated fields (hue,tone), got %d", colorBy, maxAddColorByFields, len(parts))
 	}
-	if !validAddColorByFields[colorBy] {
-		return "", fmt.Errorf("invalid --color-by %q; valid fields: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread", colorBy)
+
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		field := strings.TrimSpace(part)
+		if field == "" {
+			return nil, fmt.Errorf("invalid --color-by %q: empty field", colorBy)
+		}
+		if !validAddColorByFields[field] {
+			return nil, fmt.Errorf("invalid --color-by %q; valid fields: %s", field, addColorByFieldList)
+		}
+		if slices.Contains(fields, field) {
+			return nil, fmt.Errorf("invalid --color-by %q: %q is repeated", colorBy, field)
+		}
+		fields = append(fields, field)
 	}
-	return colorBy, nil
+	return fields, nil
 }
 
 func validateAddOptions(regions, bundles []string, color, colorBy string, colorSub bool) error {
@@ -429,19 +475,44 @@ func validateAddOptions(regions, bundles []string, color, colorBy string, colorS
 	return nil
 }
 
-var validAddColorByFields = map[string]bool{
-	"super_class":   true,
-	"cell_class":    true,
-	"cell_type":     true,
-	"cell_subtype":  true,
-	"cell_instance": true,
-	"column":        true,
-	"side":          true,
-	"region":        true,
-	"tract":         true,
-	"nerve":         true,
-	"hemilineage":   true,
-	"proofread":     true,
+// maxAddColorByFields caps --color-by at the two levels a palette family can
+// show: one hue per outer value, one tone per inner value.
+const maxAddColorByFields = 2
+
+// addColorByFields lists the --color-by fields in help and error display order.
+// "column" is derived from cell_instance; the rest are CRANTb_meta columns.
+var addColorByFields = []string{
+	"super_class",
+	"cell_class",
+	"cell_type",
+	"cell_subtype",
+	"cell_instance",
+	"column",
+	"side",
+	"region",
+	"tract",
+	"nerve",
+	"hemilineage",
+	"proofread",
+}
+
+var validAddColorByFields = fieldSet(addColorByFields)
+
+// addColorByFieldList renders addColorByFields for help text and errors.
+var addColorByFieldList = strings.Join(addColorByFields, ", ")
+
+func fieldSet(fields []string) map[string]bool {
+	set := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		set[field] = true
+	}
+	return set
+}
+
+func mustMarkFlagDeprecated(cmd *cobra.Command, flagName, usageMessage string) {
+	if err := cmd.Flags().MarkDeprecated(flagName, usageMessage); err != nil {
+		panic(fmt.Sprintf("deprecating %s --%s: %v", cmd.Name(), flagName, err))
+	}
 }
 
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
@@ -555,20 +626,36 @@ func buildCrossProductSpecs(base *seatable.Filters, dims []specDim) []querySpec 
 	return specs
 }
 
-func applyAddSegmentColors(layer map[string]interface{}, allRootIDs []string, groups [][]string, subtypeMap map[string]string, normalizedColor, colorByField string, colorSub bool) {
-	if colorByField != "" && normalizedColor != "" {
-		nglstate.SetSegmentColorByGroupValues(layer, groups, normalizedColor)
+// addColorPlan carries everything applyAddSegmentColors needs: the segments to
+// color, grouped the way the user asked for them, and the resolved color input.
+type addColorPlan struct {
+	rootIDs       []string     // every injected root ID, for whole-set coloring
+	groups        [][]string   // query groups, or one group per single --color-by value
+	nestedGroups  [][][]string // set only for a two-field --color-by
+	subtypeMap    map[string]string
+	color         string
+	colorByFields []string
+	colorSub      bool
+}
+
+func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
+	if len(plan.colorByFields) > 0 && plan.color != "" {
+		if len(plan.colorByFields) == maxAddColorByFields {
+			nglstate.SetSegmentColorByNestedGroupValues(layer, plan.nestedGroups, plan.color)
+			return
+		}
+		nglstate.SetSegmentColorByGroupValues(layer, plan.groups, plan.color)
 		return
 	}
 
 	// Repeated class/type flags and --color-sub need group-aware base coloring.
-	if (len(groups) > 1 || colorSub) && normalizedColor != "" {
-		nglstate.SetSegmentColorByGroups(layer, groups, normalizedColor)
+	if (len(plan.groups) > 1 || plan.colorSub) && plan.color != "" {
+		nglstate.SetSegmentColorByGroups(layer, plan.groups, plan.color)
 	} else {
-		nglstate.SetSegmentColor(layer, allRootIDs, normalizedColor)
+		nglstate.SetSegmentColor(layer, plan.rootIDs, plan.color)
 	}
-	if colorSub {
-		nglstate.SetSegmentColorBySubtype(layer, groups, subtypeMap, normalizedColor)
+	if plan.colorSub {
+		nglstate.SetSegmentColorBySubtype(layer, plan.groups, plan.subtypeMap, plan.color)
 	}
 }
 
@@ -632,13 +719,59 @@ func buildColorByGroups(rows []seatable.NeuronRow, field string) ([][]string, []
 	labels := make([]string, 0, len(values))
 	for _, value := range values {
 		groups = append(groups, groupsByValue[value])
-		labelValue := value
-		if labelValue == "" {
-			labelValue = "(empty)"
-		}
-		labels = append(labels, field+"="+labelValue)
+		labels = append(labels, colorByLabel(field, value))
 	}
 	return groups, labels
+}
+
+// buildNestedColorByGroups groups rows by the outer field, then by the inner
+// field within each outer group. The returned slices share one shape, so
+// labels[i][j] names groups[i][j].
+func buildNestedColorByGroups(rows []seatable.NeuronRow, outer, inner string) ([][][]string, [][]string) {
+	rootIDsByValues := make(map[string]map[string][]string)
+	var outerValues []string
+	innerValues := make(map[string][]string)
+
+	for _, row := range rows {
+		if row.RootID == "" {
+			continue
+		}
+		outerValue := addColorByFieldValue(row, outer)
+		innerValue := addColorByFieldValue(row, inner)
+		if _, ok := rootIDsByValues[outerValue]; !ok {
+			outerValues = append(outerValues, outerValue)
+			rootIDsByValues[outerValue] = make(map[string][]string)
+		}
+		if _, ok := rootIDsByValues[outerValue][innerValue]; !ok {
+			innerValues[outerValue] = append(innerValues[outerValue], innerValue)
+		}
+		rootIDsByValues[outerValue][innerValue] = append(rootIDsByValues[outerValue][innerValue], row.RootID)
+	}
+	sortColorByValues(outerValues)
+
+	groups := make([][][]string, 0, len(outerValues))
+	labels := make([][]string, 0, len(outerValues))
+	for _, outerValue := range outerValues {
+		values := innerValues[outerValue]
+		sortColorByValues(values)
+
+		family := make([][]string, 0, len(values))
+		familyLabels := make([]string, 0, len(values))
+		for _, innerValue := range values {
+			family = append(family, rootIDsByValues[outerValue][innerValue])
+			familyLabels = append(familyLabels, colorByLabel(outer, outerValue)+" / "+colorByLabel(inner, innerValue))
+		}
+		groups = append(groups, family)
+		labels = append(labels, familyLabels)
+	}
+	return groups, labels
+}
+
+func colorByLabel(field, value string) string {
+	if value == "" {
+		value = "(empty)"
+	}
+	return field + "=" + value
 }
 
 func sortColorByValues(values []string) {

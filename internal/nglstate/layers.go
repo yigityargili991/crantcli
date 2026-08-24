@@ -152,14 +152,7 @@ func SetSegmentColor(layer map[string]interface{}, rootIDs []string, color strin
 	// Resolve named color or "colored" before modifying segmentColors
 	resolved := ResolveColor(layer, color)
 
-	colorsRaw, ok := layer["segmentColors"]
-	var colors map[string]interface{}
-	if ok {
-		colors, _ = colorsRaw.(map[string]interface{})
-	}
-	if colors == nil {
-		colors = make(map[string]interface{})
-	}
+	colors := segmentColorMap(layer)
 
 	for _, id := range rootIDs {
 		colors[id] = resolved

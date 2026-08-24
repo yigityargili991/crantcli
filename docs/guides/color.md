@@ -63,18 +63,28 @@ tract         nerve          hemilineage     proofread
 
 The derived `column` field comes from `cell_instance`: Δ7 instances use the final four characters; other instances use the final two.
 
-## Sub-color by subtype
+## Color by two fields
 
-Use tones within each query group to distinguish cell subtypes:
+Two comma-separated fields nest. The first picks each group's color family, the second varies tone within that family:
 
 ```bash
-crantcli add \
-  --cell-type ER \
-  --color blue \
-  --color-sub
+crantcli add --super-class sensory --color-by cell_type,cell_subtype
 ```
 
-`--color-sub` requires a named color or `colored`. It cannot be combined with `--color-by`, and a single hex color cannot produce subtype variation.
+Hue then answers "which cell type", and tone answers "which subtype inside that type". A family carries five tones, so a sixth subtype in one type reuses the first tone.
+
+Two levels need several color families, so this form requires `colored`, which is the default when you omit `--color`. A named family or a hex color offers only one family, so `crantcli` warns and colors by the second field alone.
+
+!!! warning "`--color-sub` is deprecated"
+    `--color-by cell_subtype` produces the same scene, and `--color-by <field>,cell_subtype` covers the nesting `--color-sub` added on top. The flag still works but warns on use, and it will be removed in a later release.
+
+    ```bash
+    # before
+    crantcli add --cell-type ER --color blue --color-sub
+
+    # now
+    crantcli add --cell-type ER --color blue --color-by cell_subtype
+    ```
 
 !!! tip "Choose color for the question"
     Use `--color-by` when the metadata field is the analysis dimension. Use repeated query groups when the populations themselves define the comparison.

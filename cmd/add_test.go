@@ -235,39 +235,80 @@ func TestResolveAddRegionFilters(t *testing.T) {
 }
 
 func TestResolveAddColorBy(t *testing.T) {
-	t.Run("valid field", func(t *testing.T) {
-		got, err := resolveAddColorBy("cell_type", false)
-		if err != nil {
-			t.Fatalf("resolveAddColorBy returned error: %v", err)
-		}
-		if got != "cell_type" {
-			t.Fatalf("resolveAddColorBy = %q, want cell_type", got)
-		}
-	})
+	tests := []struct {
+		name      string
+		colorBy   string
+		colorSub  bool
+		want      []string
+		wantError string
+	}{
+		{name: "valid field", colorBy: "cell_type", want: []string{"cell_type"}},
+		{name: "two fields nest", colorBy: "cell_type,cell_subtype", want: []string{"cell_type", "cell_subtype"}},
+		{name: "surrounding space is trimmed", colorBy: " cell_type , cell_subtype ", want: []string{"cell_type", "cell_subtype"}},
+		{name: "color-sub validates without color-by grouping", colorSub: true},
+		{
+			name:      "conflict",
+			colorBy:   "cell_type",
+			colorSub:  true,
+			wantError: "--color-by and --color-sub cannot be used together",
+		},
+		{name: "invalid field", colorBy: "not_a_field", wantError: `invalid --color-by "not_a_field"`},
+		{
+			name:      "invalid second field",
+			colorBy:   "cell_type,not_a_field",
+			wantError: `invalid --color-by "not_a_field"`,
+		},
+		{
+			name:      "three fields",
+			colorBy:   "cell_type,cell_subtype,side",
+			wantError: "at most 2 comma-separated fields",
+		},
+		{name: "empty field", colorBy: "cell_type,", wantError: "empty field"},
+		{name: "repeated field", colorBy: "cell_type,cell_type", wantError: `"cell_type" is repeated`},
+	}
 
-	t.Run("color-sub validates without color-by grouping", func(t *testing.T) {
-		got, err := resolveAddColorBy("", true)
-		if err != nil {
-			t.Fatalf("resolveAddColorBy returned error: %v", err)
-		}
-		if got != "" {
-			t.Fatalf("resolveAddColorBy = %q, want empty color-by field", got)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveAddColorBy(tt.colorBy, tt.colorSub)
+			if tt.wantError != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q", tt.wantError)
+				}
+				if !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveAddColorBy returned error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("resolveAddColorBy = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
 
-	t.Run("conflict", func(t *testing.T) {
-		_, err := resolveAddColorBy("cell_type", true)
-		if err == nil {
-			t.Fatal("expected conflict error")
-		}
-	})
-
-	t.Run("invalid field", func(t *testing.T) {
-		_, err := resolveAddColorBy("not_a_field", false)
-		if err == nil {
-			t.Fatal("expected invalid field error")
-		}
-	})
+// TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
+// flag keeps working, but it warns and no longer appears in help or the
+// generated command docs.
+func TestAddColorSubIsDeprecated(t *testing.T) {
+	flag := addCmd.Flags().Lookup("color-sub")
+	if flag == nil {
+		t.Fatal("--color-sub flag is missing")
+	}
+	if flag.Deprecated == "" {
+		t.Fatal("--color-sub carries no deprecation message")
+	}
+	if !strings.Contains(flag.Deprecated, "--color-by") {
+		t.Fatalf("deprecation message = %q, want it to point at --color-by", flag.Deprecated)
+	}
+	if !flag.Hidden {
+		t.Fatal("a deprecated --color-sub should be hidden from help output")
+	}
+	if usage := addCmd.Flags().FlagUsages(); strings.Contains(usage, "--color-sub") {
+		t.Fatalf("flag usage still advertises --color-sub:\n%s", usage)
+	}
 }
 
 func TestValidateAddOptions(t *testing.T) {
@@ -417,7 +458,13 @@ func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.
 		"b2": "other",
 	}
 
-	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, subtypeMap, "colored", "", true)
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:    []string{"a1", "a2", "b1", "b2"},
+		groups:     groups,
+		subtypeMap: subtypeMap,
+		color:      "colored",
+		colorSub:   true,
+	})
 
 	colors, ok := layer["segmentColors"].(map[string]interface{})
 	if !ok {
@@ -441,7 +488,12 @@ func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
 		{"b1", "b2"},
 	}
 
-	applyAddSegmentColors(layer, []string{"a1", "a2", "b1", "b2"}, groups, nil, "colored", "column", false)
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"a1", "a2", "b1", "b2"},
+		groups:        groups,
+		color:         "colored",
+		colorByFields: []string{"column"},
+	})
 
 	colors, ok := layer["segmentColors"].(map[string]interface{})
 	if !ok {
@@ -455,6 +507,66 @@ func TestApplyAddSegmentColors_ColorByUsesOneColorPerGroup(t *testing.T) {
 	}
 	if colors["a1"] == colors["b1"] {
 		t.Fatalf("different color-by groups got the same color: %v", colors["a1"])
+	}
+}
+
+func TestBuildNestedColorByGroups(t *testing.T) {
+	rows := []seatable.NeuronRow{
+		{RootID: "b1", CellType: "PEN", CellSubtype: "ER1"},
+		{RootID: "a2", CellType: "ER", CellSubtype: "ER2"},
+		{RootID: "a1", CellType: "ER", CellSubtype: "ER1"},
+		{RootID: "b2", CellType: "PEN"},
+		{RootID: "", CellType: "ER", CellSubtype: "ER1"},
+	}
+
+	groups, labels := buildNestedColorByGroups(rows, "cell_type", "cell_subtype")
+
+	wantGroups := [][][]string{
+		{{"a1"}, {"a2"}},
+		{{"b1"}, {"b2"}},
+	}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("groups = %v, want %v", groups, wantGroups)
+	}
+
+	wantLabels := [][]string{
+		{"cell_type=ER / cell_subtype=ER1", "cell_type=ER / cell_subtype=ER2"},
+		{"cell_type=PEN / cell_subtype=ER1", "cell_type=PEN / cell_subtype=(empty)"},
+	}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("labels = %v, want %v", labels, wantLabels)
+	}
+}
+
+// TestApplyAddSegmentColors_NestedColorByVariesHueThenTone covers what a
+// two-field --color-by has to show that a single field cannot: the outer value
+// picks the hue and the inner value the tone within it.
+func TestApplyAddSegmentColors_NestedColorByVariesHueThenTone(t *testing.T) {
+	layer := map[string]interface{}{}
+	nested := [][][]string{
+		{{"a1"}, {"a2"}},
+		{{"b1"}, {"b2"}},
+	}
+
+	applyAddSegmentColors(layer, addColorPlan{
+		rootIDs:       []string{"a1", "a2", "b1", "b2"},
+		nestedGroups:  nested,
+		color:         "colored",
+		colorByFields: []string{"cell_type", "cell_subtype"},
+	})
+
+	colors, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
+	}
+	if colors["a1"] == colors["a2"] {
+		t.Fatalf("inner groups in one family share a tone: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+	if colors["a1"] == colors["b1"] {
+		t.Fatalf("the same inner value in different families shares a color: a1=%v b1=%v", colors["a1"], colors["b1"])
+	}
+	if colors["a2"] == colors["b2"] {
+		t.Fatalf("different families share a tone: a2=%v b2=%v", colors["a2"], colors["b2"])
 	}
 }
 

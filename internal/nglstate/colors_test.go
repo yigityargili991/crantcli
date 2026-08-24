@@ -616,3 +616,101 @@ func TestNormalizeColorInput(t *testing.T) {
 		})
 	}
 }
+
+func TestSetSegmentColorByNestedGroupValues_Colored(t *testing.T) {
+	// Two outer groups with "colored": outer 0 gets blue tones, outer 1 gets
+	// yellow tones (with 2 groups, palettes are spaced at indices 0 and 6).
+	// Inner groups take successive tones from their family.
+	layer := map[string]interface{}{}
+	groups := [][][]string{
+		{{"a1", "a2"}, {"a3"}},
+		{{"b1"}, {"b2"}},
+	}
+
+	SetSegmentColorByNestedGroupValues(layer, groups, "colored")
+
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+	}
+
+	blue := colorPalettes["blue"]
+	yellow := colorPalettes["yellow"]
+	want := map[string]string{
+		"a1": blue[0],
+		"a2": blue[0],
+		"a3": blue[1],
+		"b1": yellow[0],
+		"b2": yellow[1],
+	}
+	for id, hex := range want {
+		if got[id] != hex {
+			t.Errorf("%s = %v, want %v", id, got[id], hex)
+		}
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_ToneWrapsWithinFamily(t *testing.T) {
+	// A family carries five tones, so a sixth inner group reuses the first.
+	layer := map[string]interface{}{}
+	groups := [][][]string{{{"a1"}, {"a2"}, {"a3"}, {"a4"}, {"a5"}, {"a6"}}}
+
+	SetSegmentColorByNestedGroupValues(layer, groups, "colored")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	if got["a6"] != got["a1"] {
+		t.Fatalf("a6 = %v, want the wrapped first tone %v", got["a6"], got["a1"])
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_NamedPaletteFlattens(t *testing.T) {
+	// One named family cannot carry two levels, so every inner group across the
+	// whole set takes the next tone, exactly as a single-field --color-by would.
+	layer := map[string]interface{}{}
+	groups := [][][]string{
+		{{"a1"}, {"a2"}},
+		{{"b1"}},
+	}
+
+	SetSegmentColorByNestedGroupValues(layer, groups, "green")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	green := colorPalettes["green"]
+	want := map[string]string{"a1": green[0], "a2": green[1], "b1": green[2]}
+	for id, hex := range want {
+		if got[id] != hex {
+			t.Errorf("%s = %v, want %v", id, got[id], hex)
+		}
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_HexSharesOneColor(t *testing.T) {
+	layer := map[string]interface{}{}
+	groups := [][][]string{{{"a1"}, {"a2"}}, {{"b1"}}}
+
+	SetSegmentColorByNestedGroupValues(layer, groups, "#ff0000")
+
+	got := layer["segmentColors"].(map[string]interface{})
+	for _, id := range []string{"a1", "a2", "b1"} {
+		if got[id] != "#ff0000" {
+			t.Errorf("%s = %v, want #ff0000", id, got[id])
+		}
+	}
+}
+
+func TestSetSegmentColorByNestedGroupValues_EmptyColorAndNilGroups(t *testing.T) {
+	layer := map[string]interface{}{}
+	SetSegmentColorByNestedGroupValues(layer, [][][]string{{{"a1"}}}, "")
+	if _, ok := layer["segmentColors"]; ok {
+		t.Fatal("an empty color should not create segmentColors")
+	}
+
+	SetSegmentColorByNestedGroupValues(layer, nil, "colored")
+	got, ok := layer["segmentColors"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("segmentColors missing or wrong type: %T", layer["segmentColors"])
+	}
+	if len(got) != 0 {
+		t.Fatalf("segmentColors = %v, want empty", got)
+	}
+}
