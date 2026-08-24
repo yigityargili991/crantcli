@@ -302,9 +302,11 @@ func TestResolveAddColorBy(t *testing.T) {
 
 // TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
 // flag keeps working, but it warns and no longer appears in help or the
-// generated command docs. Its migration advice must not assume query groups
-// always correspond to cell_type; mixed and intersected groups have no exact
-// --color-by representation yet.
+// generated command docs. Its migration advice must claim no more than it can
+// deliver. Query groups do not always correspond to cell_type, "matches one
+// metadata field" also describes a mixed union drawing on several fields, and
+// --color-by cell_subtype reproduces --color-sub only under a named family --
+// with colored it gives each subtype its own hue instead of a tone.
 func TestAddColorSubIsDeprecated(t *testing.T) {
 	flag := addCmd.Flags().Lookup("color-sub")
 	if flag == nil {
@@ -316,6 +318,7 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 	wants := []string{
 		"--color-by cell_subtype",
 		"QUERY_FIELD,cell_subtype",
+		"one value of QUERY_FIELD",
 		"mixed or intersected query groups",
 	}
 	for _, want := range wants {
@@ -323,8 +326,15 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 			t.Fatalf("deprecation message = %q, want it to contain %q", flag.Deprecated, want)
 		}
 	}
-	if strings.Contains(flag.Deprecated, "--color-by cell_type,cell_subtype") {
-		t.Fatalf("deprecation message assumes every query group is a cell_type: %q", flag.Deprecated)
+	rejects := map[string]string{
+		"--color-by cell_type,cell_subtype": "assumes every query group is a cell_type",
+		"matches one metadata field":        "also describes a mixed union over several fields",
+		"for one query group":               "promises an equivalence that only holds under a named family",
+	}
+	for reject, why := range rejects {
+		if strings.Contains(flag.Deprecated, reject) {
+			t.Fatalf("deprecation message %q: %s", flag.Deprecated, why)
+		}
 	}
 	if !flag.Hidden {
 		t.Fatal("a deprecated --color-sub should be hidden from help output")

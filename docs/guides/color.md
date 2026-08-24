@@ -77,9 +77,9 @@ Hue then answers "which cell type", and tone answers "which subtype inside that 
 Two levels need several color families, so this form requires `colored`, which is the default when you omit `--color`. A named family or a hex color offers only one family, so `crantcli` warns and colors by the second field alone.
 
 !!! warning "`--color-sub` is deprecated"
-    For one query group, prefer `--color-by cell_subtype`. When every query group corresponds exactly to one metadata field, use `--color-by <query-field>,cell_subtype` to preserve the outer hue and inner tone.
+    `--color-sub` encodes two things at once: a palette family per query group, and a tone per `cell_subtype` inside that family. What replaces it depends on where your query groups come from. The flag still works and warns on use.
 
-    Query groups can also come from mixed union filters or an `--intersect` cross-product. Those groups do not necessarily correspond to one metadata field, so the two-level form cannot reproduce them exactly yet. The flag still works and warns on use; keep it for those cases.
+    With one query group and a named family, `--color-by cell_subtype` produces the same scene:
 
     ```bash
     # before
@@ -88,6 +88,16 @@ Two levels need several color families, so this form requires `colored`, which i
     # now
     crantcli add --cell-type ER --color blue --color-by cell_subtype
     ```
+
+    With `colored` the two differ. `--color-sub` keeps one family and varies tone, so a query matching seven subtypes renders in five colors and two pairs become indistinguishable. `--color-by cell_subtype` gives each subtype its own hue instead. That separates better and is usually what you want, but it is a different scene, not a reproduction.
+
+    When every query group is one value of the same field, `--color-by <that-field>,cell_subtype` keeps both levels:
+
+    ```bash
+    crantcli add --cell-type ER --cell-type EPG/PEG --color-by cell_type,cell_subtype
+    ```
+
+    Query groups can also come from a mixed union (`--cell-class LNO --cell-type PEN`) or an `--intersect` cross-product. Those groups are not values of any single field, so no `--color-by` form reproduces them yet; keep `--color-sub` for those.
 
 ## Color by position
 
