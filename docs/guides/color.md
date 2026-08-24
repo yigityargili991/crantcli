@@ -77,7 +77,9 @@ Hue then answers "which cell type", and tone answers "which subtype inside that 
 Two levels need several color families, so this form requires `colored`, which is the default when you omit `--color`. A named family or a hex color offers only one family, so `crantcli` warns and colors by the second field alone.
 
 !!! warning "`--color-sub` is deprecated"
-    `--color-by cell_subtype` produces the same scene, and `--color-by <field>,cell_subtype` covers the nesting `--color-sub` added on top. The flag still works but warns on use, and it will be removed in a later release.
+    For one query group, prefer `--color-by cell_subtype`. When every query group corresponds exactly to one metadata field, use `--color-by <query-field>,cell_subtype` to preserve the outer hue and inner tone.
+
+    Query groups can also come from mixed union filters or an `--intersect` cross-product. Those groups do not necessarily correspond to one metadata field, so the two-level form cannot reproduce them exactly yet. The flag still works and warns on use; keep it for those cases.
 
     ```bash
     # before

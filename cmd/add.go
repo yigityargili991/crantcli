@@ -121,7 +121,10 @@ func init() {
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: "+addColorByFieldList+". Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
-	mustMarkFlagDeprecated(addCmd, "color-sub", "use --color-by cell_type,cell_subtype instead")
+	mustMarkFlagDeprecated(addCmd, "color-sub",
+		"prefer --color-by cell_subtype for one query group, "+
+			"or --color-by QUERY_FIELD,cell_subtype when every query group matches one metadata field; "+
+			"keep --color-sub for mixed or intersected query groups")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
