@@ -309,12 +309,12 @@ func TestResolveAddColorBy(t *testing.T) {
 
 // TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
 // flag keeps working, but it warns and no longer appears in help or the
-// generated command docs. --color-by group,cell_subtype reproduces it for every
-// query group, so the advice is one unconditional line. The rejected phrasings
-// are the ones that claimed more than they delivered: query groups are not
-// always cell_type values, "matches one metadata field" also describes a mixed
-// union over several fields, and --color-by cell_subtype alone reproduces
-// --color-sub only under a named family.
+// generated command docs. The advice has to name a color mode, since two-level
+// coloring falls back to the inner field alone under anything but colored --
+// advising group,cell_subtype on its own would be contradicted by that warning
+// one line later. The rejected phrasings are the ones that claimed more than
+// they delivered: query groups are not always cell_type values, and "matches
+// one metadata field" also describes a mixed union over several fields.
 func TestAddColorSubIsDeprecated(t *testing.T) {
 	flag := addCmd.Flags().Lookup("color-sub")
 	if flag == nil {
@@ -323,7 +323,10 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 	if flag.Deprecated == "" {
 		t.Fatal("--color-sub carries no deprecation message")
 	}
-	wants := []string{"--color-by group,cell_subtype"}
+	wants := []string{
+		"--color-by group,cell_subtype with --color colored",
+		"--color-by cell_subtype with a named family",
+	}
 	for _, want := range wants {
 		if !strings.Contains(flag.Deprecated, want) {
 			t.Fatalf("deprecation message = %q, want it to contain %q", flag.Deprecated, want)
@@ -777,6 +780,19 @@ func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
 	}
 	if colors["a1"] == colors["a2"] {
 		t.Fatalf("different subtypes in one query group share a tone: a1=%v a2=%v", colors["a1"], colors["a2"])
+	}
+}
+
+// TestReportUncoloredQueryGroups covers the groups --color-by group leaves out:
+// dropping one also respaces the palettes of the groups that remain, so it must
+// not happen silently.
+func TestReportUncoloredQueryGroups(t *testing.T) {
+	var report bytes.Buffer
+
+	reportUncoloredQueryGroups(&report, [][]string{{"a1"}, {}, {"c1"}}, []string{"ER", "ER1", "PEN"})
+
+	if want := "  group=ER1: no root IDs of its own; not colored\n"; report.String() != want {
+		t.Fatalf("report = %q, want %q", report.String(), want)
 	}
 }
 

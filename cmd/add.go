@@ -124,7 +124,8 @@ func init() {
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: "+addColorByFieldList+". Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)")
 	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
-	mustMarkFlagDeprecated(addCmd, "color-sub", "use --color-by group,cell_subtype")
+	mustMarkFlagDeprecated(addCmd, "color-sub",
+		"use --color-by group,cell_subtype with --color colored, or --color-by cell_subtype with a named family")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -260,6 +261,9 @@ func init() {
 		// groups and their labels for --color-by group to build from.
 		queryGroups := groups
 		queryLabels := querySpecLabels(specs)
+		if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField {
+			reportUncoloredQueryGroups(os.Stderr, queryGroups, queryLabels)
+		}
 
 		var nestedGroups [][][]string
 		var gradient *gradientColorBy
@@ -861,6 +865,20 @@ func partitionRowsByQueryGroup(rows []seatable.NeuronRow, queryGroups [][]string
 		})
 	}
 	return partitions
+}
+
+// reportUncoloredQueryGroups names the query groups --color-by group leaves
+// out. A group holding no root IDs of its own -- because it matched nothing, or
+// because an earlier group already claimed every neuron it found -- takes no
+// color family, which also spaces the remaining groups as though it never
+// existed. Saying so beats dropping it silently.
+func reportUncoloredQueryGroups(w io.Writer, queryGroups [][]string, queryLabels []string) {
+	for i, group := range queryGroups {
+		if len(group) > 0 {
+			continue
+		}
+		fmt.Fprintf(w, "  %s: no root IDs of its own; not colored\n", colorByLabel(queryGroupColorByField, queryLabels[i]))
+	}
 }
 
 // colorByGroupsFromPartitions flattens partitions into the root-ID groups the

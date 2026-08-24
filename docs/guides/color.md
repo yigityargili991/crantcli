@@ -82,17 +82,25 @@ Two levels need several color families, so this form requires `colored`, which i
 
     ```bash
     # before
-    crantcli add --cell-type ER --color blue --color-sub
+    crantcli add --cell-type ER --color colored --color-sub
 
     # now
-    crantcli add --cell-type ER --color blue --color-by group,cell_subtype
+    crantcli add --cell-type ER --color-by group,cell_subtype
     ```
-
-    The one difference is an improvement. `--color-sub` left neurons without a `cell_subtype` on whatever base tone their position in the group happened to give them, so they varied for no reason and could collide with a real subtype's tone. They now share the `(empty)` group's own tone.
 
     The flag still works and warns on use, and it will be removed in a later release.
 
-    If you do not need the family structure, `--color-by cell_subtype` is simpler. Under a named family it renders the same scene; under `colored` it gives each subtype its own hue rather than a tone of one family, which separates better but is a different scene.
+    Three differences are worth knowing if you compare an old scene against a new one. Each one drops a behavior that carried no meaning:
+
+    - Neurons without a `cell_subtype` used to keep whatever base tone their position in the group happened to give them, varying for no reason and sometimes colliding with a real subtype's tone. They now share the `(empty)` group's own tone.
+    - A query group that deduplication leaves empty no longer reserves a color family. The groups that remain spread further apart, where before one slot was spent on a group that colored nothing. Such a group is now named in the output.
+    - Under a **named family** rather than `colored`, `--color-sub` restarted its tone numbering inside every group, so one subtype could take a different tone in each group while unrelated subtypes shared one. Tones are now assigned once across the whole result.
+
+    That last point is why the two-level form needs `colored`: one family cannot carry both levels, so `--color-by group,cell_subtype --color blue` warns and colors by `cell_subtype` alone. If you want to keep a named family, ask for it directly:
+
+    ```bash
+    crantcli add --cell-type ER --color blue --color-by cell_subtype
+    ```
 
 ## Color by position
 
