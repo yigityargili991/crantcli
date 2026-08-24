@@ -261,9 +261,6 @@ func init() {
 		// groups and their labels for --color-by group to build from.
 		queryGroups := groups
 		queryLabels := querySpecLabels(specs)
-		if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField {
-			reportUncoloredQueryGroups(os.Stderr, queryGroups, queryLabels)
-		}
 
 		var nestedGroups [][][]string
 		var gradient *gradientColorBy
@@ -291,6 +288,10 @@ func init() {
 			nestedGroups, labels = nestColorByPartitions(
 				colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels), colorByFields[1])
 			reportNestedColorByGroups(os.Stderr, colorByFields, nestedGroups, labels)
+		}
+		// After the groups that were colored, so the two read together.
+		if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField {
+			reportUncoloredQueryGroups(os.Stderr, queryGroups, queryLabels)
 		}
 
 		fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
@@ -852,32 +853,40 @@ func partitionRowsByQueryGroup(rows []seatable.NeuronRow, queryGroups [][]string
 		if len(groupRows) == 0 {
 			continue
 		}
-		// A query with no repeated classifier flags forms one unnamed group.
-		// That is the whole result rather than a missing value, so it does not
-		// borrow the "(empty)" every other field uses for one.
-		label := queryLabels[i]
-		if label == "" {
-			label = "(all)"
-		}
 		partitions = append(partitions, colorByPartition{
-			label: colorByLabel(queryGroupColorByField, label),
+			label: queryGroupLabel(queryLabels[i]),
 			rows:  groupRows,
 		})
 	}
 	return partitions
 }
 
+// queryGroupLabel names a query group. A query with no repeated classifier
+// flags forms one unnamed group holding the whole result, which is not the
+// missing value "(empty)" stands for everywhere else.
+func queryGroupLabel(specLabel string) string {
+	if specLabel == "" {
+		specLabel = "(all)"
+	}
+	return colorByLabel(queryGroupColorByField, specLabel)
+}
+
 // reportUncoloredQueryGroups names the query groups --color-by group leaves
 // out. A group holding no root IDs of its own -- because it matched nothing, or
 // because an earlier group already claimed every neuron it found -- takes no
 // color family, which also spaces the remaining groups as though it never
-// existed. Saying so beats dropping it silently.
+// existed. Saying so beats dropping it silently. A result where no group holds
+// anything has no coloring for a group to be left out of, so it reports
+// nothing.
 func reportUncoloredQueryGroups(w io.Writer, queryGroups [][]string, queryLabels []string) {
+	if !slices.ContainsFunc(queryGroups, func(group []string) bool { return len(group) > 0 }) {
+		return
+	}
 	for i, group := range queryGroups {
 		if len(group) > 0 {
 			continue
 		}
-		fmt.Fprintf(w, "  %s: no root IDs of its own; not colored\n", colorByLabel(queryGroupColorByField, queryLabels[i]))
+		fmt.Fprintf(w, "  %s: no root IDs of its own; not colored\n", queryGroupLabel(queryLabels[i]))
 	}
 }
 

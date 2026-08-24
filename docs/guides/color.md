@@ -93,10 +93,10 @@ Two levels need several color families, so this form requires `colored`, which i
     Three differences are worth knowing if you compare an old scene against a new one. Each one drops a behavior that carried no meaning:
 
     - Neurons without a `cell_subtype` used to keep whatever base tone their position in the group happened to give them, varying for no reason and sometimes colliding with a real subtype's tone. They now share the `(empty)` group's own tone.
-    - A query group that deduplication leaves empty no longer reserves a color family. The groups that remain spread further apart, where before one slot was spent on a group that colored nothing. Such a group is now named in the output.
+    - A query group holding no root IDs of its own, because it matched nothing or because an earlier group already claimed every neuron it found, no longer reserves a color family. The groups that remain spread further apart, where before one slot was spent on a group that colored nothing. Such a group is now named in the output.
     - Under a **named family** rather than `colored`, `--color-sub` restarted its tone numbering inside every group, so one subtype could take a different tone in each group while unrelated subtypes shared one. Tones are now assigned once across the whole result.
 
-    That last point is why the two-level form needs `colored`: one family cannot carry both levels, so `--color-by group,cell_subtype --color blue` warns and colors by `cell_subtype` alone. If you want to keep a named family, ask for it directly:
+    One family cannot carry both levels, so `--color-by group,cell_subtype --color blue` warns and colors by `cell_subtype` alone. To keep a named family, ask for the single field directly:
 
     ```bash
     crantcli add --cell-type ER --color blue --color-by cell_subtype

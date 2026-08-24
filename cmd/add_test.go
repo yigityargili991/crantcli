@@ -876,6 +876,21 @@ func TestReportUncoloredQueryGroups(t *testing.T) {
 	if want := "  group=ER1: no root IDs of its own; not colored\n"; report.String() != want {
 		t.Fatalf("report = %q, want %q", report.String(), want)
 	}
+
+	// An unnamed group is the whole result, and it keeps that name whether or
+	// not it holds anything.
+	var unnamed bytes.Buffer
+	reportUncoloredQueryGroups(&unnamed, [][]string{{}, {"b1"}}, []string{"", "PEN"})
+	if want := "  group=(all): no root IDs of its own; not colored\n"; unnamed.String() != want {
+		t.Fatalf("unnamed report = %q, want %q", unnamed.String(), want)
+	}
+
+	// A result where nothing matched has no coloring to be left out of.
+	var nothing bytes.Buffer
+	reportUncoloredQueryGroups(&nothing, [][]string{{}, {}}, []string{"", "PEN"})
+	if nothing.Len() != 0 {
+		t.Fatalf("report for an empty result = %q, want nothing", nothing.String())
+	}
 }
 
 func TestBuildGradientColorByValues(t *testing.T) {
