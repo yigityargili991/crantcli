@@ -4,7 +4,7 @@ Delete label sources (gists or hook-published) tracked by crantcli
 
 ## Synopsis
 
-Delete cell-type label sources that 'add --labels' or
+Delete label sources that 'add --labels' or
 'state-transfer --labels' created and tracked.
 
 By default, deletes tracked sources older than --older-than. Use --all to delete
@@ -29,5 +29,5 @@ crantcli labels clean [flags]
 
 ## See also
 
-* [crantcli labels](crantcli_labels.md)	 - Manage cell-type label sources created by commands using --labels
+* [crantcli labels](crantcli_labels.md)	 - Manage label sources created by commands using --labels
 

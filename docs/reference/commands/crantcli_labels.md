@@ -1,6 +1,6 @@
 # crantcli labels
 
-Manage cell-type label sources created by commands using --labels
+Manage label sources created by commands using --labels
 
 ## Options
 

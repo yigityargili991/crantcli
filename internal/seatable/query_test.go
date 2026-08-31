@@ -3,6 +3,7 @@ package seatable
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,6 +57,11 @@ func TestQueryNeuronsPaginatesAndFiltersRegion(t *testing.T) {
 	}
 	if rows[len(rows)-1].Region != "LX, LW" {
 		t.Fatalf("last row region = %q, want %q", rows[len(rows)-1].Region, "LX, LW")
+	}
+	// The values stay apart from their display join so callers can tag or filter
+	// each region on its own.
+	if got, want := rows[len(rows)-1].Regions, []string{"LX", "LW"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("last row Regions = %#v, want %#v", got, want)
 	}
 	if rows[len(rows)-1].CellInstance != "instance-root-match" {
 		t.Fatalf("last row cell_instance = %q, want instance-root-match", rows[len(rows)-1].CellInstance)

@@ -41,7 +41,7 @@ Install a release or build from source first; see the [installation guide](docs/
 - Includes built-in Wayland/X11 clipboard support and XDG portal browser handoff on Linux.
 - Checks stored root IDs against CAVE and refreshes stale scene segments.
 - Shows CAVE edit history and combined root metadata.
-- Adds CRANT cell-type labels to Neuroglancer segments.
+- Adds CRANT labels and filterable tags to Neuroglancer segments, by cell type or any other classification field.
 - Generates completion for Bash, Zsh, Fish, and PowerShell.
 
 ## A few useful commands

@@ -47,6 +47,12 @@ crantcli add [flags]
   # Show cell types next to root IDs in the Seg. panel (requires the gh CLI)
   crantcli add --cell-type ER --labels
 
+  # Label by cell_subtype instead, keeping cell_type as its fallback
+  crantcli add --cell-class LNO --labels --label-by cell_subtype,cell_type
+
+  # Choose the filterable tag chips published alongside the label
+  crantcli add --cell-type ER --labels --label-tags cell_subtype,side,region
+
   # Add all neurons annotated to bundle/region LX
   crantcli add --bundle LX
 
@@ -75,7 +81,9 @@ crantcli add [flags]
   -g, --generate                   Use the configured or built-in default state instead of the clipboard
   -h, --help                       help for add
       --intersect                  Intersect --cell-class/--cell-type/--cell-subtype as a cross-product (AND) instead of the default union (OR, each value its own group); rarely needed since these classifiers are hierarchical. Other filters (--super-class, --side, --region, ...) always apply to every group
-      --labels                     Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK
+      --label-by string            Field shown as the --labels label: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread. Further comma-separated fields are fallbacks, each tried when the previous one is empty (default "cell_type,cell_class")
+      --label-tags string          Comma-separated fields published as filterable tag chips (super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread), or 'none' for no tags (default "cell_class,cell_instance,side,super_class")
+      --labels                     Attach CRANT metadata labels (via an ephemeral secret GitHub gist) so the --label-by field shows next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK
       --labels-hook string         Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {"url","id"}); defaults to $CRANT_LABELS_HOOK
       --labels-ttl duration        Delete previously-created label sources older than this on each --labels run (default 168h0m0s)
   -l, --layer string               Target segmentation layer name

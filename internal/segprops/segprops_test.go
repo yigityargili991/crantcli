@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"crantcli/internal/seatable"
@@ -40,6 +41,36 @@ func labelValues(t *testing.T, props []json.RawMessage) []string {
 		}
 	}
 	t.Fatal("no label property found")
+	return nil
+}
+
+func tagList(t *testing.T, props []json.RawMessage) []string {
+	t.Helper()
+	for _, p := range props {
+		var m struct {
+			ID, Type string
+			Tags     []string
+		}
+		if err := json.Unmarshal(p, &m); err == nil && m.Type == "tags" {
+			return m.Tags
+		}
+	}
+	t.Fatal("no tags property found")
+	return nil
+}
+
+func tagValues(t *testing.T, props []json.RawMessage) [][]int {
+	t.Helper()
+	for _, p := range props {
+		var m struct {
+			ID, Type string
+			Values   [][]int
+		}
+		if err := json.Unmarshal(p, &m); err == nil && m.Type == "tags" {
+			return m.Values
+		}
+	}
+	t.Fatal("no tags property found")
 	return nil
 }
 
@@ -236,6 +267,122 @@ func TestBuildSegmentProperties_NoTagsWhenAllEmpty(t *testing.T) {
 	d := parse(t, data)
 	if len(d.Inline.Properties) != 1 {
 		t.Errorf("expected only the label property, got %d", len(d.Inline.Properties))
+	}
+}
+
+func TestBuildSegmentProperties_CustomLabelAndTagFields(t *testing.T) {
+	// A run asking for a cell_subtype label with a cell_type fallback and its
+	// own tag fields: the subtype shows when set, the fallback when it is not.
+	rows := []seatable.NeuronRow{
+		{RootID: "1", CellType: "PFN", CellSubtype: "PFNc", Region: "LX", Side: "left"},
+		{RootID: "2", CellType: "PEN", Side: "right"},
+	}
+	data, err := BuildSegmentProperties(rows, Options{
+		LabelField:     "cell_subtype",
+		LabelFallbacks: []string{"cell_type"},
+		TagFields:      []string{"region", "side"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := parse(t, data)
+
+	if got, want := labelValues(t, d.Inline.Properties), []string{"PFNc", "PEN"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("labels = %v, want %v", got, want)
+	}
+
+	tags := tagList(t, d.Inline.Properties)
+	if want := []string{"region_lx", "side_left", "side_right"}; !reflect.DeepEqual(tags, want) {
+		t.Errorf("tags = %v, want %v", tags, want)
+	}
+}
+
+func TestBuildSegmentProperties_RegionTagsStayPerValue(t *testing.T) {
+	// region is a multi-select: a neuron annotated to LX and LW has to get one
+	// chip per region, or neither region filters in Neuroglancer. The filtered
+	// query that matched only LX must still tag both.
+	rows := []seatable.NeuronRow{
+		{RootID: "1", CellType: "ER", Region: "LX, LW", Regions: []string{"LX", "LW"}, MatchedRegions: []string{"LX"}},
+		{RootID: "2", CellType: "PB", Region: "LW", Regions: []string{"LW"}},
+	}
+	data, err := BuildSegmentProperties(rows, Options{LabelField: "cell_type", TagFields: []string{"region"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := parse(t, data)
+
+	if got, want := tagList(t, d.Inline.Properties), []string{"region_lw", "region_lx"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+	if got, want := tagValues(t, d.Inline.Properties), [][]int{{0, 1}, {0}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tag indices = %v, want %v", got, want)
+	}
+}
+
+func TestBuildSegmentProperties_SkipsEmptyMultiValues(t *testing.T) {
+	// A multi-select can carry blanks. They would sanitize to a bare "region_"
+	// chip that says nothing, so they are dropped rather than published.
+	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER", Regions: []string{"LX", "", "  "}}}
+	data, err := BuildSegmentProperties(rows, Options{LabelField: "cell_type", TagFields: []string{"region"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := parse(t, data)
+
+	if got, want := tagList(t, d.Inline.Properties), []string{"region_lx"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+	if got, want := tagValues(t, d.Inline.Properties), [][]int{{0}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tag indices = %v, want %v", got, want)
+	}
+}
+
+func TestBuildSegmentProperties_RejectsUnknownFields(t *testing.T) {
+	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
+	tests := []struct {
+		name string
+		opts Options
+		want string
+	}{
+		{name: "label field", opts: Options{LabelField: "cell_typo"}, want: `unknown label field "cell_typo"`},
+		{name: "label fallback", opts: Options{LabelField: "cell_type", LabelFallbacks: []string{"nope"}}, want: `unknown label field "nope"`},
+		{name: "tag field", opts: Options{LabelField: "cell_type", TagFields: []string{"colour"}}, want: `unknown tag field "colour"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := BuildSegmentProperties(rows, tt.opts)
+			if err == nil {
+				t.Fatalf("expected error containing %q", tt.want)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want it to contain %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestFieldsMatchTagPrefixes(t *testing.T) {
+	// Every advertised field needs a tag prefix, and every prefixed field needs
+	// to be advertised, or one of the two lists silently loses a field.
+	if len(Fields) != len(fieldTagPrefix) {
+		t.Fatalf("Fields has %d entries, fieldTagPrefix has %d", len(Fields), len(fieldTagPrefix))
+	}
+	for _, field := range Fields {
+		if !ValidField(field) {
+			t.Errorf("field %q has no tag prefix", field)
+		}
+	}
+	for field := range fieldTagPrefix {
+		if !slices.Contains(Fields, field) {
+			t.Errorf("prefixed field %q is missing from Fields", field)
+		}
+	}
+}
+
+func TestDefaultOptionsAreValid(t *testing.T) {
+	if err := DefaultOptions().Validate(); err != nil {
+		t.Fatalf("DefaultOptions() is invalid: %v", err)
 	}
 }
 

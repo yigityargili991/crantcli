@@ -2,14 +2,19 @@ package seatable
 
 // NeuronRow represents a row from the CRANTb_meta table.
 type NeuronRow struct {
-	RootID         string   `json:"root_id"`
-	SuperClass     string   `json:"super_class"`
-	CellClass      string   `json:"cell_class"`
-	CellType       string   `json:"cell_type"`
-	CellSubtype    string   `json:"cell_subtype"`
-	CellInstance   string   `json:"cell_instance"`
-	Side           string   `json:"side"`
+	RootID       string `json:"root_id"`
+	SuperClass   string `json:"super_class"`
+	CellClass    string `json:"cell_class"`
+	CellType     string `json:"cell_type"`
+	CellSubtype  string `json:"cell_subtype"`
+	CellInstance string `json:"cell_instance"`
+	Side         string `json:"side"`
+	// Region is the display join of Regions, kept for callers that show one
+	// string per row. Regions holds the values themselves, since region is a
+	// multi-select column: a neuron annotated to LX and LW carries both, and
+	// consumers that filter or tag per value need them apart.
 	Region         string   `json:"region"`
+	Regions        []string `json:"-"`
 	MatchedRegions []string `json:"-"`
 	Tract          string   `json:"tract"`
 	Nerve          string   `json:"nerve"`

@@ -1,6 +1,6 @@
-# Add cell-type labels
+# Label a scene
 
-Neuroglancer normally displays segment IDs. `--labels` attaches generated segment properties so the Seg. panel can show CRANT cell types beside those IDs.
+Neuroglancer normally displays segment IDs. `--labels` attaches generated segment properties so the Seg. panel can show CRANT metadata beside those IDs — cell types by default, or whichever field you name with `--label-by`.
 
 ## Use the default GitHub backend
 
@@ -37,6 +37,44 @@ The source URL is attached to the Neuroglancer segmentation layer and recorded l
 
 !!! warning "Secret gists are unlisted, not private"
     Anyone with the raw source URL can read the published labels and tags. A shared Neuroglancer state contains that URL.
+
+## Choose the label field
+
+`--label-by` names the field shown next to each root ID:
+
+```bash
+crantcli add --cell-class LNO --labels --label-by cell_subtype
+```
+
+Fields after the first are fallbacks, each tried when the previous one is empty. The default, `cell_type,cell_class`, labels by cell type and falls back to cell class:
+
+```bash
+# Subtype where annotated, cell type otherwise, cell class as a last resort
+crantcli add --cell-class LNO --labels --label-by cell_subtype,cell_type,cell_class
+```
+
+## Choose the filterable tags
+
+`--label-tags` names the fields published as filterable chips in the Seg. panel:
+
+```bash
+crantcli add --cell-type ER --labels --label-tags cell_subtype,side,region
+```
+
+Tag values carry a short field prefix (`subtype_`, `side_`, `region_`), so values from different fields never collide in Neuroglancer's single tag vocabulary. `region` is multi-valued, so a neuron annotated to LX and LW gets both `region_lx` and `region_lw`, and either one filters it. Pass `none` to publish labels without any tags:
+
+```bash
+crantcli add --cell-type ER --labels --label-tags none
+```
+
+Both flags accept the CRANTb_meta classification fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and `proofread`. They work the same way on `state-transfer`:
+
+```bash
+crantcli state-transfer --labels --label-by cell_instance,cell_type --label-tags cell_type,side
+```
+
+!!! note "Shaping flags need `--labels`"
+    `--label-by` and `--label-tags` only shape what `--labels` publishes. Setting them on a run without `--labels` warns and changes nothing.
 
 ## Automatic cleanup
 

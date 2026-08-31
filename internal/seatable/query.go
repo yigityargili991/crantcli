@@ -171,6 +171,7 @@ func QueryNeurons(client *Client, f *Filters) ([]NeuronRow, error) {
 			CellInstance:   toString(r["cell_instance"]),
 			Side:           resolveSelectValue(r["side"], sideOpts),
 			Region:         strings.Join(regionValues, ", "),
+			Regions:        regionValues,
 			MatchedRegions: matchedSelectValues(r["region"], regionFilterIDs, regionOpts),
 			Tract:          toString(r["tract"]),
 			Nerve:          toString(r["nerve"]),

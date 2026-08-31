@@ -56,6 +56,12 @@ clipboard, overwriting its current contents.`,
   # Show cell types next to root IDs in the Seg. panel (requires the gh CLI)
   crantcli add --cell-type ER --labels
 
+  # Label by cell_subtype instead, keeping cell_type as its fallback
+  crantcli add --cell-class LNO --labels --label-by cell_subtype,cell_type
+
+  # Choose the filterable tag chips published alongside the label
+  crantcli add --cell-type ER --labels --label-tags cell_subtype,side,region
+
   # Add all neurons annotated to bundle/region LX
   crantcli add --bundle LX
 
@@ -97,6 +103,8 @@ var (
 	addLabels       bool
 	addLabelsTTL    time.Duration
 	addLabelsHook   string
+	addLabelBy      string
+	addLabelTags    string
 
 	addNewClient             = seatable.NewClient
 	addQueryNeurons          = seatable.QueryNeurons
@@ -129,14 +137,16 @@ func init() {
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
-	addCmd.Flags().BoolVar(&addLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK")
-	addCmd.Flags().DurationVar(&addLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
-	addCmd.Flags().StringVar(&addLabelsHook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
+	registerLabelFlags(addCmd, &addLabels, &addLabelsTTL, &addLabelsHook, &addLabelBy, &addLabelTags)
 	addCmd.Args = func(cmd *cobra.Command, args []string) error {
 		if err := cobra.NoArgs(cmd, args); err != nil {
 			return err
 		}
-		return validateAddOptions(addRegions, addBundles, addColor, addColorBy, addColorSub)
+		if err := validateAddOptions(addRegions, addBundles, addColor, addColorBy, addColorSub); err != nil {
+			return err
+		}
+		_, err := resolveLabelOptions(addLabelBy, addLabelTags)
+		return err
 	}
 	addCmd.ValidArgsFunction = noFileCompletion
 	registerClassificationFlagCompletions(addCmd,
@@ -153,8 +163,6 @@ func init() {
 	mustRegisterFlagCompletion(addCmd, "color", completeStaticValues(colorCompletions))
 	mustRegisterFlagCompletion(addCmd, "color-by", completeColorByFields)
 	mustRegisterFlagCompletion(addCmd, "layer", noFileCompletion)
-	mustRegisterFlagCompletion(addCmd, "labels-ttl", noFileCompletion)
-	mustRegisterFlagCompletion(addCmd, "labels-hook", noFileCompletion)
 
 	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		effectiveRegions, err := resolveAddRegionFilters(addRegions, addBundles)
@@ -169,6 +177,11 @@ func init() {
 		if err != nil {
 			return err
 		}
+		labelOptions, err := resolveLabelOptions(addLabelBy, addLabelTags)
+		if err != nil {
+			return err
+		}
+		warnUnshapedLabelFlags(os.Stderr, cmd, addLabels)
 		if len(colorByFields) > 0 && normalizedColor == "" {
 			normalizedColor = "colored"
 		}
@@ -334,7 +347,7 @@ func init() {
 		})
 
 		if addLabels {
-			if err := attachCellTypeLabels(layer, allRows, addLabelsTTL, resolveLabelsHook(addLabelsHook)); err != nil {
+			if err := attachCellTypeLabels(layer, allRows, labelOptions, addLabelsTTL, resolveLabelsHook(addLabelsHook)); err != nil {
 				return err
 			}
 		}
@@ -740,22 +753,22 @@ func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
 	}
 }
 
-// attachCellTypeLabels publishes the queried neurons' cell types as a
+// attachCellTypeLabels publishes the queried neurons' labels as a
 // segment-properties source (a secret gist, or via a publish hook when hookCmd
-// is set) and attaches it to the layer, so types render next to root IDs in the
-// Seg. panel. Prior label sources are cleaned up (older than ttl) and replaced
-// rather than accumulated.
-func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRow, ttl time.Duration, hookCmd string) error {
+// is set) and attaches it to the layer, so the fields opts names render next to
+// root IDs in the Seg. panel. Prior label sources are cleaned up (older than
+// ttl) and replaced rather than accumulated.
+func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRow, opts segprops.Options, ttl time.Duration, hookCmd string) error {
 	if hookCmd == "" {
 		if err := labelhost.EnsureGistAvailable(); err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stderr, "Note: --labels publishes the queried root IDs and their cell types/tags to an unlisted GitHub gist; it is reachable by anyone who has the resulting state URL.")
+		fmt.Fprintln(os.Stderr, "Note: --labels publishes the queried root IDs and their labels/tags to an unlisted GitHub gist; it is reachable by anyone who has the resulting state URL.")
 	} else {
 		fmt.Fprintf(os.Stderr, "Publishing labels via hook: %s\n", hookCmd)
 	}
 
-	info, err := segprops.BuildSegmentProperties(rows, segprops.DefaultOptions())
+	info, err := segprops.BuildSegmentProperties(rows, opts)
 	if err != nil {
 		return fmt.Errorf("building segment properties: %w", err)
 	}
@@ -776,7 +789,7 @@ func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRo
 	if err := nglstate.EnsureSegmentPropertiesSource(layer, pub.URL, prior); err != nil {
 		return fmt.Errorf("attaching label source: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "Attached cell-type labels (%s %s)\n", pub.Kind, pub.ID)
+	fmt.Fprintf(os.Stderr, "Attached %s labels (%s %s)\n", labelFieldName(opts), pub.Kind, pub.ID)
 	return nil
 }
 

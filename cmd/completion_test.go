@@ -35,6 +35,71 @@ func TestCompleteListFieldsStopsAfterFirstArgument(t *testing.T) {
 	}
 }
 
+func TestCompleteLabelFields(t *testing.T) {
+	tests := []struct {
+		name       string
+		standalone []string
+		input      string
+		want       []string
+		wantAbsent []string
+	}{
+		{
+			name:       "first field offers every field and any standalone value",
+			standalone: []string{noLabelTags},
+			input:      "",
+			want:       []string{noLabelTags, "cell_type", "cell_subtype", "region"},
+			wantAbsent: []string{"group", "pos_x", "root_id"},
+		},
+		{
+			name:       "a standalone value replaces the whole list",
+			standalone: []string{noLabelTags},
+			input:      "cell_type,",
+			want:       []string{"cell_type,cell_subtype"},
+			wantAbsent: []string{"cell_type," + noLabelTags, "cell_type,cell_type"},
+		},
+		{
+			name:  "later fields filter by their own prefix",
+			input: "cell_subtype,cell_",
+			want:  []string{"cell_subtype,cell_class", "cell_subtype,cell_type", "cell_subtype,cell_instance"},
+		},
+		{
+			// Both flags accept spaces around their separators, so a list
+			// typed with them still has to complete -- and has to complete
+			// into itself, spacing included.
+			name:       "a space after the separator is kept",
+			standalone: []string{noLabelTags},
+			input:      "cell_type, cell_",
+			want:       []string{"cell_type, cell_class", "cell_type, cell_subtype", "cell_type, cell_instance"},
+			wantAbsent: []string{"cell_type,cell_class", "cell_type, cell_type", "cell_type, " + noLabelTags},
+		},
+		{
+			name:       "a space before the separator still names the field",
+			input:      "cell_type ,cell_",
+			want:       []string{"cell_type ,cell_class", "cell_type ,cell_subtype"},
+			wantAbsent: []string{"cell_type ,cell_type"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, directive := completeLabelFields(tt.standalone)(nil, nil, tt.input)
+			if directive != cobra.ShellCompDirectiveNoFileComp {
+				t.Fatalf("directive = %v, want NoFileComp", directive)
+			}
+			for _, want := range tt.want {
+				if !slices.Contains(got, want) {
+					t.Errorf("completions = %v, want %q", got, want)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if slices.Contains(got, absent) {
+					t.Errorf("completions = %v, should exclude %q", got, absent)
+				}
+			}
+		})
+	}
+}
+
 func TestCompleteStaticValuesFiltersCaseInsensitive(t *testing.T) {
 	comps, directive := completeStaticValues(colorCompletions)(nil, nil, "TU")
 
