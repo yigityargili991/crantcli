@@ -763,7 +763,7 @@ func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRo
 		if err := labelhost.EnsureGistAvailable(); err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stderr, "Note: --labels publishes the queried root IDs and their cell types/tags to an unlisted GitHub gist; it is reachable by anyone who has the resulting state URL.")
+		fmt.Fprintln(os.Stderr, "Note: --labels publishes the queried root IDs and their labels/tags to an unlisted GitHub gist; it is reachable by anyone who has the resulting state URL.")
 	} else {
 		fmt.Fprintf(os.Stderr, "Publishing labels via hook: %s\n", hookCmd)
 	}

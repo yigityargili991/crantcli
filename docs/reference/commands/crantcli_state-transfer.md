@@ -50,7 +50,7 @@ crantcli state-transfer [flags]
   -h, --help                  help for state-transfer
       --label-by string       Field shown as the --labels label: super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread. Further comma-separated fields are fallbacks, each tried when the previous one is empty (default "cell_type,cell_class")
       --label-tags string     Comma-separated fields published as filterable tag chips (super_class, cell_class, cell_type, cell_subtype, cell_instance, side, region, tract, nerve, hemilineage, proofread), or 'none' for no tags (default "cell_class,cell_instance,side,super_class")
-      --labels                Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK
+      --labels                Attach CRANT metadata labels (via an ephemeral secret GitHub gist) so the --label-by field shows next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK
       --labels-hook string    Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {"url","id"}); defaults to $CRANT_LABELS_HOOK
       --labels-ttl duration   Delete previously-created label sources older than this on each --labels run (default 168h0m0s)
   -l, --layer string          Target segmentation layer name

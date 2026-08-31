@@ -69,21 +69,35 @@ func completeColorByFields(_ *cobra.Command, _ []string, toComplete string) ([]s
 // replace the whole list, so they are only offered before the first comma.
 func completeLabelFields(standalone []string) cobra.CompletionFunc {
 	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		prefix := ""
+		// Split what was typed into the list so far and the field being
+		// completed. Both flags accept spaces around their separators, so any
+		// space after the comma belongs to the list: a candidate that dropped
+		// it would not continue what the shell is completing, and the shell
+		// would offer nothing at all.
+		list, field := "", toComplete
 		if comma := strings.LastIndex(toComplete, ","); comma >= 0 {
-			prefix = toComplete[:comma+1]
+			list, field = toComplete[:comma+1], toComplete[comma+1:]
 		}
-		used := strings.Split(prefix, ",")
+		list += field[:len(field)-len(strings.TrimLeft(field, " \t"))]
+
+		// Spaces are not part of a field name, so named fields are recognized
+		// however they were spaced.
+		used := make([]string, 0, strings.Count(list, ",")+1)
+		for _, named := range strings.Split(list, ",") {
+			used = append(used, strings.TrimSpace(named))
+		}
 
 		values := make([]string, 0, len(segprops.Fields)+len(standalone))
-		if prefix == "" {
-			values = append(values, standalone...)
+		if !strings.Contains(list, ",") {
+			for _, value := range standalone {
+				values = append(values, list+value)
+			}
 		}
 		for _, field := range segprops.Fields {
 			if slices.Contains(used, field) {
 				continue
 			}
-			values = append(values, prefix+field)
+			values = append(values, list+field)
 		}
 		return filterCompletionValues(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}

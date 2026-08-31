@@ -1,6 +1,6 @@
-# Add cell-type labels
+# Label a scene
 
-Neuroglancer normally displays segment IDs. `--labels` attaches generated segment properties so the Seg. panel can show CRANT cell types beside those IDs.
+Neuroglancer normally displays segment IDs. `--labels` attaches generated segment properties so the Seg. panel can show CRANT metadata beside those IDs — cell types by default, or whichever field you name with `--label-by`.
 
 ## Use the default GitHub backend
 

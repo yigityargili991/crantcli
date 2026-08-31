@@ -89,7 +89,7 @@ nav:
       - Color a scene: guides/color.md
       - Work with states: guides/states.md
       - Check CAVE freshness: guides/cave.md
-      - Add cell-type labels: guides/labels.md
+      - Label a scene: guides/labels.md
   - Concepts:
       - CRANT classifications: concepts/classifications.md
       - Root IDs and CAVE: concepts/root-ids.md

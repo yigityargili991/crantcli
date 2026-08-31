@@ -62,6 +62,22 @@ func TestCompleteLabelFields(t *testing.T) {
 			input: "cell_subtype,cell_",
 			want:  []string{"cell_subtype,cell_class", "cell_subtype,cell_type", "cell_subtype,cell_instance"},
 		},
+		{
+			// Both flags accept spaces around their separators, so a list
+			// typed with them still has to complete -- and has to complete
+			// into itself, spacing included.
+			name:       "a space after the separator is kept",
+			standalone: []string{noLabelTags},
+			input:      "cell_type, cell_",
+			want:       []string{"cell_type, cell_class", "cell_type, cell_subtype", "cell_type, cell_instance"},
+			wantAbsent: []string{"cell_type,cell_class", "cell_type, cell_type", "cell_type, " + noLabelTags},
+		},
+		{
+			name:       "a space before the separator still names the field",
+			input:      "cell_type ,cell_",
+			want:       []string{"cell_type ,cell_class", "cell_type ,cell_subtype"},
+			wantAbsent: []string{"cell_type ,cell_type"},
+		},
 	}
 
 	for _, tt := range tests {

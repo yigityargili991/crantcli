@@ -124,7 +124,7 @@ func publishGist(info []byte) (Published, error) {
 		return Published{}, fmt.Errorf("writing temp info file: %w", err)
 	}
 
-	out, err := run(nil, "gh", "gist", "create", infoPath, "--desc", "crantcli cell-type labels")
+	out, err := run(nil, "gh", "gist", "create", infoPath, "--desc", "crantcli labels")
 	if err != nil {
 		return Published{}, fmt.Errorf("creating gist: %w", err)
 	}

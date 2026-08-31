@@ -16,7 +16,7 @@ import (
 
 var labelsCmd = &cobra.Command{
 	Use:   "labels",
-	Short: "Manage cell-type label sources created by commands using --labels",
+	Short: "Manage label sources created by commands using --labels",
 }
 
 func init() {
@@ -29,7 +29,7 @@ func init() {
 	cleanCmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Delete label sources (gists or hook-published) tracked by crantcli",
-		Long: `Delete cell-type label sources that 'add --labels' or
+		Long: `Delete label sources that 'add --labels' or
 'state-transfer --labels' created and tracked.
 
 By default, deletes tracked sources older than --older-than. Use --all to delete
@@ -91,7 +91,7 @@ func defaultLabelFields() []string {
 // registerLabelFlags declares the flags shared by every command that publishes
 // labels, keeping their names, defaults, and help text identical.
 func registerLabelFlags(cmd *cobra.Command, enabled *bool, ttl *time.Duration, hook, by, tags *string) {
-	cmd.Flags().BoolVar(enabled, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK")
+	cmd.Flags().BoolVar(enabled, "labels", false, "Attach CRANT metadata labels (via an ephemeral secret GitHub gist) so the --label-by field shows next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK")
 	cmd.Flags().DurationVar(ttl, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
 	cmd.Flags().StringVar(hook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
 	cmd.Flags().StringVar(by, "label-by", defaultLabelBy, "Field shown as the --labels label: "+labelFieldList+". Further comma-separated fields are fallbacks, each tried when the previous one is empty")
