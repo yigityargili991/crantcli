@@ -36,6 +36,46 @@ func DefaultOptions() Options {
 	}
 }
 
+// Fields lists the row fields usable as a label or a tag, in the order help
+// text and errors present them. They are the CRANTb_meta columns
+// seatable.FieldValue reads, so any of them can name a label or a tag.
+var Fields = []string{
+	"super_class",
+	"cell_class",
+	"cell_type",
+	"cell_subtype",
+	"cell_instance",
+	"side",
+	"region",
+	"tract",
+	"nerve",
+	"hemilineage",
+	"proofread",
+}
+
+// ValidField reports whether a field can carry a label or a tag.
+func ValidField(field string) bool {
+	_, ok := fieldTagPrefix[field]
+	return ok
+}
+
+// Validate rejects fields no row carries. Without it an unknown field reads as
+// empty on every row, which silently labels the whole set "" rather than saying
+// the field was mistyped.
+func (o Options) Validate() error {
+	for _, field := range append([]string{o.LabelField}, o.LabelFallbacks...) {
+		if !ValidField(field) {
+			return fmt.Errorf("unknown label field %q; valid fields: %s", field, strings.Join(Fields, ", "))
+		}
+	}
+	for _, field := range o.TagFields {
+		if !ValidField(field) {
+			return fmt.Errorf("unknown tag field %q; valid fields: %s", field, strings.Join(Fields, ", "))
+		}
+	}
+	return nil
+}
+
 // labelFor returns the label for a row: the LabelField value, or the first
 // non-empty fallback field, or "" when nothing is set.
 func labelFor(row seatable.NeuronRow, opts Options) string {
@@ -74,6 +114,9 @@ var fieldTagPrefix = map[string]string{
 func BuildSegmentProperties(rows []seatable.NeuronRow, opts Options) ([]byte, error) {
 	if opts.LabelField == "" {
 		opts.LabelField = "cell_type"
+	}
+	if err := opts.Validate(); err != nil {
+		return nil, err
 	}
 
 	seen := make(map[string]bool, len(rows))
@@ -146,12 +189,17 @@ func buildTagsProperty(rows []seatable.NeuronRow, fields []string) (json.RawMess
 	for i, r := range rows {
 		var rowTags []string
 		for _, field := range fields {
-			tag := sanitizeTag(fieldTagPrefix[field], seatable.FieldValue(r, field))
-			if tag == "" {
-				continue
+			// A multi-select field (region) holds several values at once, and
+			// each needs its own chip: one joined "region_lx,_lw" tag would
+			// filter neither LX nor LW.
+			for _, value := range seatable.FieldValues(r, field) {
+				tag := sanitizeTag(fieldTagPrefix[field], value)
+				if tag == "" {
+					continue
+				}
+				rowTags = append(rowTags, tag)
+				tagSet[tag] = true
 			}
-			rowTags = append(rowTags, tag)
-			tagSet[tag] = true
 		}
 		perRow[i] = rowTags
 	}

@@ -14,7 +14,7 @@ func TestParseIDs(t *testing.T) {
 }
 
 func TestStateTransferLabelsFlagsMatchAdd(t *testing.T) {
-	for _, name := range []string{"labels", "labels-ttl", "labels-hook"} {
+	for _, name := range []string{"labels", "labels-ttl", "labels-hook", "label-by", "label-tags"} {
 		stateFlag := stateTransferCmd.Flags().Lookup(name)
 		if stateFlag == nil {
 			t.Fatalf("state-transfer is missing --%s", name)

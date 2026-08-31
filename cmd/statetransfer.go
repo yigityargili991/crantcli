@@ -25,8 +25,9 @@ user-configured default, or built-in template), injects the IDs into the
 segmentation layer, and writes the resulting Neuroglancer URL to the clipboard.
 
 Note: with --labels, the clipboard root IDs are sent to SeaTable to look up
-their cell types, and the matching metadata is published as an unlisted gist
-(or via --labels-hook/$CRANT_LABELS_HOOK).`,
+their metadata, and the matching rows are published as an unlisted gist
+(or via --labels-hook/$CRANT_LABELS_HOOK). --label-by chooses the field shown
+as the label and --label-tags the fields published as filterable chips.`,
 	Example: `  # Copy some root IDs, then:
   crantcli state-transfer
 
@@ -38,6 +39,9 @@ their cell types, and the matching metadata is published as an unlisted gist
 
   # Attach cell-type labels to the clipboard root IDs
   crantcli state-transfer --labels
+
+  # Label by cell_subtype instead, and filter by cell_type
+  crantcli state-transfer --labels --label-by cell_subtype,cell_type --label-tags cell_type,side
 
   # Write to file instead of clipboard
   crantcli state-transfer -o output.json`,
@@ -52,22 +56,23 @@ func init() {
 		stLabels     bool
 		stLabelsTTL  time.Duration
 		stLabelsHook string
+		stLabelBy    string
+		stLabelTags  string
 	)
 
 	stateTransferCmd.Flags().StringVarP(&stState, "state", "s", "", "Base Neuroglancer state (URL or file path; default: template)")
 	stateTransferCmd.Flags().StringVarP(&stOutput, "output", "o", "", "Output file path (default: clipboard)")
 	stateTransferCmd.Flags().StringVarP(&stLayer, "layer", "l", "", "Target segmentation layer name")
 	stateTransferCmd.Flags().StringVar(&stColor, "color", "", "Segment color: named color, 'colored' for random, or hex (#ff0000)")
-	stateTransferCmd.Flags().BoolVar(&stLabels, "labels", false, "Attach cell-type labels (via an ephemeral secret GitHub gist) so types show next to root IDs in the Seg. panel; requires the gh CLI, or a publish hook via --labels-hook/$CRANT_LABELS_HOOK")
-	stateTransferCmd.Flags().DurationVar(&stLabelsTTL, "labels-ttl", 168*time.Hour, "Delete previously-created label sources older than this on each --labels run")
-	stateTransferCmd.Flags().StringVar(&stLabelsHook, "labels-hook", "", "Command to publish/clean label sources instead of a GitHub gist (receives info JSON on stdin, prints {\"url\",\"id\"}); defaults to $CRANT_LABELS_HOOK")
+	registerLabelFlags(stateTransferCmd, &stLabels, &stLabelsTTL, &stLabelsHook, &stLabelBy, &stLabelTags)
 	stateTransferCmd.ValidArgsFunction = noFileCompletion
 	mustRegisterFlagCompletion(stateTransferCmd, "color", completeStaticValues(colorCompletions))
 	mustRegisterFlagCompletion(stateTransferCmd, "layer", noFileCompletion)
-	mustRegisterFlagCompletion(stateTransferCmd, "labels-ttl", noFileCompletion)
-	mustRegisterFlagCompletion(stateTransferCmd, "labels-hook", noFileCompletion)
 
 	stateTransferCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if _, err := resolveLabelOptions(stLabelBy, stLabelTags); err != nil {
+			return err
+		}
 		if !stLabels || getAPIToken() != "" {
 			return nil
 		}
@@ -75,6 +80,12 @@ func init() {
 	}
 
 	stateTransferCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		labelOptions, err := resolveLabelOptions(stLabelBy, stLabelTags)
+		if err != nil {
+			return err
+		}
+		warnUnshapedLabelFlags(os.Stderr, cmd, stLabels)
+
 		// Read IDs from clipboard
 		clip, err := clipboard.Read()
 		if err != nil {
@@ -129,7 +140,7 @@ func init() {
 			if len(rows) < len(ids) {
 				fmt.Fprintf(os.Stderr, "Warning: found CRANT metadata for %d of %d clipboard root IDs\n", len(rows), len(ids))
 			}
-			if err := attachCellTypeLabels(layer, rows, stLabelsTTL, resolveLabelsHook(stLabelsHook)); err != nil {
+			if err := attachCellTypeLabels(layer, rows, labelOptions, stLabelsTTL, resolveLabelsHook(stLabelsHook)); err != nil {
 				return err
 			}
 		}

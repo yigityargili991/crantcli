@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"crantcli/internal/clipboard"
 	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
+	"crantcli/internal/segprops"
 )
 
 func TestDeliverRootIDs(t *testing.T) {
@@ -69,6 +71,7 @@ func isolateAddCommandRun(t *testing.T) {
 		replace, rootIDsOnly, open       bool
 		colorSub, labels                 bool
 		labelsHook                       string
+		labelBy, labelTags               string
 	}{
 		addSuperClass,
 		addCellClasses,
@@ -92,6 +95,8 @@ func isolateAddCommandRun(t *testing.T) {
 		addColorSub,
 		addLabels,
 		addLabelsHook,
+		addLabelBy,
+		addLabelTags,
 	}
 	previousNewClient := addNewClient
 	previousQuery := addQueryNeurons
@@ -122,6 +127,8 @@ func isolateAddCommandRun(t *testing.T) {
 		addColorSub = previousOptions.colorSub
 		addLabels = previousOptions.labels
 		addLabelsHook = previousOptions.labelsHook
+		addLabelBy = previousOptions.labelBy
+		addLabelTags = previousOptions.labelTags
 		addNewClient = previousNewClient
 		addQueryNeurons = previousQuery
 		addLoadState = previousLoad
@@ -153,6 +160,8 @@ func isolateAddCommandRun(t *testing.T) {
 	addColorSub = false
 	addLabels = false
 	addLabelsHook = ""
+	addLabelBy = defaultLabelBy
+	addLabelTags = defaultLabelTags
 
 	addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
 	addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
@@ -1052,13 +1061,97 @@ esac
 	}
 	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
 
-	if err := attachCellTypeLabels(layer, rows, time.Hour, "sh "+script); err != nil {
+	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, "sh "+script); err != nil {
 		t.Fatal(err)
 	}
 
 	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
 	if got := layer["source"]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("source = %#v, want %#v", got, want)
+	}
+}
+
+func TestAttachCellTypeLabels_PublishesChosenFields(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test hook is a POSIX shell script")
+	}
+
+	t.Setenv("HOME", t.TempDir())
+
+	dir := t.TempDir()
+	published := filepath.Join(dir, "info.json")
+	script := filepath.Join(dir, "labels-hook.sh")
+	hook := `#!/bin/sh
+set -eu
+case "$1" in
+  publish)
+    cat >"` + published + `"
+    printf '%s\n' '{"url":"https://hook.example/new/|neuroglancer-precomputed:","id":"new"}'
+    ;;
+  clean)
+    exit 0
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`
+	if err := os.WriteFile(script, []byte(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	layer := map[string]interface{}{"source": []interface{}{"graphene://x"}}
+	rows := []seatable.NeuronRow{
+		{RootID: "1", CellType: "PFN", CellSubtype: "PFNc", Side: "left"},
+		{RootID: "2", CellType: "PEN", Side: "right"},
+	}
+	opts, err := resolveLabelOptions("cell_subtype,cell_type", "side")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := attachCellTypeLabels(layer, rows, opts, time.Hour, "sh "+script); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var info struct {
+		Inline struct {
+			IDs        []string `json:"ids"`
+			Properties []struct {
+				Type   string          `json:"type"`
+				Values json.RawMessage `json:"values"`
+				Tags   []string        `json:"tags"`
+			} `json:"properties"`
+		} `json:"inline"`
+	}
+	if err := json.Unmarshal(data, &info); err != nil {
+		t.Fatalf("published info is not valid JSON: %v", err)
+	}
+
+	var labels []string
+	var tags []string
+	for _, property := range info.Inline.Properties {
+		switch property.Type {
+		case "label":
+			if err := json.Unmarshal(property.Values, &labels); err != nil {
+				t.Fatal(err)
+			}
+		case "tags":
+			tags = property.Tags
+		}
+	}
+
+	// cell_subtype labels row 1 and falls back to cell_type for row 2, and only
+	// the requested side field becomes a filterable chip.
+	if want := []string{"PFNc", "PEN"}; !reflect.DeepEqual(labels, want) {
+		t.Errorf("labels = %v, want %v", labels, want)
+	}
+	if want := []string{"side_left", "side_right"}; !reflect.DeepEqual(tags, want) {
+		t.Errorf("tags = %v, want %v", tags, want)
 	}
 }
 

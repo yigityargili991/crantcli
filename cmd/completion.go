@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"crantcli/internal/seatable"
+	"crantcli/internal/segprops"
 
 	"github.com/spf13/cobra"
 )
@@ -59,6 +60,33 @@ func completeColorByFields(_ *cobra.Command, _ []string, toComplete string) ([]s
 		values = append(values, prefix+field)
 	}
 	return filterCompletionValues(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeLabelFields completes the comma-separated field lists --label-by and
+// --label-tags take, including the field after a comma
+// ("cell_subtype,cell_" -> "cell_subtype,cell_type"). Fields already named are
+// dropped, since both flags reject repeats. Standalone values such as "none"
+// replace the whole list, so they are only offered before the first comma.
+func completeLabelFields(standalone []string) cobra.CompletionFunc {
+	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		prefix := ""
+		if comma := strings.LastIndex(toComplete, ","); comma >= 0 {
+			prefix = toComplete[:comma+1]
+		}
+		used := strings.Split(prefix, ",")
+
+		values := make([]string, 0, len(segprops.Fields)+len(standalone))
+		if prefix == "" {
+			values = append(values, standalone...)
+		}
+		for _, field := range segprops.Fields {
+			if slices.Contains(used, field) {
+				continue
+			}
+			values = append(values, prefix+field)
+		}
+		return filterCompletionValues(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 var colorCompletions = []string{
