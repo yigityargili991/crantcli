@@ -426,7 +426,7 @@ func TestAddColorSubIsDeprecated(t *testing.T) {
 		t.Fatal("--color-sub carries no deprecation message")
 	}
 	wants := []string{
-		"removed in v0.19.0",
+		"removed in v0.20.0",
 		"--color-by group,cell_subtype with --color colored",
 		"--color-by cell_subtype with a named family",
 	}

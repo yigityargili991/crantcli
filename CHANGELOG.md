@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.19.0 - 2026-08-31
+
+### Added
+
+- Choose the field the published labels carry with `--label-by`, on both `add`
+  and `state-transfer`. A comma-separated list falls back field by field, so
+  `--label-by cell_subtype,cell_type` labels a neuron by its subtype where one
+  is annotated and by its cell type otherwise. The default is unchanged:
+  `cell_type` falling back to `cell_class`.
+- Choose the filterable tag chips with `--label-tags`, which takes the same
+  fields and also `none`, publishing labels with no tags at all. The default is
+  unchanged: `cell_class`, `cell_instance`, `side`, and `super_class`. Both
+  flags accept `super_class`, `cell_class`, `cell_type`, `cell_subtype`,
+  `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and
+  `proofread`, and complete their lists in the shell, offering only the fields
+  a list does not already name.
+- Tag each of a neuron's regions separately. `region` is the one multi-select
+  field, so a neuron annotated to both LX and LW is tagged `region_lx` and
+  `region_lw` and either one filters it. The full annotated set is published
+  even when the query matched on a single region, since a neuron shown because
+  it matched LX is still in LW.
+- Reject an unknown, empty, or repeated field before the query runs, so a typo
+  costs a message rather than a scene labeled with blanks.
+
+### Changed
+
+- Describe the labels by the field they carry rather than as cell types, in the
+  `--labels` help, the `labels` command, the note printed before publishing,
+  and the gist's own description. Passing no `--label-by` still produces
+  cell-type labels.
+- Postpone the removal of `--color-sub` to v0.20.0, which v0.18.0 had named for
+  v0.19.0. The flag still works and still warns, and
+  `--color-by group,cell_subtype` remains the replacement.
+
 ## v0.18.0 - 2026-08-25
 
 ### Added
