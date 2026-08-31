@@ -226,6 +226,15 @@ func TestAddCommandDeliveryBranches(t *testing.T) {
 func addTestStateDelivery(t *testing.T) map[string]interface{} {
 	t.Helper()
 	layer := map[string]interface{}{"type": "segmentation"}
+	addTestStateDeliveryFor(t, layer)
+	return layer
+}
+
+// addTestStateDeliveryFor stubs the state load, layer lookup, and delivery of an
+// add run around the given layer, for tests that need it to carry more than a
+// type -- attaching labels, for one, needs a source to attach them to.
+func addTestStateDeliveryFor(t *testing.T, layer map[string]interface{}) {
+	t.Helper()
 	result := &nglstate.LoadResult{
 		State:  map[string]interface{}{"layers": []interface{}{layer}},
 		Source: nglstate.SourceTemplate,
@@ -240,7 +249,6 @@ func addTestStateDelivery(t *testing.T) map[string]interface{} {
 		}
 		return nil
 	}
-	return layer
 }
 
 func TestAddCommandColorByPipelines(t *testing.T) {
@@ -1008,10 +1016,6 @@ func TestReportColorByGroups_RootIDReportsATotal(t *testing.T) {
 }
 
 func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test hook is a POSIX shell script")
-	}
-
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -1033,25 +1037,7 @@ func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := filepath.Join(t.TempDir(), "labels-hook.sh")
-	hook := `#!/bin/sh
-set -eu
-case "$1" in
-  publish)
-    cat >/dev/null
-    printf '%s\n' '{"url":"` + newURL + `","id":"new"}'
-    ;;
-  clean)
-    exit 0
-    ;;
-  *)
-    exit 2
-    ;;
-esac
-`
-	if err := os.WriteFile(script, []byte(hook), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	script := labelsHookScript(t, "", newURL)
 
 	layer := map[string]interface{}{
 		"source": []interface{}{
@@ -1061,7 +1047,7 @@ esac
 	}
 	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
 
-	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, "sh "+script); err != nil {
+	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, script); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1071,22 +1057,26 @@ esac
 	}
 }
 
-func TestAttachCellTypeLabels_PublishesChosenFields(t *testing.T) {
+// labelsHookScript writes a --labels-hook script that answers publish with url
+// and treats clean as a no-op, and returns the command that runs it. The
+// published info JSON is captured in publishTo, or discarded when it is empty.
+func labelsHookScript(t *testing.T, publishTo, url string) string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("test hook is a POSIX shell script")
 	}
 
-	t.Setenv("HOME", t.TempDir())
-
-	dir := t.TempDir()
-	published := filepath.Join(dir, "info.json")
-	script := filepath.Join(dir, "labels-hook.sh")
+	sink := ">/dev/null"
+	if publishTo != "" {
+		sink = `>"` + publishTo + `"`
+	}
+	script := filepath.Join(t.TempDir(), "labels-hook.sh")
 	hook := `#!/bin/sh
 set -eu
 case "$1" in
   publish)
-    cat >"` + published + `"
-    printf '%s\n' '{"url":"https://hook.example/new/|neuroglancer-precomputed:","id":"new"}'
+    cat ` + sink + `
+    printf '%s\n' '{"url":"` + url + `","id":"new"}'
     ;;
   clean)
     exit 0
@@ -1099,22 +1089,14 @@ esac
 	if err := os.WriteFile(script, []byte(hook), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	return "sh " + script
+}
 
-	layer := map[string]interface{}{"source": []interface{}{"graphene://x"}}
-	rows := []seatable.NeuronRow{
-		{RootID: "1", CellType: "PFN", CellSubtype: "PFNc", Side: "left"},
-		{RootID: "2", CellType: "PEN", Side: "right"},
-	}
-	opts, err := resolveLabelOptions("cell_subtype,cell_type", "side")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := attachCellTypeLabels(layer, rows, opts, time.Hour, "sh "+script); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(published)
+// publishedLabelsAndTags reads the label values and the tag vocabulary out of a
+// segment-properties info file a labels hook captured.
+func publishedLabelsAndTags(t *testing.T, path string) (labels, tags []string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1132,8 +1114,6 @@ esac
 		t.Fatalf("published info is not valid JSON: %v", err)
 	}
 
-	var labels []string
-	var tags []string
 	for _, property := range info.Inline.Properties {
 		switch property.Type {
 		case "label":
@@ -1144,6 +1124,30 @@ esac
 			tags = property.Tags
 		}
 	}
+	return labels, tags
+}
+
+func TestAttachCellTypeLabels_PublishesChosenFields(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	published := filepath.Join(t.TempDir(), "info.json")
+	script := labelsHookScript(t, published, "https://hook.example/new/|neuroglancer-precomputed:")
+
+	layer := map[string]interface{}{"source": []interface{}{"graphene://x"}}
+	rows := []seatable.NeuronRow{
+		{RootID: "1", CellType: "PFN", CellSubtype: "PFNc", Side: "left"},
+		{RootID: "2", CellType: "PEN", Side: "right"},
+	}
+	opts, err := resolveLabelOptions("cell_subtype,cell_type", "side")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := attachCellTypeLabels(layer, rows, opts, time.Hour, script); err != nil {
+		t.Fatal(err)
+	}
+
+	labels, tags := publishedLabelsAndTags(t, published)
 
 	// cell_subtype labels row 1 and falls back to cell_type for row 2, and only
 	// the requested side field becomes a filterable chip.
@@ -1153,6 +1157,117 @@ esac
 	if want := []string{"side_left", "side_right"}; !reflect.DeepEqual(tags, want) {
 		t.Errorf("tags = %v, want %v", tags, want)
 	}
+}
+
+// TestAddCommandPublishesChosenLabelFields covers the wiring the unit tests
+// above cannot: that an add run carries its own --label-by and --label-tags all
+// the way to what gets published, rather than the built-in configuration.
+func TestAddCommandPublishesChosenLabelFields(t *testing.T) {
+	isolateAddCommandRun(t)
+	t.Setenv("HOME", t.TempDir())
+
+	published := filepath.Join(t.TempDir(), "info.json")
+	addLabels = true
+	addLabelsHook = labelsHookScript(t, published, "https://hook.example/new/|neuroglancer-precomputed:")
+	addLabelBy = "cell_subtype,cell_type"
+	addLabelTags = "side"
+	addRootIDsOnly = false
+	addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+		return []seatable.NeuronRow{
+			{RootID: "1", CellType: "PFN", CellSubtype: "PFNc", Side: "left"},
+			{RootID: "2", CellType: "PEN", Side: "right"},
+		}, nil
+	}
+	layer := map[string]interface{}{"type": "segmentation", "source": "graphene://x"}
+	addTestStateDeliveryFor(t, layer)
+
+	if err := addCmd.RunE(addCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	labels, tags := publishedLabelsAndTags(t, published)
+	if want := []string{"PFNc", "PEN"}; !reflect.DeepEqual(labels, want) {
+		t.Errorf("labels = %v, want %v", labels, want)
+	}
+	if want := []string{"side_left", "side_right"}; !reflect.DeepEqual(tags, want) {
+		t.Errorf("tags = %v, want %v", tags, want)
+	}
+
+	want := []interface{}{"graphene://x", map[string]interface{}{"url": "https://hook.example/new/|neuroglancer-precomputed:"}}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("source = %#v, want the published labels attached: %#v", got, want)
+	}
+}
+
+// TestAddCommandRejectsBadLabelFields pins the promise that a mistyped field
+// costs nothing: it is caught while cobra validates arguments, before the
+// command runs and queries anything.
+func TestAddCommandRejectsBadLabelFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		labelBy   string
+		labelTags string
+		want      string
+	}{
+		{
+			name:      "unknown label field",
+			labelBy:   "cell_typo",
+			labelTags: defaultLabelTags,
+			want:      `invalid --label-by "cell_typo"`,
+		},
+		{
+			name:      "unknown tag field",
+			labelBy:   defaultLabelBy,
+			labelTags: "cell_class,colour",
+			want:      `invalid --label-tags "colour"`,
+		},
+		{
+			name:      "repeated tag field",
+			labelBy:   defaultLabelBy,
+			labelTags: "side,side",
+			want:      `"side" is repeated`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateAddCommandRun(t)
+			addLabels = true
+			addLabelBy = tt.labelBy
+			addLabelTags = tt.labelTags
+			addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+				t.Error("the run queried SeaTable despite an invalid label field")
+				return nil, nil
+			}
+
+			if err := addCmd.Args(addCmd, nil); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Args error = %v, want it to contain %q", err, tt.want)
+			}
+			// RunE checks again, for the callers that reach it directly.
+			if err := addCmd.RunE(addCmd, nil); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("RunE error = %v, want it to contain %q", err, tt.want)
+			}
+		})
+	}
+
+	t.Run("known fields pass", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		addLabelBy = "cell_subtype,cell_type"
+		addLabelTags = noLabelTags
+		if err := addCmd.Args(addCmd, nil); err != nil {
+			t.Fatalf("Args rejected known label fields: %v", err)
+		}
+	})
+
+	t.Run("query options are still validated", func(t *testing.T) {
+		// The label check was added alongside this one; neither may shadow the
+		// other.
+		isolateAddCommandRun(t)
+		addColor = "not-a-color"
+		if err := addCmd.Args(addCmd, nil); err == nil {
+			t.Fatal("Args accepted an invalid --color")
+		}
+	})
 }
 
 func TestAddColorByFieldValue_AllFields(t *testing.T) {

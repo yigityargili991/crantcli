@@ -204,9 +204,37 @@ func TestWarnUnshapedLabelFlags(t *testing.T) {
 	})
 }
 
+func TestLabelFieldName(t *testing.T) {
+	if got := labelFieldName(segprops.Options{LabelField: "cell_subtype"}); got != "cell_subtype" {
+		t.Errorf("labelFieldName = %q, want the field the options name", got)
+	}
+	// An unset field is one BuildSegmentProperties fills in, so what the run
+	// reports has to name that same default rather than nothing at all.
+	if got, want := labelFieldName(segprops.Options{}), segprops.DefaultOptions().LabelField; got != want {
+		t.Errorf("labelFieldName = %q, want the built-in default %q", got, want)
+	}
+}
+
 func mustSetFlag(t *testing.T, cmd *cobra.Command, name, value string) {
 	t.Helper()
 	if err := cmd.Flags().Set(name, value); err != nil {
 		t.Fatalf("setting --%s: %v", name, err)
 	}
+}
+
+// setFlagForTest sets a flag on a shared command and restores both its value
+// and its changed marker afterwards, so one test cannot shape another's run.
+func setFlagForTest(t *testing.T, cmd *cobra.Command, name, value string) {
+	t.Helper()
+	flag := cmd.Flags().Lookup(name)
+	if flag == nil {
+		t.Fatalf("%s has no --%s", cmd.Name(), name)
+	}
+
+	previousValue, previouslyChanged := flag.Value.String(), flag.Changed
+	mustSetFlag(t, cmd, name, value)
+	t.Cleanup(func() {
+		mustSetFlag(t, cmd, name, previousValue)
+		flag.Changed = previouslyChanged
+	})
 }

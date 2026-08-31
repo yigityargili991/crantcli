@@ -319,6 +319,24 @@ func TestBuildSegmentProperties_RegionTagsStayPerValue(t *testing.T) {
 	}
 }
 
+func TestBuildSegmentProperties_SkipsEmptyMultiValues(t *testing.T) {
+	// A multi-select can carry blanks. They would sanitize to a bare "region_"
+	// chip that says nothing, so they are dropped rather than published.
+	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER", Regions: []string{"LX", "", "  "}}}
+	data, err := BuildSegmentProperties(rows, Options{LabelField: "cell_type", TagFields: []string{"region"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := parse(t, data)
+
+	if got, want := tagList(t, d.Inline.Properties), []string{"region_lx"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+	if got, want := tagValues(t, d.Inline.Properties), [][]int{{0}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tag indices = %v, want %v", got, want)
+	}
+}
+
 func TestBuildSegmentProperties_RejectsUnknownFields(t *testing.T) {
 	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
 	tests := []struct {

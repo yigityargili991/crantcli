@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -10,6 +11,21 @@ func TestParseIDs(t *testing.T) {
 	want := []string{"111", "222", "333"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseIDs() = %#v, want %#v", got, want)
+	}
+}
+
+// TestStateTransferRejectsBadLabelFields pins the same promise add makes: a
+// mistyped field is caught before the command reads the clipboard or queries
+// anything.
+func TestStateTransferRejectsBadLabelFields(t *testing.T) {
+	setFlagForTest(t, stateTransferCmd, "label-by", "cell_typo")
+
+	want := `invalid --label-by "cell_typo"`
+	if err := stateTransferCmd.PreRunE(stateTransferCmd, nil); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("PreRunE error = %v, want it to contain %q", err, want)
+	}
+	if err := stateTransferCmd.RunE(stateTransferCmd, nil); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("RunE error = %v, want it to contain %q", err, want)
 	}
 }
 
