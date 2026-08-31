@@ -47,6 +47,17 @@ as the label and --label-tags the fields published as filterable chips.`,
   crantcli state-transfer -o output.json`,
 }
 
+// Seams for tests, mirroring add's. Everything here reaches the clipboard,
+// SeaTable, or the filesystem, so without them RunE cannot be exercised at all.
+var (
+	stClipboardRead         = clipboard.Read
+	stNewClient             = seatable.NewClient
+	stQueryNeuronsByRootIDs = seatable.QueryNeuronsByRootIDs
+	stLoadState             = nglstate.LoadState
+	stFindSegmentationLayer = nglstate.FindSegmentationLayer
+	stWriteState            = nglstate.WriteState
+)
+
 func init() {
 	var (
 		stState      string
@@ -87,7 +98,7 @@ func init() {
 		warnUnshapedLabelFlags(os.Stderr, cmd, stLabels)
 
 		// Read IDs from clipboard
-		clip, err := clipboard.Read()
+		clip, err := stClipboardRead()
 		if err != nil {
 			return fmt.Errorf("reading clipboard: %w", err)
 		}
@@ -109,7 +120,7 @@ func init() {
 
 		// Load base state (always use generate=true to prefer template over clipboard,
 		// since the clipboard currently holds IDs, not a Neuroglancer URL)
-		result, err := nglstate.LoadState(stState, true)
+		result, err := stLoadState(stState, true)
 		if err != nil {
 			return err
 		}
@@ -117,7 +128,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.Source)
 
 		// Find segmentation layer and inject IDs
-		layer, _, err := nglstate.FindSegmentationLayer(result.State, stLayer)
+		layer, _, err := stFindSegmentationLayer(result.State, stLayer)
 		if err != nil {
 			return err
 		}
@@ -126,11 +137,11 @@ func init() {
 		nglstate.SetSegmentColor(layer, ids, normalizedColor)
 
 		if stLabels {
-			client, err := seatable.NewClient()
+			client, err := stNewClient()
 			if err != nil {
 				return err
 			}
-			rows, err := seatable.QueryNeuronsByRootIDs(client, ids)
+			rows, err := stQueryNeuronsByRootIDs(client, ids)
 			if err != nil {
 				return fmt.Errorf("querying labels for clipboard root IDs: %w", err)
 			}
@@ -151,7 +162,7 @@ func init() {
 		if stOutput == "" {
 			result.Source = nglstate.SourceTemplate
 		}
-		if err := nglstate.WriteState(result, stOutput); err != nil {
+		if err := stWriteState(result, stOutput); err != nil {
 			return err
 		}
 
