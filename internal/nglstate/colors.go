@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -464,64 +463,6 @@ func colorByte(v float64) int {
 		v = 1
 	}
 	return int(math.Round(v * 255))
-}
-
-// SetSegmentColorBySubtype assigns sub-colors to neurons within each group
-// based on their cell_subtype. Each group gets its own base palette (determined
-// by the group index, spaced for maximum visual separation). Within a group,
-// each distinct subtype gets its own tone. Neurons with empty subtypes keep
-// their existing group color.
-func SetSegmentColorBySubtype(layer map[string]interface{}, groups [][]string, subtypeMap map[string]string, colorInput string) {
-	if colorInput == "" {
-		return
-	}
-
-	colors := segmentColorMap(layer)
-
-	for i, group := range groups {
-		var palette []string
-		switch {
-		case colorInput == "colored":
-			numGroups := len(groups)
-			paletteIdx := groupPaletteDistinct(i, numGroups)
-			palette = colorPalettes[paletteNames[paletteIdx]]
-		case colorPalettes[colorInput] != nil:
-			palette = colorPalettes[colorInput]
-		default:
-			// Single hex color -- cannot sub-color, skip
-			continue
-		}
-
-		// Collect distinct subtypes, sorted alphabetically for deterministic
-		// color assignment regardless of query result ordering.
-		subtypeSeen := map[string]bool{}
-		for _, id := range group {
-			st := subtypeMap[id]
-			if st != "" {
-				subtypeSeen[st] = true
-			}
-		}
-		subtypeOrder := make([]string, 0, len(subtypeSeen))
-		for st := range subtypeSeen {
-			subtypeOrder = append(subtypeOrder, st)
-		}
-		sort.Strings(subtypeOrder)
-
-		subtypeToTone := make(map[string]int, len(subtypeOrder))
-		for idx, st := range subtypeOrder {
-			subtypeToTone[st] = idx % len(palette)
-		}
-
-		for _, id := range group {
-			st := subtypeMap[id]
-			if st == "" {
-				continue
-			}
-			colors[id] = palette[subtypeToTone[st]]
-		}
-	}
-
-	layer["segmentColors"] = colors
 }
 
 // randomColor generates a random hex color string.

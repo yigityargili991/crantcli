@@ -69,7 +69,7 @@ func isolateAddCommandRun(t *testing.T) {
 		generate                         bool
 		output, layer, color, colorBy    string
 		replace, rootIDsOnly, open       bool
-		colorSub, labels                 bool
+		labels                           bool
 		labelsHook                       string
 		labelBy, labelTags               string
 	}{
@@ -92,7 +92,6 @@ func isolateAddCommandRun(t *testing.T) {
 		addReplace,
 		addRootIDsOnly,
 		addOpen,
-		addColorSub,
 		addLabels,
 		addLabelsHook,
 		addLabelBy,
@@ -124,7 +123,6 @@ func isolateAddCommandRun(t *testing.T) {
 		addReplace = previousOptions.replace
 		addRootIDsOnly = previousOptions.rootIDsOnly
 		addOpen = previousOptions.open
-		addColorSub = previousOptions.colorSub
 		addLabels = previousOptions.labels
 		addLabelsHook = previousOptions.labelsHook
 		addLabelBy = previousOptions.labelBy
@@ -157,7 +155,6 @@ func isolateAddCommandRun(t *testing.T) {
 	addColorBy = ""
 	addReplace = false
 	addOpen = false
-	addColorSub = false
 	addLabels = false
 	addLabelsHook = ""
 	addLabelBy = defaultLabelBy
@@ -337,20 +334,12 @@ func TestResolveAddColorBy(t *testing.T) {
 	tests := []struct {
 		name      string
 		colorBy   string
-		colorSub  bool
 		want      []string
 		wantError string
 	}{
 		{name: "valid field", colorBy: "cell_type", want: []string{"cell_type"}},
 		{name: "two fields nest", colorBy: "cell_type,cell_subtype", want: []string{"cell_type", "cell_subtype"}},
 		{name: "surrounding space is trimmed", colorBy: " cell_type , cell_subtype ", want: []string{"cell_type", "cell_subtype"}},
-		{name: "color-sub validates without color-by grouping", colorSub: true},
-		{
-			name:      "conflict",
-			colorBy:   "cell_type",
-			colorSub:  true,
-			wantError: "--color-by and --color-sub cannot be used together",
-		},
 		{name: "invalid field", colorBy: "not_a_field", wantError: `invalid --color-by "not_a_field"`},
 		{
 			name:      "invalid second field",
@@ -386,7 +375,7 @@ func TestResolveAddColorBy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveAddColorBy(tt.colorBy, tt.colorSub)
+			got, err := resolveAddColorBy(tt.colorBy)
 			if tt.wantError != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q", tt.wantError)
@@ -406,51 +395,20 @@ func TestResolveAddColorBy(t *testing.T) {
 	}
 }
 
-// TestAddColorSubIsDeprecated pins the first stage of retiring --color-sub: the
-// flag keeps working, but it warns and no longer appears in help or the
-// generated command docs. The warning names the release that removes it, so a
-// caller reading it learns the deadline and not only the replacement; the same
-// version is promised in docs/guides/color.md. The advice has to name a color
-// mode, since two-level
-// coloring falls back to the inner field alone under anything but colored --
-// advising group,cell_subtype on its own would be contradicted by that warning
-// one line later. The rejected phrasings are the ones that claimed more than
-// they delivered: query groups are not always cell_type values, and "matches
-// one metadata field" also describes a mixed union over several fields.
-func TestAddColorSubIsDeprecated(t *testing.T) {
-	flag := addCmd.Flags().Lookup("color-sub")
-	if flag == nil {
-		t.Fatal("--color-sub flag is missing")
+// TestAddColorSubIsRemoved completes the retirement v0.18.0 began. The flag is
+// gone rather than hidden, so a script still passing it fails loudly instead of
+// being silently ignored -- the one outcome a deprecation cycle exists to
+// prevent. The replacement the warning named for two releases still parses, and
+// docs/guides/color.md keeps the migration now that the binary cannot carry it.
+func TestAddColorSubIsRemoved(t *testing.T) {
+	if flag := addCmd.Flags().Lookup("color-sub"); flag != nil {
+		t.Fatal("--color-sub should be removed, not hidden or deprecated")
 	}
-	if flag.Deprecated == "" {
-		t.Fatal("--color-sub carries no deprecation message")
+	if err := addCmd.Flags().Parse([]string{"--color-sub"}); err == nil {
+		t.Fatal("--color-sub should be rejected as an unknown flag")
 	}
-	wants := []string{
-		"removed in v0.20.0",
-		"--color-by group,cell_subtype with --color colored",
-		"--color-by cell_subtype with a named family",
-	}
-	for _, want := range wants {
-		if !strings.Contains(flag.Deprecated, want) {
-			t.Fatalf("deprecation message = %q, want it to contain %q", flag.Deprecated, want)
-		}
-	}
-	rejects := map[string]string{
-		"--color-by cell_type,cell_subtype": "assumes every query group is a cell_type",
-		"matches one metadata field":        "also describes a mixed union over several fields",
-		"for one query group":               "promises an equivalence that only holds under a named family",
-		"keep --color-sub":                  "--color-by group,cell_subtype now reproduces every query group",
-	}
-	for reject, why := range rejects {
-		if strings.Contains(flag.Deprecated, reject) {
-			t.Fatalf("deprecation message %q: %s", flag.Deprecated, why)
-		}
-	}
-	if !flag.Hidden {
-		t.Fatal("a deprecated --color-sub should be hidden from help output")
-	}
-	if usage := addCmd.Flags().FlagUsages(); strings.Contains(usage, "--color-sub") {
-		t.Fatalf("flag usage still advertises --color-sub:\n%s", usage)
+	if _, err := resolveAddColorBy("group,cell_subtype"); err != nil {
+		t.Fatalf("the documented replacement --color-by group,cell_subtype no longer parses: %v", err)
 	}
 }
 
@@ -461,7 +419,6 @@ func TestValidateAddOptions(t *testing.T) {
 		bundles   []string
 		color     string
 		colorBy   string
-		colorSub  bool
 		wantError string
 	}{
 		{
@@ -475,13 +432,6 @@ func TestValidateAddOptions(t *testing.T) {
 			bundles:   []string{"LX"},
 			colorBy:   "not_a_field",
 			wantError: `invalid --color-by "not_a_field"`,
-		},
-		{
-			name:      "color by conflicts with color sub",
-			bundles:   []string{"LX"},
-			colorBy:   "region",
-			colorSub:  true,
-			wantError: "--color-by and --color-sub cannot be used together",
 		},
 		{
 			name:      "invalid color",
@@ -498,7 +448,7 @@ func TestValidateAddOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateAddOptions(tt.regions, tt.bundles, tt.color, tt.colorBy, tt.colorSub)
+			err := validateAddOptions(tt.regions, tt.bundles, tt.color, tt.colorBy)
 			if tt.wantError == "" {
 				if err != nil {
 					t.Fatalf("validateAddOptions returned error: %v", err)
@@ -585,42 +535,6 @@ func TestBuildColorByGroupsUsesMatchedRegion(t *testing.T) {
 	wantGroups := [][]string{{"100"}, {"200"}}
 	if !reflect.DeepEqual(groups, wantGroups) {
 		t.Fatalf("groups = %v, want %v", groups, wantGroups)
-	}
-}
-
-func TestApplyAddSegmentColors_ColorSubKeepsSubtypeWithinQueryGroups(t *testing.T) {
-	layer := map[string]interface{}{}
-	groups := [][]string{
-		{"a1", "a2"},
-		{"b1", "b2"},
-	}
-	subtypeMap := map[string]string{
-		"a1": "shared",
-		"a2": "",
-		"b1": "shared",
-		"b2": "other",
-	}
-
-	applyAddSegmentColors(layer, addColorPlan{
-		rootIDs:    []string{"a1", "a2", "b1", "b2"},
-		groups:     groups,
-		subtypeMap: subtypeMap,
-		color:      "colored",
-		colorSub:   true,
-	})
-
-	colors, ok := layer["segmentColors"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("segmentColors missing or wrong type: %#v", layer["segmentColors"])
-	}
-	if colors["a1"] == colors["b1"] {
-		t.Fatalf("same subtype in different query groups got the same color: a1=%v b1=%v", colors["a1"], colors["b1"])
-	}
-	if _, ok := colors["a2"]; !ok {
-		t.Fatalf("empty subtype should keep its base group color")
-	}
-	if colors["a2"] == colors["a1"] {
-		t.Fatalf("empty subtype should not be recolored as the non-empty subtype in its group")
 	}
 }
 
@@ -845,7 +759,7 @@ func TestPartitionRowsByQueryGroup_UnnamedGroupIsNotEmpty(t *testing.T) {
 	}
 }
 
-// TestNestColorByPartitions_QueryGroupsSplitByField is the case that lets
+// TestNestColorByPartitions_QueryGroupsSplitByField is the case that let
 // --color-sub retire: PFNc appears under two query groups drawn from different
 // columns, and each keeps its own family.
 func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
@@ -1755,31 +1669,6 @@ func TestExtractRootIDs_AllEmpty(t *testing.T) {
 	}
 }
 
-// TestExtractRootIDsWithSubtype_AllEmpty verifies the same for extractRootIDsWithSubtype.
-func TestExtractRootIDsWithSubtype_AllEmpty(t *testing.T) {
-	rows := []seatable.NeuronRow{
-		{RootID: "", CellSubtype: "alpha"},
-	}
-	ids, sm := extractRootIDsWithSubtype(rows)
-	if len(ids) != 0 {
-		t.Errorf("expected empty ids, got %v", ids)
-	}
-	if len(sm) != 0 {
-		t.Errorf("expected empty subtypeMap, got %v", sm)
-	}
-}
-
-// TestExtractRootIDsWithSubtype_NilRows verifies no panic on nil input.
-func TestExtractRootIDsWithSubtype_NilRows(t *testing.T) {
-	ids, sm := extractRootIDsWithSubtype(nil)
-	if len(ids) != 0 {
-		t.Errorf("expected empty ids for nil rows, got %v", ids)
-	}
-	if len(sm) != 0 {
-		t.Errorf("expected empty map for nil rows, got %v", sm)
-	}
-}
-
 // TestResolveAddRegionFilters_EdgeCases covers trimming and empty combinations.
 func TestResolveAddRegionFilters_EdgeCases(t *testing.T) {
 	tests := []struct {
@@ -1811,7 +1700,10 @@ func TestResolveAddRegionFilters_EdgeCases(t *testing.T) {
 	}
 }
 
-func TestExtractRootIDsWithSubtype(t *testing.T) {
+// TestExtractRootIDs keeps the mixed-row case that extractRootIDsWithSubtype
+// used to cover before --color-sub retired: rows without a root ID are dropped
+// and the rest keep their query order.
+func TestExtractRootIDs(t *testing.T) {
 	rows := []seatable.NeuronRow{
 		{RootID: "100", CellSubtype: "alpha"},
 		{RootID: "200", CellSubtype: "beta"},
@@ -1819,23 +1711,10 @@ func TestExtractRootIDsWithSubtype(t *testing.T) {
 		{RootID: "300", CellSubtype: ""},   // no subtype
 	}
 
-	ids, sm := extractRootIDsWithSubtype(rows)
+	ids := extractRootIDs(rows)
 
 	wantIDs := []string{"100", "200", "300"}
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Errorf("ids = %v, want %v", ids, wantIDs)
-	}
-
-	if sm["100"] != "alpha" {
-		t.Errorf("sm[100] = %q, want alpha", sm["100"])
-	}
-	if sm["200"] != "beta" {
-		t.Errorf("sm[200] = %q, want beta", sm["200"])
-	}
-	if sm["300"] != "" {
-		t.Errorf("sm[300] = %q, want empty", sm["300"])
-	}
-	if _, ok := sm[""]; ok {
-		t.Error("empty root ID should not be in subtypeMap")
 	}
 }
