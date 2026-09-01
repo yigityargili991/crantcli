@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.20.0 - 2026-09-01
+
+### Removed
+
+- Remove `--color-sub`, deprecated in v0.18.0 and warned about since. Passing it
+  now fails with `unknown flag: --color-sub` rather than being silently ignored,
+  which is the outcome a deprecation cycle exists to produce.
+  `--color-by group,cell_subtype` has reproduced it exactly since v0.18.0, for
+  every kind of query group and not only `cell_type` ones; under a named family,
+  ask for the field directly with `--color blue --color-by cell_subtype`. Three
+  behaviors did not survive the move, each of them dropping something that
+  carried no meaning: neurons without a `cell_subtype` share the `(empty)`
+  group's own tone instead of keeping whatever base tone their position in the
+  group happened to give them, a query group holding no root IDs of its own no
+  longer reserves a color family and is named in the output, and tones under a
+  named family are assigned once across the whole result rather than restarting
+  inside every group.
+
 ## v0.19.0 - 2026-08-31
 
 ### Added
