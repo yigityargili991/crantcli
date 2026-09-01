@@ -99,7 +99,6 @@ var (
 	addReplace      bool
 	addRootIDsOnly  bool
 	addOpen         bool
-	addColorSub     bool
 	addLabels       bool
 	addLabelsTTL    time.Duration
 	addLabelsHook   string
@@ -131,9 +130,6 @@ func init() {
 	addCmd.Flags().StringVarP(&addLayer, "layer", "l", "", "Target segmentation layer name")
 	addCmd.Flags().StringVar(&addColor, "color", "", "Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)")
 	addCmd.Flags().StringVar(&addColorBy, "color-by", "", "Color matched rows by field: "+addColorByFieldList+". Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)")
-	addCmd.Flags().BoolVar(&addColorSub, "color-sub", false, "Sub-color neurons by cell_subtype within each query group")
-	mustMarkFlagDeprecated(addCmd, "color-sub",
-		"and will be removed in v0.20.0; use --color-by group,cell_subtype with --color colored, or --color-by cell_subtype with a named family")
 	addCmd.Flags().BoolVar(&addReplace, "replace", false, "Replace existing segments instead of appending")
 	addCmd.Flags().BoolVar(&addRootIDsOnly, "root-ids-only", false, "Print root IDs and copy them to the clipboard; no state manipulation")
 	addCmd.Flags().BoolVar(&addOpen, "open", false, "Open updated Neuroglancer URL in default browser")
@@ -142,7 +138,7 @@ func init() {
 		if err := cobra.NoArgs(cmd, args); err != nil {
 			return err
 		}
-		if err := validateAddOptions(addRegions, addBundles, addColor, addColorBy, addColorSub); err != nil {
+		if err := validateAddOptions(addRegions, addBundles, addColor, addColorBy); err != nil {
 			return err
 		}
 		_, err := resolveLabelOptions(addLabelBy, addLabelTags)
@@ -173,7 +169,7 @@ func init() {
 		if err != nil {
 			return err
 		}
-		colorByFields, err := resolveAddColorBy(addColorBy, addColorSub)
+		colorByFields, err := resolveAddColorBy(addColorBy)
 		if err != nil {
 			return err
 		}
@@ -194,14 +190,6 @@ func init() {
 				colorByFields[0], colorByFields[1], colorByFields[0], colorByFields[1])
 		}
 		colorByFields = fellBack
-		if addColorSub && normalizedColor == "" {
-			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect without --color")
-			addColorSub = false
-		}
-		if addColorSub && strings.HasPrefix(normalizedColor, "#") {
-			fmt.Fprintln(os.Stderr, "Warning: --color-sub has no effect with a hex color; use a named color or 'colored'")
-			addColorSub = false
-		}
 
 		baseFilters := &seatable.Filters{
 			SuperClass: addSuperClass,
@@ -235,26 +223,13 @@ func init() {
 		var groups [][]string
 		var allRootIDs []string
 		var allRows []seatable.NeuronRow
-		var subtypeMap map[string]string
-		if addColorSub {
-			subtypeMap = make(map[string]string)
-		}
 
 		for _, s := range specs {
 			rows, err := addQueryNeurons(client, &s.filters)
 			if err != nil {
 				return err
 			}
-			var ids []string
-			if addColorSub {
-				var sm map[string]string
-				ids, sm = extractRootIDsWithSubtype(rows)
-				for k, v := range sm {
-					subtypeMap[k] = v
-				}
-			} else {
-				ids = extractRootIDs(rows)
-			}
+			ids := extractRootIDs(rows)
 			groups = append(groups, ids)
 			allRows = append(allRows, rows...)
 			if s.label != "" {
@@ -340,10 +315,8 @@ func init() {
 			groups:        groups,
 			nestedGroups:  nestedGroups,
 			gradient:      gradient,
-			subtypeMap:    subtypeMap,
 			color:         normalizedColor,
 			colorByFields: colorByFields,
-			colorSub:      addColorSub,
 		})
 
 		if addLabels {
@@ -385,18 +358,6 @@ func extractRootIDs(rows []seatable.NeuronRow) []string {
 		}
 	}
 	return ids
-}
-
-func extractRootIDsWithSubtype(rows []seatable.NeuronRow) ([]string, map[string]string) {
-	ids := make([]string, 0, len(rows))
-	subtypeMap := make(map[string]string, len(rows))
-	for _, r := range rows {
-		if r.RootID != "" {
-			ids = append(ids, r.RootID)
-			subtypeMap[r.RootID] = r.CellSubtype
-		}
-	}
-	return ids, subtypeMap
 }
 
 // dedupeUnionResults collapses overlapping query groups into a unique set by
@@ -468,12 +429,9 @@ func compactAddValues(values []string) []string {
 // resolveAddColorBy parses --color-by into its ordered fields. One field colors
 // one group per distinct value. Two comma-separated fields nest: the first picks
 // each group's palette family (hue), the second the tone within that family.
-func resolveAddColorBy(colorBy string, colorSub bool) ([]string, error) {
+func resolveAddColorBy(colorBy string) ([]string, error) {
 	colorBy = strings.TrimSpace(colorBy)
-	if colorBy != "" && colorSub {
-		return nil, fmt.Errorf("--color-by and --color-sub cannot be used together")
-	}
-	if colorSub || colorBy == "" {
+	if colorBy == "" {
 		return nil, nil
 	}
 
@@ -524,14 +482,14 @@ func fallbackNestedColorByFields(fields []string, color string) []string {
 	return fields
 }
 
-func validateAddOptions(regions, bundles []string, color, colorBy string, colorSub bool) error {
+func validateAddOptions(regions, bundles []string, color, colorBy string) error {
 	if _, err := resolveAddRegionFilters(regions, bundles); err != nil {
 		return err
 	}
 	if _, err := nglstate.NormalizeColorInput(color); err != nil {
 		return err
 	}
-	if _, err := resolveAddColorBy(colorBy, colorSub); err != nil {
+	if _, err := resolveAddColorBy(colorBy); err != nil {
 		return err
 	}
 	return nil
@@ -585,12 +543,6 @@ func fieldSet(fields []string) map[string]bool {
 		set[field] = true
 	}
 	return set
-}
-
-func mustMarkFlagDeprecated(cmd *cobra.Command, flagName, usageMessage string) {
-	if err := cmd.Flags().MarkDeprecated(flagName, usageMessage); err != nil {
-		panic(fmt.Sprintf("deprecating %s --%s: %v", cmd.Name(), flagName, err))
-	}
 }
 
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
@@ -721,10 +673,8 @@ type addColorPlan struct {
 	groups        [][]string   // query groups, or one group per single --color-by value
 	nestedGroups  [][][]string // set only for a two-field --color-by
 	gradient      *gradientColorBy
-	subtypeMap    map[string]string
 	color         string
 	colorByFields []string
-	colorSub      bool
 }
 
 func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
@@ -742,14 +692,11 @@ func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
 		return
 	}
 
-	// Repeated class/type flags and --color-sub need group-aware base coloring.
-	if (len(plan.groups) > 1 || plan.colorSub) && plan.color != "" {
+	// Repeated class/type flags need group-aware base coloring.
+	if len(plan.groups) > 1 && plan.color != "" {
 		nglstate.SetSegmentColorByGroups(layer, plan.groups, plan.color)
 	} else {
 		nglstate.SetSegmentColor(layer, plan.rootIDs, plan.color)
-	}
-	if plan.colorSub {
-		nglstate.SetSegmentColorBySubtype(layer, plan.groups, plan.subtypeMap, plan.color)
 	}
 }
 

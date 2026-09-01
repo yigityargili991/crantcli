@@ -77,7 +77,7 @@ Hue then answers "which cell type", and tone answers "which subtype inside that 
 
 Two levels need several color families, so this form requires `colored`, which is the default when you omit `--color`. A named family or a hex color offers only one family, so `crantcli` warns and colors by the second field alone.
 
-!!! warning "`--color-sub` is deprecated"
+!!! warning "`--color-sub` was removed in v0.20.0"
     `--color-sub` encoded two things at once: a palette family per query group, and a tone per `cell_subtype` inside that family. `--color-by group,cell_subtype` is exactly that, for every kind of query group:
 
     ```bash
@@ -88,7 +88,7 @@ Two levels need several color families, so this form requires `colored`, which i
     crantcli add --cell-type ER --color-by group,cell_subtype
     ```
 
-    The flag still works and warns on use, and it will be removed in v0.20.0.
+    The flag was deprecated in v0.18.0 and removed in v0.20.0, so passing it now fails with `unknown flag: --color-sub`.
 
     Three differences are worth knowing if you compare an old scene against a new one. Each one drops a behavior that carried no meaning:
 
