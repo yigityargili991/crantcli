@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.20.1 - 2026-09-08
+
+### Security
+
+- Build releases against google.golang.org/grpc v1.83.1, which carries the
+  upstream fixes for HTTP/2 control-frame flooding and for xDS RBAC deny rules
+  that failed open. crantcli reaches grpc only through the Sigstore verifier
+  behind `update` and calls none of the affected code; the bump keeps the
+  shipped binary on a fixed version.
+
 ## v0.20.0 - 2026-09-01
 
 ### Removed
