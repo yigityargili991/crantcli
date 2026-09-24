@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.20.2 - 2026-09-24
+
+### Security
+
+- Update google.golang.org/grpc to v1.83.2 and golang.org/x/crypto to v0.55.0,
+  including upstream fixes for a gRPC server panic and SSH source-address
+  restriction enforcement. The vulnerability scan found no affected call
+  paths in crantcli.
+
+### Changed
+
+- Update golang.org/x/mod to v0.41.0, golang.org/x/term to v0.46.0, and related
+  Go dependencies. Refresh the bundled third-party version notices.
+- Update the Codecov CI action to v7.1.1.
+
 ## v0.20.1 - 2026-09-08
 
 ### Security
