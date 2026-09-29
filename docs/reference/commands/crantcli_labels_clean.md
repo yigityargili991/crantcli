@@ -5,7 +5,7 @@ Delete label sources (gists or hook-published) tracked by crantcli
 ## Synopsis
 
 Delete label sources that 'add --labels' or
-'state-transfer --labels' created and tracked.
+'state-transfer --labels' or 'cave-history --labels' created and tracked.
 
 By default, deletes tracked sources older than --older-than. Use --all to delete
 every tracked source regardless of age. Hook-published sources are cleaned via

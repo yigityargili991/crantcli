@@ -25,6 +25,17 @@ crantcli state-transfer --labels
 
 Clipboard IDs without CRANT metadata remain unlabeled.
 
+For edit history, publish the editor and UTC time beside historical root IDs:
+
+```bash
+crantcli cave-history 576460752688642351 --open --labels
+```
+
+History labels include before/after roles, operation IDs and types, editor names
+(falling back to user IDs), and timestamps for the displayed edits. They share
+the hosting and cleanup options below. `--label-by` and `--label-tags` apply to
+CRANT metadata commands only.
+
 ## What gets published
 
 The default backend creates a secret GitHub gist containing:
@@ -130,4 +141,3 @@ publisher clean opaque-handle
 ```
 
 Use the same hook when cleaning hook-published sources.
-
