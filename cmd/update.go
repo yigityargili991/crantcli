@@ -310,10 +310,15 @@ func executableNameMatches(name, want string) bool {
 // update targets the current installation even when it sits in a custom
 // directory the installer cannot infer on its own (e.g. a one-shot
 // /usr/local/bin install). An explicitly exported CRANTCLI_INSTALL_DIR wins.
+// Windows passes the updater's PID so backup cleanup can wait for its exit.
 func installerEnv(env []string, installDir, version, verifierPath string) []string {
 	filtered := withoutEnv(env, "CRANTCLI_VERSION")
 	filtered = withoutEnv(filtered, "CRANTCLI_REQUIRE_SIGNATURE")
 	filtered = withoutEnv(filtered, "CRANTCLI_VERIFY_BINARY")
+	if updateGOOS == "windows" {
+		filtered = withoutEnv(filtered, "CRANTCLI_UPDATE_PID")
+		filtered = append(filtered, fmt.Sprintf("CRANTCLI_UPDATE_PID=%d", os.Getpid()))
+	}
 	filtered = append(filtered, "CRANTCLI_REQUIRE_SIGNATURE=1")
 	if verifierPath != "" {
 		filtered = append(filtered, "CRANTCLI_VERIFY_BINARY="+verifierPath)

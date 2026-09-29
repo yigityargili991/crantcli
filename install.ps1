@@ -176,6 +176,89 @@ function Add-InstallDirectoryToPath {
     }
 }
 
+function Remove-InstallerBackups {
+    param([Parameter(Mandatory = $true)][string]$Destination)
+
+    # Cleanup must never turn a completed installation into a failure. Only
+    # remove backups made by this installer, including its older fixed name.
+    try {
+        $directory = Split-Path -Parent $Destination
+        $name = Split-Path -Leaf $Destination
+        $backupPattern = "^$([Regex]::Escape($name))\.old(?:-[0-9a-f]{32})?$"
+        $pending = @()
+        foreach ($backup in (Get-ChildItem -LiteralPath $directory -File -Force)) {
+            if ($backup.Name -notmatch $backupPattern) {
+                continue
+            }
+            try {
+                Remove-Item -LiteralPath $backup.FullName -Force
+            }
+            catch {
+                $pending += $backup.FullName
+            }
+        }
+        if ($pending.Count -eq 0) {
+            return
+        }
+
+        $updaterProcessId = 0
+        [void][int]::TryParse($env:CRANTCLI_UPDATE_PID, [ref]$updaterProcessId)
+        if ($updaterProcessId -lt 0) {
+            $updaterProcessId = 0
+        }
+        $pathLiterals = @($pending | ForEach-Object { "'" + $_.Replace("'", "''") + "'" })
+        $cleanupScript = '$backupPaths = @(' + ($pathLiterals -join ',') + ")`n" +
+            '$updaterProcessId = ' + $updaterProcessId + "`n" + @'
+$ErrorActionPreference = "Stop"
+if ($updaterProcessId -gt 0) {
+    try {
+        $updater = [Diagnostics.Process]::GetProcessById($updaterProcessId)
+        try {
+            if (-not $updater.WaitForExit(60000)) { return }
+        }
+        finally {
+            $updater.Dispose()
+        }
+    }
+    catch {
+        # The updating process may already have exited.
+    }
+}
+# Older updaters do not supply a PID. Retries also cover their file lock and
+# brief locks held by antivirus or another instance after the updater exits.
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    $remaining = @()
+    foreach ($path in $backupPaths) {
+        try {
+            if ([IO.File]::Exists($path)) {
+                Remove-Item -LiteralPath $path -Force
+            }
+        }
+        catch {
+            $remaining += $path
+        }
+    }
+    if ($remaining.Count -eq 0) { return }
+    $backupPaths = $remaining
+    Start-Sleep -Milliseconds 500
+}
+'@
+        # EncodedCommand keeps paths with spaces, quotes, or Unicode out of
+        # Windows command-line quoting. Start-Process runs independently.
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cleanupScript))
+        $powerShell = Join-Path $PSHOME "powershell.exe"
+        if (-not (Test-Path -LiteralPath $powerShell)) {
+            $powerShell = Join-Path $PSHOME "pwsh.exe"
+        }
+        Start-Process -FilePath $powerShell -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded
+        ) | Out-Null
+    }
+    catch {
+        Write-Warning "could not schedule cleanup of previous executables in $directory; they can be deleted after crantcli exits"
+    }
+}
+
 function Install-BinaryAtomically {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
@@ -183,29 +266,20 @@ function Install-BinaryAtomically {
     )
 
     $directory = Split-Path -Parent $Destination
-    $stagedName = ".${BinaryName}.new-$([Guid]::NewGuid().ToString("N"))"
+    $replacementId = [Guid]::NewGuid().ToString("N")
+    $stagedName = ".${BinaryName}.new-$replacementId"
     $stagedPath = Join-Path $directory $stagedName
-    $backupPath = "$Destination.old"
+    $backupPath = "$Destination.old-$replacementId"
 
     Copy-Item -LiteralPath $Source -Destination $stagedPath
     try {
-        if (Test-Path -LiteralPath $backupPath) {
-            Remove-Item -LiteralPath $backupPath -Force
-        }
         if (Test-Path -LiteralPath $Destination) {
             [IO.File]::Replace($stagedPath, $Destination, $backupPath, $true)
         }
         else {
             Move-Item -LiteralPath $stagedPath -Destination $Destination
         }
-        if (Test-Path -LiteralPath $backupPath) {
-            try {
-                Remove-Item -LiteralPath $backupPath -Force
-            }
-            catch {
-                Write-Warning "could not remove the previous executable at $backupPath; it can be deleted after this process exits"
-            }
-        }
+        Remove-InstallerBackups -Destination $Destination
     }
     finally {
         if (Test-Path -LiteralPath $stagedPath) {
