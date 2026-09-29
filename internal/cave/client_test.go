@@ -22,6 +22,51 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	}
 }
 
+func TestNewClientWithTokenTrimsWhitespace(t *testing.T) {
+	c, err := newClientWithToken(" \t\r\ntest-token\r\n ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q, want trimmed bearer token", got)
+		}
+		fmt.Fprint(w, `{"root_id": 123}`)
+	}))
+	defer srv.Close()
+	c.baseURL, c.http = srv.URL, srv.Client()
+	if root, err := c.GetRootID(1); err != nil || root != 123 {
+		t.Fatalf("GetRootID = %d, %v; want 123, nil", root, err)
+	}
+}
+
+func TestNewClientWithTokenRejectsMalformedCredentials(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		token string
+		want  string
+	}{
+		{"empty", "", "no CAVE token configured"},
+		{"whitespace only", " \r\n\t", "no CAVE token configured"},
+		{"newline", "secret\nvalue", "embedded whitespace or control characters"},
+		{"carriage return", "secret\rvalue", "embedded whitespace or control characters"},
+		{"tab", "secret\tvalue", "embedded whitespace or control characters"},
+		{"space", "secret value", "embedded whitespace or control characters"},
+		{"null", "secret\x00value", "embedded whitespace or control characters"},
+		{"paste escape", "\x1b[200~secret-value\x1b[201~", "embedded whitespace or control characters"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := newClientWithToken(tt.token)
+			if client != nil || err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("NewClient error = %v, want %q and no client", err, tt.want)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatal("credential validation error leaked the token")
+			}
+		})
+	}
+}
+
 func TestGetRootID(t *testing.T) {
 	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {

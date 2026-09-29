@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
+	"unicode"
 
 	"crantcli/internal/config"
 	"crantcli/internal/httpx"
@@ -48,9 +50,16 @@ func NewTestClient(baseURL string, httpClient *http.Client) *Client {
 
 // NewClient creates a CAVE client using the stored or env-var CAVE token.
 func NewClient() (*Client, error) {
-	token := config.GetCAVEToken()
+	return newClientWithToken(config.GetCAVEToken())
+}
+
+func newClientWithToken(token string) (*Client, error) {
+	token = strings.TrimSpace(token)
 	if token == "" {
 		return nil, fmt.Errorf("no CAVE token configured; run 'crantcli setup' or set CAVE_TOKEN")
+	}
+	if strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return nil, fmt.Errorf("CAVE token contains embedded whitespace or control characters; update it with 'crantcli setup' and paste only the token on one line")
 	}
 	return &Client{
 		token:     token,

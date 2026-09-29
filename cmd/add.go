@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"crantcli/internal/clipboard"
-	"crantcli/internal/labelhost"
 	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
 	"crantcli/internal/segprops"
@@ -706,38 +705,11 @@ func applyAddSegmentColors(layer map[string]interface{}, plan addColorPlan) {
 // root IDs in the Seg. panel. Prior label sources are cleaned up (older than
 // ttl) and replaced rather than accumulated.
 func attachCellTypeLabels(layer map[string]interface{}, rows []seatable.NeuronRow, opts segprops.Options, ttl time.Duration, hookCmd string) error {
-	if hookCmd == "" {
-		if err := labelhost.EnsureGistAvailable(); err != nil {
-			return err
-		}
-		fmt.Fprintln(os.Stderr, "Note: --labels publishes the queried root IDs and their labels/tags to an unlisted GitHub gist; it is reachable by anyone who has the resulting state URL.")
-	} else {
-		fmt.Fprintf(os.Stderr, "Publishing labels via hook: %s\n", hookCmd)
-	}
-
 	info, err := segprops.BuildSegmentProperties(rows, opts)
 	if err != nil {
 		return fmt.Errorf("building segment properties: %w", err)
 	}
-
-	prior := labelhost.RecordedURLs()
-	if err := labelhost.GC(ttl, hookCmd); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: label cleanup failed: %v\n", err)
-	}
-
-	pub, err := labelhost.Publish(hookCmd, info)
-	if err != nil {
-		return fmt.Errorf("publishing labels: %w", err)
-	}
-	if err := labelhost.Record(pub); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not record label source for cleanup: %v\n", err)
-	}
-
-	if err := nglstate.EnsureSegmentPropertiesSource(layer, pub.URL, prior); err != nil {
-		return fmt.Errorf("attaching label source: %w", err)
-	}
-	fmt.Fprintf(os.Stderr, "Attached %s labels (%s %s)\n", labelFieldName(opts), pub.Kind, pub.ID)
-	return nil
+	return attachSegmentPropertyLabels(os.Stderr, []map[string]interface{}{layer}, info, labelFieldName(opts), ttl, hookCmd)
 }
 
 // colorByPartition is one formed color-by group: the label describing it and

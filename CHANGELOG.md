@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Open or save a Neuroglancer edit-history state with `cave-history --open`
+  or `--output`. The default compact view lists historical roots in one 3D
+  layer with individual visibility toggles and consistent colors. Use
+  `--compact=false` for separate before/after layers with 2D segmentation.
+- Add `cave-history --labels` for operation, editor, and UTC-time labels,
+  using the existing gist or hook publisher and cleanup options.
+- Select how many edits appear in the viewer with `--history-limit`: the
+  latest 10 per queried root by default, or `0` for all edits. Table and JSON
+  history output remain unchanged.
+
+### Fixed
+
+- Trim surrounding whitespace from CAVE tokens and reject embedded whitespace
+  or control characters with a clear error before sending a request.
+
 ## v0.20.2 - 2026-09-24
 
 ### Security

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"crantcli/internal/labelhost"
+	"crantcli/internal/nglstate"
 	"crantcli/internal/segprops"
 
 	"github.com/spf13/cobra"
@@ -30,7 +31,7 @@ func init() {
 		Use:   "clean",
 		Short: "Delete label sources (gists or hook-published) tracked by crantcli",
 		Long: `Delete label sources that 'add --labels' or
-'state-transfer --labels' created and tracked.
+'state-transfer --labels' or 'cave-history --labels' created and tracked.
 
 By default, deletes tracked sources older than --older-than. Use --all to delete
 every tracked source regardless of age. Hook-published sources are cleaned via
@@ -186,4 +187,56 @@ func labelFieldName(opts segprops.Options) string {
 		return segprops.DefaultOptions().LabelField
 	}
 	return opts.LabelField
+}
+
+// attachSegmentPropertyLabels publishes one source shared by all supplied layers.
+func attachSegmentPropertyLabels(errOut io.Writer, layers []map[string]interface{}, info []byte, labelName string, ttl time.Duration, hookCmd string) error {
+	prior, err := prepareLabelPublishing(errOut, ttl, hookCmd)
+	if err != nil {
+		return err
+	}
+	pub, err := publishTrackedLabelSource(errOut, info, hookCmd)
+	if err != nil {
+		return err
+	}
+
+	for _, layer := range layers {
+		if err := nglstate.EnsureSegmentPropertiesSource(layer, pub.URL, prior); err != nil {
+			return fmt.Errorf("attaching label source: %w", err)
+		}
+	}
+	fmt.Fprintf(errOut, "Attached %s labels (%s %s)\n", labelName, pub.Kind, pub.ID)
+	return nil
+}
+
+// prepareLabelPublishing checks the publisher and cleans expired sources,
+// retaining their URLs so layers can replace them even after cleanup.
+func prepareLabelPublishing(errOut io.Writer, ttl time.Duration, hookCmd string) ([]string, error) {
+	if hookCmd == "" {
+		if err := labelhost.EnsureGistAvailable(); err != nil {
+			return nil, err
+		}
+		fmt.Fprintln(errOut, "Note: --labels publishes the queried root IDs and their labels/tags to an unlisted GitHub gist; it is reachable by anyone who has the resulting state URL.")
+	} else {
+		fmt.Fprintf(errOut, "Publishing labels via hook: %s\n", hookCmd)
+	}
+
+	prior := labelhost.RecordedURLs()
+	if err := labelhost.GC(ttl, hookCmd); err != nil {
+		fmt.Fprintf(errOut, "Warning: label cleanup failed: %v\n", err)
+	}
+	return prior, nil
+}
+
+// publishTrackedLabelSource publishes labels and records the source for cleanup.
+// A recording failure is reported but does not prevent use of the source.
+func publishTrackedLabelSource(errOut io.Writer, info []byte, hookCmd string) (labelhost.Published, error) {
+	pub, err := labelhost.Publish(hookCmd, info)
+	if err != nil {
+		return labelhost.Published{}, fmt.Errorf("publishing labels: %w", err)
+	}
+	if err := labelhost.Record(pub); err != nil {
+		fmt.Fprintf(errOut, "Warning: could not record label source for cleanup: %v\n", err)
+	}
+	return pub, nil
 }
