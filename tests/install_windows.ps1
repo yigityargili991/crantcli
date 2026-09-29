@@ -14,12 +14,14 @@ $originalVersion = $env:CRANTCLI_VERSION
 $originalSkipChecksum = $env:CRANTCLI_SKIP_CHECKSUM
 $originalRequireSignature = $env:CRANTCLI_REQUIRE_SIGNATURE
 $originalVerifyBinary = $env:CRANTCLI_VERIFY_BINARY
+$originalUpdatePid = $env:CRANTCLI_UPDATE_PID
 $originalGithubToken = $env:CRANTCLI_GITHUB_TOKEN
 $originalCosignFail = $env:CRANTCLI_TEST_COSIGN_FAIL
 $originalVerifierFail = $env:CRANTCLI_TEST_VERIFIER_FAIL
 $env:CRANTCLI_GITHUB_TOKEN = $null
 $env:CRANTCLI_REQUIRE_SIGNATURE = $null
 $env:CRANTCLI_VERIFY_BINARY = $null
+$env:CRANTCLI_UPDATE_PID = $null
 $global:CrantCliInstallerTestFixtures = $fixtures
 $global:CrantCliInstallerRequestedUris = [Collections.Generic.List[string]]::new()
 
@@ -93,8 +95,8 @@ function Test-Install {
         (Get-Content -LiteralPath (Join-Path $fixtures "crant_type_look-windows-$assetArchitecture.exe") -Raw) `
         (Get-Content -LiteralPath $installedFile -Raw) `
         "$Architecture asset was not installed"
-    if (Test-Path -LiteralPath "${installedFile}.old") {
-        throw "installer left an unlocked backup at ${installedFile}.old"
+    if (Get-ChildItem -LiteralPath $installDirectory -Filter "crantcli.exe.old*" -File) {
+        throw "installer left an unlocked backup in $installDirectory"
     }
     if (-not (($env:Path -split ";") -contains $installDirectory)) {
         throw "$installDirectory was not added to the current PATH"
@@ -117,6 +119,94 @@ function Test-Install {
     }
     if (-not ($global:CrantCliInstallerRequestedUris | Where-Object { $_.EndsWith("$asset$bundleSuffix") })) {
         throw "installer did not download the signature bundle for $asset"
+    }
+}
+
+function Test-LockedBinaryCleanup {
+    param(
+        [Parameter(Mandatory = $true)][string]$Scenario,
+        [string]$BackupSuffix = "",
+        [switch]$LegacyUpdater,
+        [switch]$CleanupLaunchFails
+    )
+
+    # Use a running executable to reproduce the Windows image lock; text
+    # fixtures alone cannot exercise cleanup after crantcli update exits.
+    $installDirectory = Join-Path $testRoot ("$Scenario [test] 'unicode-" + [char]0x03bb)
+    $installedFile = Join-Path $installDirectory "crantcli.exe"
+    $ready = Join-Path $installDirectory "ready"
+    $stop = Join-Path $installDirectory "stop"
+    New-Item -ItemType Directory -Path $installDirectory | Out-Null
+    Copy-Item -LiteralPath (Join-Path $testRoot "lock-fixture.exe") -Destination $installedFile
+    $process = Start-Process -FilePath $installedFile -WindowStyle Hidden -PassThru `
+        -ArgumentList "`"$ready`" `"$stop`""
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while (-not (Test-Path -LiteralPath $ready)) {
+            if ($process.HasExited -or [DateTime]::UtcNow -ge $deadline) {
+                throw "locked executable fixture did not start"
+            }
+            Start-Sleep -Milliseconds 50
+        }
+
+        if ($BackupSuffix -ne "") {
+            Move-Item -LiteralPath $installedFile -Destination "${installedFile}$BackupSuffix"
+            Set-Content -LiteralPath $installedFile -Value "old fixture" -NoNewline
+        }
+        $unrelated = Join-Path $installDirectory "crantcli.exe.old-not-an-installer-backup"
+        Set-Content -LiteralPath $unrelated -Value "keep me" -NoNewline
+        $env:PROCESSOR_ARCHITECTURE = "AMD64"
+        $env:PROCESSOR_ARCHITEW6432 = $null
+        $env:CRANTCLI_INSTALL_DIR = $installDirectory
+        $env:CRANTCLI_VERSION = "latest"
+        $env:CRANTCLI_UPDATE_PID = if ($LegacyUpdater) { $null } else { [string]$process.Id }
+        if ($CleanupLaunchFails) {
+            function global:Start-Process {
+                throw "cleanup launch failed"
+            }
+        }
+        try {
+            & (Join-Path $repositoryRoot "install.ps1")
+        }
+        finally {
+            if ($CleanupLaunchFails) {
+                Remove-Item function:global:Start-Process
+            }
+        }
+
+        Assert-Equal `
+            (Get-Content -LiteralPath (Join-Path $fixtures "crant_type_look-windows-amd64.exe") -Raw) `
+            (Get-Content -LiteralPath $installedFile -Raw) `
+            "installer did not replace the binary while its previous copy was running"
+        $backups = @(Get-ChildItem -LiteralPath $installDirectory -Filter "crantcli.exe.old*" -File |
+            Where-Object { $_.Name -ne "crantcli.exe.old-not-an-installer-backup" })
+        Assert-Equal 1 $backups.Count "installer did not retain exactly the locked backup"
+        if ($process.HasExited) {
+            throw "installer terminated the running executable"
+        }
+        Assert-Equal "keep me" (Get-Content -LiteralPath $unrelated -Raw) "cleanup removed an unrelated file"
+
+        Set-Content -LiteralPath $stop -Value "stop"
+        if (-not $process.WaitForExit(15000)) {
+            throw "locked executable fixture did not exit"
+        }
+        if (-not $CleanupLaunchFails) {
+            $deadline = [DateTime]::UtcNow.AddSeconds(15)
+            while (Test-Path -LiteralPath $backups[0].FullName) {
+                if ([DateTime]::UtcNow -ge $deadline) {
+                    throw "backup was not removed after the updating process exited: $($backups[0].FullName)"
+                }
+                Start-Sleep -Milliseconds 50
+            }
+        }
+    }
+    finally {
+        $env:CRANTCLI_UPDATE_PID = $null
+        if (-not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force
+            [void]$process.WaitForExit(15000)
+        }
+        $process.Dispose()
     }
 }
 
@@ -160,6 +250,38 @@ try {
     $env:CRANTCLI_VERIFY_BINARY = Join-Path $fakeBin "crantcli-verifier.cmd"
     Test-Install -Architecture "AMD64" -Version "latest" -InstallSuffix "-builtin"
     $env:CRANTCLI_VERIFY_BINARY = $null
+
+    $fixtureSource = Join-Path $testRoot "lock-fixture.go"
+    Set-Content -LiteralPath $fixtureSource -Encoding UTF8 -Value @'
+package main
+
+import (
+    "os"
+    "time"
+)
+
+func main() {
+    if err := os.WriteFile(os.Args[1], []byte("ready"), 0600); err != nil {
+        os.Exit(1)
+    }
+    deadline := time.Now().Add(time.Minute)
+    for time.Now().Before(deadline) {
+        if _, err := os.Stat(os.Args[2]); err == nil {
+            return
+        }
+        time.Sleep(20 * time.Millisecond)
+    }
+}
+'@
+    & go build -o (Join-Path $testRoot "lock-fixture.exe") $fixtureSource
+    if ($LASTEXITCODE -ne 0) {
+        throw "could not build the executable lock fixture"
+    }
+    Test-LockedBinaryCleanup -Scenario "running-binary"
+    Test-LockedBinaryCleanup -Scenario "legacy-backup" -BackupSuffix ".old"
+    Test-LockedBinaryCleanup -Scenario "previous-backup" -BackupSuffix ".old-$([Guid]::NewGuid().ToString('N'))"
+    Test-LockedBinaryCleanup -Scenario "legacy-updater" -LegacyUpdater
+    Test-LockedBinaryCleanup -Scenario "cleanup-failure" -CleanupLaunchFails
 
     Write-Checksums -Invalid
     $env:PROCESSOR_ARCHITECTURE = "AMD64"
@@ -249,6 +371,7 @@ finally {
     $env:CRANTCLI_SKIP_CHECKSUM = $originalSkipChecksum
     $env:CRANTCLI_REQUIRE_SIGNATURE = $originalRequireSignature
     $env:CRANTCLI_VERIFY_BINARY = $originalVerifyBinary
+    $env:CRANTCLI_UPDATE_PID = $originalUpdatePid
     $env:CRANTCLI_GITHUB_TOKEN = $originalGithubToken
     $env:CRANTCLI_TEST_COSIGN_FAIL = $originalCosignFail
     $env:CRANTCLI_TEST_VERIFIER_FAIL = $originalVerifierFail

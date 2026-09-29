@@ -504,6 +504,10 @@ func TestIsUpToDate(t *testing.T) {
 }
 
 func TestInstallerEnv(t *testing.T) {
+	origGOOS := updateGOOS
+	updateGOOS = "linux"
+	t.Cleanup(func() { updateGOOS = origGOOS })
+
 	env := []string{"HOME=/tmp", "CRANTCLI_VERSION=v0.1.0", "CRANTCLI_VERIFY_BINARY=/untrusted", "PATH=/bin"}
 	got := installerEnv(env, "/usr/local/bin", "v0.16.2", "/running/crantcli")
 	if version, pinned := envValue(got, "CRANTCLI_VERSION"); !pinned || version != "v0.16.2" {
@@ -556,6 +560,7 @@ func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
 		`CrantCli_Install_Dir=C:\Tools\crantcli`,
 		"CrantCli_Require_Signature=0",
 		`CrantCli_Verify_Binary=C:\Untrusted\crantcli.exe`,
+		"CrantCli_Update_Pid=1",
 		"PATH=C:\\Windows",
 	}
 	got := installerEnv(env, `C:\Other`, "v0.16.2", `C:\Tools\crantcli.exe`)
@@ -583,6 +588,12 @@ func TestInstallerEnvMatchesWindowsKeysCaseInsensitively(t *testing.T) {
 	}
 	if verifier, ok := envValue(got, "CRANTCLI_VERIFY_BINARY"); !ok || verifier != `C:\Tools\crantcli.exe` {
 		t.Fatalf("CRANTCLI_VERIFY_BINARY = %q (present %v), want running binary: %v", verifier, ok, got)
+	}
+	if _, stale := envValue(got, "CrantCli_Update_Pid"); stale {
+		t.Fatalf("installerEnv kept differently-cased stale updater PID: %v", got)
+	}
+	if pid, ok := envValue(got, "CRANTCLI_UPDATE_PID"); !ok || pid != fmt.Sprint(os.Getpid()) {
+		t.Fatalf("CRANTCLI_UPDATE_PID = %q (present %v), want %d: %v", pid, ok, os.Getpid(), got)
 	}
 }
 

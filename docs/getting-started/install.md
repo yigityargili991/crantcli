@@ -110,6 +110,9 @@ so no separate Cosign installation is required:
 crantcli update
 ```
 
+On Windows, the installer removes the previous executable in the background
+after the updating process exits. A locked backup does not block another update.
+
 !!! note "Updating from v0.17.0"
     The v0.17.0 updater still requires Cosign to install this transition
     release. Install Cosign once or rerun the platform installer to reach
