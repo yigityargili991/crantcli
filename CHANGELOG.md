@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.21.0 - 2026-09-30
 
 ### Added
 
@@ -16,6 +16,9 @@
 
 ### Fixed
 
+- Remove Windows update backups in the background after the updater exits,
+  and use unique backup names so a locked previous executable does not block
+  another update.
 - Trim surrounding whitespace from CAVE tokens and reject embedded whitespace
   or control characters with a clear error before sending a request.
 
