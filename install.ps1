@@ -412,11 +412,16 @@ function Install-CrantCli {
 
         New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
         $installPath = Join-Path $installDirectory $BinaryName
+        # Only a first install needs the setup hint; updates and reinstalls
+        # replace an existing binary whose configuration is already in place.
+        $freshInstall = -not (Test-Path -LiteralPath $installPath)
         Install-BinaryAtomically -Source $downloadedBinary -Destination $installPath
         Add-InstallDirectoryToPath -InstallDirectory $installDirectory
 
         Write-InstallerMessage "Installed crantcli to $installPath"
-        Write-InstallerMessage "Next: crantcli setup"
+        if ($freshInstall) {
+            Write-InstallerMessage "Next: crantcli setup"
+        }
     }
     finally {
         if (Test-Path -LiteralPath $temporaryDirectory) {

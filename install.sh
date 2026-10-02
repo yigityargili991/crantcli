@@ -230,6 +230,12 @@ if [ ! -w "$install_dir" ]; then
 fi
 
 install_path="$install_dir/$binary_name"
+# Only a first install needs the setup hint; updates and reinstalls replace an
+# existing binary whose configuration is already in place.
+fresh_install=true
+if [ -e "$install_path" ]; then
+	fresh_install=false
+fi
 stage_path="$install_dir/.$binary_name.new.$$"
 cp "$tmp_dir/$asset" "$stage_path" || die "could not stage $binary_name in $install_dir"
 chmod 0755 "$stage_path"
@@ -246,4 +252,6 @@ case ":${PATH:-}:" in
 		;;
 esac
 
-log "Next: $binary_name setup"
+if [ "$fresh_install" = true ]; then
+	log "Next: $binary_name setup"
+fi
