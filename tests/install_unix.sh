@@ -110,13 +110,19 @@ run_install() {
 	expected_arch=$4
 	version=$5
 	verification_mode=${6:-cosign}
+	install_mode=${7:-replace}
 	verifier=""
 	if [ "$verification_mode" = builtin ]; then
 		verifier="$fake_bin/crantcli-verifier"
 	fi
 	install_dir="$test_root/install-$expected_os-$expected_arch"
+	install_output="$test_root/install.out"
 	mkdir -p "$install_dir"
-	printf '%s\n' "old fixture" >"$install_dir/crantcli"
+	if [ "$install_mode" = replace ]; then
+		printf '%s\n' "old fixture" >"$install_dir/crantcli"
+	else
+		rm -f "$install_dir/crantcli"
+	fi
 	: >"$download_log"
 	: >"$cosign_log"
 	: >"$verifier_log"
@@ -133,12 +139,20 @@ run_install() {
 	CRANTCLI_VERIFY_BINARY=$verifier \
 	CRANTCLI_GITHUB_TOKEN= \
 	PATH="$fake_bin:$PATH" \
-	sh "$repository_root/install.sh"
+	sh "$repository_root/install.sh" >"$install_output"
 
 	asset="crant_type_look-$expected_os-$expected_arch"
 	test "$(sha256_file "$fixtures/$asset")" = "$(sha256_file "$install_dir/crantcli")" ||
 		fail "$asset was not installed"
 	test -x "$install_dir/crantcli" || fail "$asset is not executable"
+	if [ "$install_mode" = replace ]; then
+		if grep -F "crantcli setup" "$install_output" >/dev/null; then
+			fail "installer suggested setup when replacing an existing binary"
+		fi
+	else
+		grep -Fx "Next: crantcli setup" "$install_output" >/dev/null ||
+			fail "fresh install did not suggest crantcli setup"
+	fi
 
 	if [ "$version" = latest ]; then
 		release_path="/releases/latest/download/$asset"
@@ -166,6 +180,7 @@ run_install Linux aarch64 linux arm64 v1.2.3
 run_install Darwin x86_64 darwin amd64 latest
 run_install Darwin arm64 darwin arm64 v1.2.3
 run_install Linux x86_64 linux amd64 latest builtin
+run_install Linux x86_64 linux amd64 latest cosign fresh
 
 cp "$fixtures/checksums.txt" "$test_root/checksums.good"
 awk '{ print "0000000000000000000000000000000000000000000000000000000000000000  " $2 }' \

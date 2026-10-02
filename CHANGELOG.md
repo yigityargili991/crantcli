@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Suggest `crantcli setup` only after a fresh install. `crantcli update` and
+  reinstalls over an existing binary no longer print the setup hint.
+
 ## v0.21.0 - 2026-09-30
 
 ### Added

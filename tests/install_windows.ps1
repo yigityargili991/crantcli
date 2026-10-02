@@ -74,7 +74,8 @@ function Test-Install {
     param(
         [Parameter(Mandatory = $true)][ValidateSet("AMD64", "ARM64")][string]$Architecture,
         [Parameter(Mandatory = $true)][string]$Version,
-        [string]$InstallSuffix = ""
+        [string]$InstallSuffix = "",
+        [switch]$FreshInstall
     )
 
     $assetArchitecture = $Architecture.ToLowerInvariant()
@@ -82,19 +83,29 @@ function Test-Install {
     $installDirectory = Join-Path $testRoot "install-$assetArchitecture$InstallSuffix"
     $installedFile = Join-Path $installDirectory "crantcli.exe"
     New-Item -ItemType Directory -Path $installDirectory | Out-Null
-    Set-Content -LiteralPath $installedFile -Value "old fixture" -NoNewline
+    if (-not $FreshInstall) {
+        Set-Content -LiteralPath $installedFile -Value "old fixture" -NoNewline
+    }
     $env:PROCESSOR_ARCHITECTURE = $Architecture
     $env:PROCESSOR_ARCHITEW6432 = $null
     $env:CRANTCLI_INSTALL_DIR = $installDirectory
     $env:CRANTCLI_VERSION = $Version
     $global:CrantCliInstallerRequestedUris.Clear()
 
-    & (Join-Path $repositoryRoot "install.ps1")
+    # Write-Host records go to the information stream (6).
+    $messages = @(& (Join-Path $repositoryRoot "install.ps1") 6>&1 | ForEach-Object { [string]$_ })
 
     Assert-Equal `
         (Get-Content -LiteralPath (Join-Path $fixtures "crant_type_look-windows-$assetArchitecture.exe") -Raw) `
         (Get-Content -LiteralPath $installedFile -Raw) `
         "$Architecture asset was not installed"
+    $suggestedSetup = $messages -contains "Next: crantcli setup"
+    if ($FreshInstall -and -not $suggestedSetup) {
+        throw "fresh install did not suggest crantcli setup"
+    }
+    if (-not $FreshInstall -and $suggestedSetup) {
+        throw "installer suggested setup when replacing an existing binary"
+    }
     if (Get-ChildItem -LiteralPath $installDirectory -Filter "crantcli.exe.old*" -File) {
         throw "installer left an unlocked backup in $installDirectory"
     }
@@ -246,6 +257,7 @@ try {
 
     Test-Install -Architecture "AMD64" -Version "latest"
     Test-Install -Architecture "ARM64" -Version "v1.2.3"
+    Test-Install -Architecture "AMD64" -Version "latest" -InstallSuffix "-fresh" -FreshInstall
 
     $env:CRANTCLI_VERIFY_BINARY = Join-Path $fakeBin "crantcli-verifier.cmd"
     Test-Install -Architecture "AMD64" -Version "latest" -InstallSuffix "-builtin"
