@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- Update Go dependencies: `golang.org/x/crypto` to v0.58.0,
+  `google.golang.org/grpc` to v1.84.0, the Sigstore verification
+  stack to `sigstore` v1.10.9 and `rekor` v1.5.4, the OpenAPI
+  modules, OpenTelemetry to v1.47.0, and the direct dependencies
+  `golang.design/x/clipboard` to v0.11.0, `golang.org/x/mod` to
+  v0.42.0, `golang.org/x/term` to v0.47.0, and
+  `github.com/godbus/dbus/v5` to v5.2.3. Refresh the bundled
+  third-party version notices.
+- Build releases with Go 1.26.9. Newer `sigstore` and
+  `timestamp-authority` releases require Go 1.27, which drops macOS 12
+  Monterey, so they stay at v1.10.9 and v2.1.3.
+
 ### Fixed
 
 - Suggest `crantcli setup` only after a fresh install. `crantcli update` and
