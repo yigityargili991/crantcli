@@ -5,10 +5,11 @@
 ### Added
 
 - Add an experimental `crantcli ask` command that turns a plain-English
-  request into a crantcli command with a small local model, prints it, and
-  asks before running it. It is only included in builds made with
-  `make build-ask` (`-tags ask`), and needs a model file passed with
-  `--model` or `CRANTCLI_ASK_MODEL`.
+  request into a crantcli command with raider, a small model we fine-tuned
+  for crantcli that runs locally, prints it, and asks before running it. `crantcli setup` and the first `ask` offer
+  to download the model (about 145 MB). The download is encrypted and unlocks only with a SeaTable
+  token for the CRANT base. Release binaries grow to about 40 MB and are
+  built for x86-64-v2 on Intel and AMD.
 
 ### Changed
 

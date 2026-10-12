@@ -4,7 +4,8 @@ Set or update API tokens (SeaTable and CAVE)
 
 ## Synopsis
 
-Interactively set or update the SeaTable API token and optional CAVE token.
+Interactively set or update the SeaTable API token and optional CAVE token,
+then offer to download the model for the experimental crantcli ask command.
 
 Tokens are stored in the operating system's secure credential manager: Keychain
 on macOS, Credential Manager on Windows, and Secret Service on Linux. If Secret

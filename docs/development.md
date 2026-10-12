@@ -11,24 +11,31 @@ make test
 
 CI runs `go vet ./...` and `go test ./...`.
 
-## Build the experimental ask command
+## Publish a raider model
 
-`crantcli ask` turns a plain-English request into a crantcli command with a
-small local model. It is only built with the `ask` tag, because the model
-runtime adds about 30 MB to the binary:
+`crantcli ask` downloads the raider model from a GitHub release. The model is
+trained in the private `raider-training` repository. To publish a new version
+`vN`:
 
-```bash
-make build-ask
-CRANTCLI_ASK_MODEL=/path/to/model.gguf ./crantcli ask "show the PEN neurons colored by proofreading status"
-```
+1. Encrypt the GGUF with a SeaTable token for the CRANT base configured:
 
-`ask` prints the suggested command and asks before running it. `--print` only
-prints it, and `--yes` runs it without asking. The model is read from
-`--model`, then `CRANTCLI_ASK_MODEL`, then `<user cache dir>/crantcli/ask/model.gguf`.
-Table values are cached next to it for a day; `--refresh` fetches them again.
+   ```bash
+   go run ./tools/modelenc -in raider-135m-vN-q8_0.gguf -version vN
+   ```
 
-The command pages under `docs/reference/commands/` are generated from the
-default build, so they do not list `ask`.
+   This writes `raider-135m-vN-q8_0.gguf.enc` and prints the size, hashes, and
+   key check to paste into `CurrentModel` in `internal/ask/model.go`, together
+   with the new `Version`, `File`, `Tag`, and `Asset` names.
+
+2. Publish only the encrypted file, as a prerelease so that `crantcli update`
+   keeps using the latest crantcli release:
+
+   ```bash
+   gh release create raider-vN raider-135m-vN-q8_0.gguf.enc --prerelease --latest=false \
+     --title "raider vN model" --notes "Encrypted model for crantcli ask."
+   ```
+
+3. Release crantcli with the new pin. Never upload the decrypted GGUF.
 
 ## Work on the documentation
 

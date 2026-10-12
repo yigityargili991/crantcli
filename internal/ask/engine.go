@@ -1,5 +1,3 @@
-//go:build ask
-
 package ask
 
 import (

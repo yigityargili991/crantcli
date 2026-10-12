@@ -20,6 +20,7 @@ Run 'crantcli setup' to configure your SeaTable API token.
 ## See also
 
 * [crantcli add](crantcli_add.md)	 - Query neurons and inject root IDs into a Neuroglancer state
+* [crantcli ask](crantcli_ask.md)	 - Turn a plain-English request into a crantcli command (experimental)
 * [crantcli cave-history](crantcli_cave-history.md)	 - Show CAVE edit history for root IDs
 * [crantcli change-def-state](crantcli_change-def-state.md)	 - Set the default Neuroglancer state
 * [crantcli check-cave](crantcli_check-cave.md)	 - Check if root IDs are still current in CAVE

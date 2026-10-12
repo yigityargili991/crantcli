@@ -1,16 +1,14 @@
 BINARY := crantcli
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build build-ask install clean test docs-generate docs-serve docs-build docs-check
+# The ask model runtime needs SSE (x86-64-v2) for its SIMD kernels; the
+# baseline build runs the model about 50 times slower. arm64 ignores this.
+export GOAMD64 ?= v2
+
+.PHONY: build install clean test docs-generate docs-serve docs-build docs-check
 
 build:
 	go build -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
-
-# The experimental ask command links a pure-Go llama.cpp. On x86-64 it needs
-# GOAMD64=v2 or higher for the SIMD kernels: the default baseline build runs
-# the model about 50 times slower.
-build-ask:
-	GOAMD64=v2 go build -tags ask -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
 
 install:
 	go install -ldflags "-X crantcli/cmd.Version=$(VERSION)" .
