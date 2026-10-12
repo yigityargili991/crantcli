@@ -31,6 +31,36 @@ var askDownloadClient = &http.Client{Timeout: 30 * time.Minute}
 // askModelBaseURL is where model releases live; tests point it elsewhere.
 var askModelBaseURL = updateReleaseDownloadURL
 
+// Seams for tests.
+var (
+	askCacheDir         = os.UserCacheDir
+	askNewClient        = seatable.NewClient
+	askQueryDistinct    = seatable.QueryDistinct
+	askRunSelf          = runSelf
+	askStdinIsTerminal  = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+	askStderrIsTerminal = func() bool { return term.IsTerminal(int(os.Stderr.Fd())) }
+	askLoadEngine       = func(path string) (askEngine, error) {
+		e, err := ask.LoadEngine(path)
+		if err != nil {
+			return nil, err
+		}
+		return e, nil
+	}
+	askBaseID = func() (string, error) {
+		client, err := askNewClient()
+		if err != nil {
+			return "", err
+		}
+		return client.BaseID(), nil
+	}
+)
+
+// askEngine is the loaded model.
+type askEngine interface {
+	ask.Completer
+	Close() error
+}
+
 var askCmd = &cobra.Command{
 	Use:   "ask <request>",
 	Short: "Turn a plain-English request into a crantcli command (experimental)",
@@ -82,7 +112,7 @@ func init() {
 		// Warn on stderr so --print output stays a clean command line.
 		fmt.Fprintln(cmd.ErrOrStderr(), askExperimentalWarning)
 		in := bufio.NewReader(cmd.InOrStdin())
-		cacheDir, err := os.UserCacheDir()
+		cacheDir, err := askCacheDir()
 		if err != nil {
 			return fmt.Errorf("finding the cache directory: %w", err)
 		}
@@ -102,7 +132,7 @@ func init() {
 			return err
 		}
 
-		engine, err := ask.LoadEngine(modelPath)
+		engine, err := askLoadEngine(modelPath)
 		if err != nil {
 			return err
 		}
@@ -117,7 +147,7 @@ func init() {
 			return nil
 		}
 		if !askYes {
-			if !term.IsTerminal(int(os.Stdin.Fd())) {
+			if !askStdinIsTerminal() {
 				fmt.Fprintln(cmd.ErrOrStderr(), "Not running it: stdin is not a terminal. Pass --yes to run it.")
 				return nil
 			}
@@ -125,7 +155,7 @@ func init() {
 				return nil
 			}
 		}
-		return runSelf(argv)
+		return askRunSelf(argv)
 	}
 
 	rootCmd.AddCommand(askCmd)
@@ -156,7 +186,7 @@ func askModelPath(cmd *cobra.Command, in *bufio.Reader, dir, flagPath string, do
 		return path, nil
 	}
 	if !download {
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
+		if !askStdinIsTerminal() {
 			return "", fmt.Errorf("the raider model is not installed; run 'crantcli ask --download' to install it")
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), askModelIntro)
@@ -178,10 +208,10 @@ func askDownloadPrompt(m ask.Model) string {
 // to download its model, unless the model is already installed. A failed
 // download does not fail setup.
 func offerAskModel(cmd *cobra.Command) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !askStdinIsTerminal() {
 		return nil
 	}
-	cacheDir, err := os.UserCacheDir()
+	cacheDir, err := askCacheDir()
 	if err != nil {
 		return nil
 	}
@@ -204,13 +234,13 @@ func offerAskModel(cmd *cobra.Command) error {
 // installAskModel downloads and unlocks model m into dir with the configured
 // SeaTable token, showing progress on a terminal.
 func installAskModel(cmd *cobra.Command, dir string, m ask.Model) (string, error) {
-	client, err := seatable.NewClient()
+	baseID, err := askBaseID()
 	if err != nil {
 		return "", err
 	}
 	stderr := cmd.ErrOrStderr()
-	showProgress := term.IsTerminal(int(os.Stderr.Fd()))
-	path, err := ask.InstallModel(dir, m, client.BaseID(), func() (io.ReadCloser, error) {
+	showProgress := askStderrIsTerminal()
+	path, err := ask.InstallModel(dir, m, baseID, func() (io.ReadCloser, error) {
 		return downloadAskModel(m)
 	}, func(done int64) {
 		if showProgress && m.Size > 0 {
@@ -258,13 +288,13 @@ func downloadAskModel(m ask.Model) (io.ReadCloser, error) {
 // fetchAskVocab reads the distinct values of the fields a request can name,
 // most neurons first.
 func fetchAskVocab() (map[string][]string, error) {
-	client, err := seatable.NewClient()
+	client, err := askNewClient()
 	if err != nil {
 		return nil, err
 	}
 	values := map[string][]string{}
 	for _, field := range ask.VocabFields {
-		resp, err := seatable.QueryDistinct(client, field, &seatable.Filters{}, true)
+		resp, err := askQueryDistinct(client, field, &seatable.Filters{}, true)
 		if err != nil {
 			return nil, err
 		}

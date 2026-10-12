@@ -22,13 +22,13 @@ func main() {
 	in := flag.String("in", "", "decrypted model (GGUF)")
 	version := flag.String("version", "", "model version, such as v4")
 	flag.Parse()
-	if err := run(*in, *version); err != nil {
+	if err := run(*in, *version, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(in, version string) error {
+func run(in, version string, out io.Writer) error {
 	if in == "" || version == "" {
 		return fmt.Errorf("usage: modelenc -in MODEL.gguf -version vN")
 	}
@@ -36,38 +36,58 @@ func run(in, version string) error {
 	if err != nil {
 		return err
 	}
-	m := ask.Model{Version: version}
-	key, err := ask.ModelKey(client.BaseID(), m)
+	pin, err := encryptFile(in, version, client.BaseID())
 	if err != nil {
 		return err
+	}
+	fmt.Fprintf(out, "wrote %s\n\n", in+".enc")
+	fmt.Fprintf(out, "\tSize:        %d,\n", pin.Size)
+	fmt.Fprintf(out, "\tAssetSHA256: %q,\n", pin.AssetSHA256)
+	fmt.Fprintf(out, "\tModelSHA256: %q,\n", pin.ModelSHA256)
+	fmt.Fprintf(out, "\tKeyCheck:    %q,\n", pin.KeyCheck)
+	return nil
+}
+
+// encryptFile writes in+".enc", encrypted for baseID, and returns the values
+// a crantcli build pins for it.
+func encryptFile(in, version, baseID string) (ask.Model, error) {
+	m := ask.Model{Version: version}
+	key, err := ask.ModelKey(baseID, m)
+	if err != nil {
+		return m, err
 	}
 	src, err := os.Open(in)
 	if err != nil {
-		return err
+		return m, err
 	}
 	defer src.Close()
-	plainHash := sha256.New()
-	out := in + ".enc"
-	dst, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	dst, err := os.OpenFile(in+".enc", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
-		return err
+		return m, err
 	}
-	encHash := sha256.New()
-	if err := ask.EncryptModel(io.MultiWriter(dst, encHash), io.TeeReader(src, plainHash), key); err != nil {
+	plainHash, encHash := sha256.New(), sha256.New()
+	counter := &countingWriter{w: io.MultiWriter(dst, encHash)}
+	if err := ask.EncryptModel(counter, io.TeeReader(src, plainHash), key); err != nil {
 		dst.Close()
-		return err
+		return m, err
 	}
 	if err := dst.Close(); err != nil {
-		return err
+		return m, err
 	}
-	info, err := os.Stat(out)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("wrote %s\n\n", out)
-	fmt.Printf("\tSize:        %d,\n", info.Size())
-	fmt.Printf("\tAssetSHA256: %q,\n", hex.EncodeToString(encHash.Sum(nil)))
-	fmt.Printf("\tModelSHA256: %q,\n", hex.EncodeToString(plainHash.Sum(nil)))
-	fmt.Printf("\tKeyCheck:    %q,\n", ask.KeyCheckFor(key))
-	return nil
+	m.Size = counter.n
+	m.AssetSHA256 = hex.EncodeToString(encHash.Sum(nil))
+	m.ModelSHA256 = hex.EncodeToString(plainHash.Sum(nil))
+	m.KeyCheck = ask.KeyCheckFor(key)
+	return m, nil
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(b []byte) (int, error) {
+	n, err := c.w.Write(b)
+	c.n += int64(n)
+	return n, err
 }

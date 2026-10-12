@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -216,8 +217,13 @@ func TestLoadVocab(t *testing.T) {
 	if _, err := LoadVocab(path, time.Hour, fetch); err != nil || calls != 1 {
 		t.Fatalf("first load: err=%v calls=%d", err, calls)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("cache file: %v %v", info, err)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows has no Unix permission bits.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("cache file mode = %v, want 0600", info.Mode().Perm())
 	}
 	if _, err := LoadVocab(path, time.Hour, fetch); err != nil || calls != 1 {
 		t.Fatalf("fresh cache should be reused: err=%v calls=%d", err, calls)

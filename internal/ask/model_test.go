@@ -130,3 +130,65 @@ func TestInstallModel(t *testing.T) {
 		t.Error("model without pinned hashes was installed")
 	}
 }
+
+func TestModelKeyNeedsBase(t *testing.T) {
+	if _, err := ModelKey("", Model{Version: "v1"}); err == nil {
+		t.Error("expected an error for an empty base ID")
+	}
+	a, _ := ModelKey("base", Model{Version: "v1"})
+	b, _ := ModelKey("base", Model{Version: "v2"})
+	if bytes.Equal(a, b) {
+		t.Error("model versions should get different keys")
+	}
+}
+
+func TestInstallModelErrors(t *testing.T) {
+	const base = "crant-base-uuid"
+	m := Model{Version: "v9", File: "raider-135m-v9-q8_0.gguf", Asset: "raider-135m-v9-q8_0.gguf.enc"}
+	key, _ := ModelKey(base, m)
+	plain := []byte("GGUF model bytes")
+	var enc bytes.Buffer
+	EncryptModel(&enc, bytes.NewReader(plain), key)
+	m.AssetSHA256, m.ModelSHA256 = hexSHA(enc.Bytes()), hexSHA(plain)
+	serve := func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(enc.Bytes())), nil }
+
+	if _, err := InstallModel(t.TempDir(), m, base, func() (io.ReadCloser, error) { return nil, errors.New("offline") }, nil); err == nil {
+		t.Error("expected the download error")
+	}
+	// Without a key check, a wrong base is only found while decrypting.
+	if _, err := InstallModel(t.TempDir(), m, "other-base", serve, nil); !errors.Is(err, ErrWrongBase) {
+		t.Errorf("wrong base without key check: err = %v", err)
+	}
+	bad := m
+	bad.ModelSHA256 = hexSHA([]byte("other model"))
+	if _, err := InstallModel(t.TempDir(), bad, base, serve, nil); err == nil {
+		t.Error("model with the wrong checksum was installed")
+	}
+	if _, err := InstallModel(t.TempDir(), m, "", serve, nil); err == nil {
+		t.Error("expected an error for an empty base ID")
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, nil, 0o600)
+	if _, err := InstallModel(filepath.Join(blocker, "ask"), m, base, serve, nil); err == nil {
+		t.Error("expected an error when the cache directory cannot be created")
+	}
+}
+
+func TestDecryptModelShortInput(t *testing.T) {
+	key := testKey(t, "base-uuid")
+	if err := DecryptModel(io.Discard, bytes.NewReader([]byte("RAI")), key); err == nil {
+		t.Error("short input accepted")
+	}
+	var enc bytes.Buffer
+	EncryptModel(&enc, bytes.NewReader([]byte("x")), key)
+	header := enc.Bytes()[:len(encMagic)+encPrefixLen]
+	if err := DecryptModel(io.Discard, bytes.NewReader(header), key); err == nil {
+		t.Error("header without chunks accepted")
+	}
+}
+
+func TestLoadEngineMissingFile(t *testing.T) {
+	if _, err := LoadEngine(filepath.Join(t.TempDir(), "missing.gguf")); err == nil {
+		t.Error("expected an error for a missing model file")
+	}
+}
