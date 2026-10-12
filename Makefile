@@ -7,10 +7,10 @@ build:
 	go build -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
 
 # The experimental ask command links a pure-Go llama.cpp. On x86-64 it needs
-# GOAMD64=v3 (AVX2): the default baseline build runs the model about 50 times
-# slower.
+# GOAMD64=v2 or higher for the SIMD kernels: the default baseline build runs
+# the model about 50 times slower.
 build-ask:
-	GOAMD64=v3 go build -tags ask -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
+	GOAMD64=v2 go build -tags ask -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
 
 install:
 	go install -ldflags "-X crantcli/cmd.Version=$(VERSION)" .

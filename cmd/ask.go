@@ -22,10 +22,15 @@ import (
 
 const askVocabMaxAge = 24 * time.Hour
 
+const askExperimentalWarning = "Warning: crantcli ask is experimental and can suggest the wrong command. Check it before running it."
+
 var askCmd = &cobra.Command{
 	Use:   "ask <request>",
-	Short: "Turn a plain-English request into a crantcli command",
+	Short: "Turn a plain-English request into a crantcli command (experimental)",
 	Long: `Turn a plain-English request into a crantcli command with a small local model.
+
+ask is experimental: the model can suggest the wrong command, flags, or
+values, so check the suggestion before running it.
 
 ask prints the suggested command and asks before running it. Table values
 mentioned in the request are looked up in the CRANT table (cached for a day),
@@ -55,6 +60,8 @@ func init() {
 	askCmd.ValidArgsFunction = noFileCompletion
 
 	askCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		// Warn on stderr so --print output stays a clean command line.
+		fmt.Fprintln(cmd.ErrOrStderr(), askExperimentalWarning)
 		cacheDir, err := os.UserCacheDir()
 		if err != nil {
 			return fmt.Errorf("finding the cache directory: %w", err)
