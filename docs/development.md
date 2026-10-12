@@ -11,6 +11,25 @@ make test
 
 CI runs `go vet ./...` and `go test ./...`.
 
+## Build the experimental ask command
+
+`crantcli ask` turns a plain-English request into a crantcli command with a
+small local model. It is only built with the `ask` tag, because the model
+runtime adds about 30 MB to the binary:
+
+```bash
+make build-ask
+CRANTCLI_ASK_MODEL=/path/to/model.gguf ./crantcli ask "show the PEN neurons colored by proofreading status"
+```
+
+`ask` prints the suggested command and asks before running it. `--print` only
+prints it, and `--yes` runs it without asking. The model is read from
+`--model`, then `CRANTCLI_ASK_MODEL`, then `<user cache dir>/crantcli/ask/model.gguf`.
+Table values are cached next to it for a day; `--refresh` fetches them again.
+
+The command pages under `docs/reference/commands/` are generated from the
+default build, so they do not list `ask`.
+
 ## Work on the documentation
 
 Create a Python environment and install the pinned documentation dependencies:

@@ -1,10 +1,16 @@
 BINARY := crantcli
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build install clean test docs-generate docs-serve docs-build docs-check
+.PHONY: build build-ask install clean test docs-generate docs-serve docs-build docs-check
 
 build:
 	go build -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
+
+# The experimental ask command links a pure-Go llama.cpp. On x86-64 it needs
+# GOAMD64=v3 (AVX2): the default baseline build runs the model about 50 times
+# slower.
+build-ask:
+	GOAMD64=v3 go build -tags ask -ldflags "-s -w -X crantcli/cmd.Version=$(VERSION)" -o $(BINARY) .
 
 install:
 	go install -ldflags "-X crantcli/cmd.Version=$(VERSION)" .

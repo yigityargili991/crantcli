@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Add an experimental `crantcli ask` command that turns a plain-English
+  request into a crantcli command with a small local model, prints it, and
+  asks before running it. It is only included in builds made with
+  `make build-ask` (`-tags ask`), and needs a model file passed with
+  `--model` or `CRANTCLI_ASK_MODEL`.
+
 ### Changed
 
 - Update Go dependencies: `golang.org/x/crypto` to v0.58.0,
