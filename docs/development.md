@@ -11,6 +11,32 @@ make test
 
 CI runs `go vet ./...` and `go test ./...`.
 
+## Publish a raider model
+
+`crantcli ask` downloads the raider model from a GitHub release. The model is
+trained in the private `raider-training` repository. To publish a new version
+`vN`:
+
+1. Encrypt the GGUF with a SeaTable token for the CRANT base configured:
+
+   ```bash
+   go run ./tools/modelenc -in raider-135m-vN-q8_0.gguf -version vN
+   ```
+
+   This writes `raider-135m-vN-q8_0.gguf.enc` and prints the size, hashes, and
+   key check to paste into `CurrentModel` in `internal/ask/model.go`, together
+   with the new `Version`, `File`, `Tag`, and `Asset` names.
+
+2. Publish only the encrypted file, as a prerelease so that `crantcli update`
+   keeps using the latest crantcli release:
+
+   ```bash
+   gh release create raider-vN raider-135m-vN-q8_0.gguf.enc --prerelease --latest=false \
+     --title "raider vN model" --notes "Encrypted model for crantcli ask."
+   ```
+
+3. Release crantcli with the new pin. Never upload the decrypted GGUF.
+
 ## Work on the documentation
 
 Create a Python environment and install the pinned documentation dependencies:

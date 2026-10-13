@@ -8,6 +8,8 @@ crantcli setup
 
 Input is hidden while you type. The CAVE token is optional during setup, so you can add it later by running the command again.
 
+Setup then offers to download raider, the small model we fine-tuned for the experimental [`crantcli ask`](../guides/ask.md) command (about 145 MB). Press Enter to download it, or answer `n` and run `crantcli ask --download` later.
+
 ## Which token does each workflow need?
 
 | Workflow | SeaTable | CAVE |
@@ -18,6 +20,7 @@ Input is hidden while you type. The CAVE token is optional during setup, so you 
 | Check whether root IDs are current | ✓ | ✓ |
 | Show CAVE edit history | | ✓ |
 | Show combined `root-info` | ✓ | ✓ |
+| Download the `ask` model and look up table values | ✓ | |
 
 ## Non-interactive configuration
 

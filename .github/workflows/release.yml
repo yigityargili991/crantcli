@@ -56,6 +56,8 @@ jobs:
         name: Build
         env:
           CGO_ENABLED: "0"
+          # crantcli ask needs SSE (x86-64-v2) for fast inference; arm64 ignores it.
+          GOAMD64: v2
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           REF_NAME: ${{ github.ref_name }}

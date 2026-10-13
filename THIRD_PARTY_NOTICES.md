@@ -20,6 +20,9 @@ The `crantcli` release binaries include the following third-party software:
 | `golang.org/x/mod` | 0.42.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/sys` | 0.49.0 | BSD 3-Clause and Go patent grant |
 | `golang.org/x/term` | 0.47.0 | BSD 3-Clause and Go patent grant |
+| `github.com/goccy/go-llama` | 0.5.1 | MIT |
+| `github.com/goccy/llamawasm2go` | 0.4.1 | MIT |
+| llama.cpp, translated to Go inside `llamawasm2go` | build b10223 | MIT |
 
 Version 0.17.1 also embeds Sigstore verification. Its runtime dependency
 inventory is listed below; exact module versions are recorded in `go.mod`
@@ -268,6 +271,30 @@ Copyright (c) 2014 Naoya Inada <naoina@kuune.org>
 Copyright (c) 2013 Mitchell Hashimoto
 
 Copyright (c) 2021 NYU Secure Systems Lab
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## MIT License (`github.com/goccy/go-llama`, `github.com/goccy/llamawasm2go`, llama.cpp)
+
+Copyright (c) 2026 Masaaki Goshima
+
+Copyright (c) 2023-2026 The ggml authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -62,6 +62,9 @@ crantcli check-cave --all --refresh-state --state scene.json --output refreshed.
 
 # Inspect everything known about one root
 crantcli root-info 720575940610453042
+
+# Ask in plain English (experimental; prints the command and asks first)
+crantcli ask "show the PEN neurons colored by proofreading status"
 ```
 
 The [user guide](https://yigityargili991.github.io/crantcli/) explains query grouping, coloring, state resolution, CAVE freshness, labels, and troubleshooting. Flag-level pages are generated from the Cobra command tree.

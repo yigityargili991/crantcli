@@ -90,6 +90,7 @@ nav:
       - Work with states: guides/states.md
       - Check CAVE freshness: guides/cave.md
       - Label a scene: guides/labels.md
+      - Ask in plain English: guides/ask.md
   - Concepts:
       - CRANT classifications: concepts/classifications.md
       - Root IDs and CAVE: concepts/root-ids.md
@@ -98,6 +99,7 @@ nav:
       - Overview: reference/index.md
       - crantcli: reference/commands/crantcli.md
       - add: reference/commands/crantcli_add.md
+      - ask: reference/commands/crantcli_ask.md
       - cave-history: reference/commands/crantcli_cave-history.md
       - change-def-state: reference/commands/crantcli_change-def-state.md
       - check-cave: reference/commands/crantcli_check-cave.md

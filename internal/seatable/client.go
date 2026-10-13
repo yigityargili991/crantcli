@@ -40,6 +40,11 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
+// BaseID returns the UUID of the SeaTable base the token belongs to.
+func (c *Client) BaseID() string {
+	return c.dtableUUID
+}
+
 // ExecuteSQL runs a SQL query against the SeaTable base and returns results.
 func (c *Client) ExecuteSQL(sql string) (*SQLResponse, error) {
 	if c.executeSQLFunc != nil {
