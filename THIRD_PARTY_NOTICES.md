@@ -4,22 +4,22 @@ The `crantcli` release binaries include the following third-party software:
 
 | Component | Version | License |
 | --- | --- | --- |
-| Go runtime and standard library | 1.26.7 | BSD 3-Clause and Go patent grant |
+| Go runtime and standard library | 1.26.9 | BSD 3-Clause and Go patent grant |
 | `github.com/spf13/cobra` | 1.10.2 | Apache License 2.0 |
 | `github.com/spf13/pflag` | 1.0.10 | BSD 3-Clause |
 | `github.com/inconshreveable/mousetrap` | 1.1.0 | Apache License 2.0 |
 | `github.com/zalando/go-keyring` | 0.2.8 | MIT |
 | `github.com/danieljoos/wincred` | 1.2.3 | MIT |
-| `golang.design/x/clipboard` | 0.9.0 | MIT |
+| `golang.design/x/clipboard` | 0.11.0 | MIT |
 | `golang.design/x/x11` | 0.2.0 | MIT |
-| `github.com/ebitengine/purego` | 0.10.1 | Apache License 2.0 |
-| `github.com/godbus/dbus/v5` | 5.2.2 | BSD 2-Clause |
-| `golang.org/x/exp/shiny` | 0.0.0-20250606033433-dcc06ee1d476 | BSD 3-Clause |
-| `golang.org/x/image` | 0.41.0 | BSD 3-Clause and Go patent grant |
-| `golang.org/x/mobile` | 0.0.0-20250606033058-a2a15c67f36f | BSD 3-Clause and Go patent grant |
-| `golang.org/x/mod` | 0.41.0 | BSD 3-Clause and Go patent grant |
-| `golang.org/x/sys` | 0.48.0 | BSD 3-Clause and Go patent grant |
-| `golang.org/x/term` | 0.46.0 | BSD 3-Clause and Go patent grant |
+| `github.com/ebitengine/purego` | 0.11.1 | Apache License 2.0 |
+| `github.com/godbus/dbus/v5` | 5.2.3 | BSD 2-Clause |
+| `golang.org/x/exp/shiny` | 0.0.0-20261011100332-faecfb24eb49 | BSD 3-Clause |
+| `golang.org/x/image` | 0.47.0 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/mobile` | 0.0.0-20261011034528-197770444867 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/mod` | 0.42.0 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/sys` | 0.49.0 | BSD 3-Clause and Go patent grant |
+| `golang.org/x/term` | 0.47.0 | BSD 3-Clause and Go patent grant |
 
 Version 0.17.1 also embeds Sigstore verification. Its runtime dependency
 inventory is listed below; exact module versions are recorded in `go.mod`
@@ -32,8 +32,8 @@ and `go.sum`.
 | OpenAPI | `github.com/go-openapi/analysis`, `errors`, `jsonpointer`, `jsonreference`, `loads`, `runtime`, `spec`, `strfmt`, `swag` and its submodules, `validate` | Apache License 2.0; MIT for `runtime/middleware/denco` |
 | Cryptography and formats | `github.com/cyberphone/json-canonicalization`, `github.com/digitorus/pkcs7`, `github.com/digitorus/timestamp`, `github.com/opencontainers/go-digest`, `go.yaml.in/yaml/v3`, `golang.org/x/crypto` | Apache License 2.0, MIT, BSD 2-Clause, and BSD 3-Clause |
 | RPC and serialization | `github.com/grpc-ecosystem/grpc-gateway/v2`, `google.golang.org/genproto/googleapis/api`, `google.golang.org/genproto/googleapis/rpc`, `google.golang.org/grpc`, `google.golang.org/protobuf` | Apache License 2.0 and BSD 3-Clause |
-| Telemetry and storage | `go.opentelemetry.io/auto/sdk`, `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/metric`, `go.opentelemetry.io/otel/trace`, `go.mongodb.org/mongo-driver` | Apache License 2.0 |
-| Supporting libraries | `github.com/asaskevich/govalidator`, `github.com/blang/semver`, `github.com/cenkalti/backoff/v5`, `github.com/cpuguy83/go-md2man/v2`, `github.com/go-logr/logr`, `github.com/go-logr/stdr`, `github.com/go-viper/mapstructure/v2`, `github.com/google/go-containerregistry`, `github.com/google/uuid`, `github.com/oklog/ulid`, `github.com/pkg/errors`, `github.com/russross/blackfriday/v2`, `github.com/shibumi/go-pathspec` | Apache License 2.0, MIT, BSD 2-Clause, and BSD 3-Clause |
+| Telemetry and storage | `go.opentelemetry.io/auto/sdk`, `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/log`, `go.opentelemetry.io/otel/metric`, `go.opentelemetry.io/otel/trace`, `go.mongodb.org/mongo-driver` | Apache License 2.0 |
+| Supporting libraries | `github.com/asaskevich/govalidator`, `github.com/cenkalti/backoff/v5`, `github.com/cpuguy83/go-md2man/v2`, `github.com/go-logr/logr`, `github.com/go-logr/stdr`, `github.com/go-viper/mapstructure/v2`, `github.com/google/go-containerregistry`, `github.com/google/uuid`, `github.com/oklog/ulid/v2`, `github.com/pkg/errors`, `github.com/russross/blackfriday/v2`, `github.com/shibumi/go-pathspec` | Apache License 2.0, MIT, BSD 2-Clause, and BSD 3-Clause |
 | Go supplementary libraries | `golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/sync`, `golang.org/x/sys`, `golang.org/x/text` | BSD 3-Clause and Go patent grant |
 
 The applicable license and attribution texts follow.
