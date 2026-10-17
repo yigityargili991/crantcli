@@ -44,7 +44,7 @@ silently ignored.
 
 ## Default layer selection
 
-If a command edits segments and `--layer` is absent, it selects the first segmentation layer in the state. Provide the layer name when that choice would be ambiguous:
+If a command edits segments and `--layer` is absent, it selects the first segmentation layer in the state. Provide the layer name when that choice would be ambiguous. An exact name wins; otherwise a name that differs only in surrounding spaces matches, so `--layer "proofreadable seg"` finds the built-in scene's `proofreadable seg ` layer:
 
 ```bash
 crantcli add \

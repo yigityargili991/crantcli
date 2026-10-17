@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -518,7 +519,37 @@ func TestFindSegmentationLayer(t *testing.T) {
 	t.Run("name not found", func(t *testing.T) {
 		_, _, err := FindSegmentationLayer(state, "nonexistent")
 		if err == nil {
-			t.Error("expected error")
+			t.Fatal("expected error")
+		}
+		if want := `segmentation layers: "seg1", "seg2"`; !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to list %s", err, want)
+		}
+	})
+
+	t.Run("name differing only in surrounding whitespace", func(t *testing.T) {
+		// The built-in scene names its main layer "proofreadable seg ".
+		state := map[string]interface{}{
+			"layers": []interface{}{
+				map[string]interface{}{"name": "proofreadable seg ", "type": "segmentation"},
+				map[string]interface{}{"name": "other", "type": "segmentation"},
+			},
+		}
+		_, idx, err := FindSegmentationLayer(state, "proofreadable seg")
+		if err != nil || idx != 0 {
+			t.Fatalf("FindSegmentationLayer = %d, %v; want 0", idx, err)
+		}
+	})
+
+	t.Run("exact name wins over a whitespace match", func(t *testing.T) {
+		state := map[string]interface{}{
+			"layers": []interface{}{
+				map[string]interface{}{"name": "seg ", "type": "segmentation"},
+				map[string]interface{}{"name": "seg", "type": "segmentation"},
+			},
+		}
+		_, idx, err := FindSegmentationLayer(state, "seg")
+		if err != nil || idx != 1 {
+			t.Fatalf("FindSegmentationLayer = %d, %v; want 1", idx, err)
 		}
 	})
 

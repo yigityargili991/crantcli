@@ -28,6 +28,9 @@
   neurons; it wrote nothing.
 - Keep the color of a stale segment that is missing from the segment list by
   moving it to the current root.
+- Match a `--layer` name that differs only in surrounding spaces, such as the
+  built-in scene's `proofreadable seg `, and list the segmentation layers when
+  none matches.
 - Read an existing path given to `--state` as a JSON file before trying it as
   a Neuroglancer URL, as documented.
 - Repair legacy `graphene://middleauth https://` sources in state URLs when

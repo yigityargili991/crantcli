@@ -9,6 +9,9 @@ import (
 
 // FindSegmentationLayer finds the first segmentation layer in the state, or
 // one matching the given name. Returns the layer map and its index. Of course, this all is tuned to our dataset
+//
+// An exact name wins; otherwise a name that differs only in surrounding
+// whitespace matches, as the built-in scene's "proofreadable seg " does.
 func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[string]interface{}, int, error) {
 	layersRaw, ok := state["layers"]
 	if !ok {
@@ -20,6 +23,9 @@ func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[
 		return nil, -1, fmt.Errorf("'layers' is not an array")
 	}
 
+	var trimmed map[string]interface{}
+	trimmedIndex := -1
+	var names []string
 	for i, l := range layers {
 		layer, ok := l.(map[string]interface{})
 		if !ok {
@@ -31,17 +37,26 @@ func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[
 			continue
 		}
 
-		if layerName != "" {
-			name, _ := layer["name"].(string)
-			if name != layerName {
-				continue
-			}
+		if layerName == "" {
+			return layer, i, nil
 		}
-
-		return layer, i, nil
+		name, _ := layer["name"].(string)
+		if name == layerName {
+			return layer, i, nil
+		}
+		if trimmed == nil && strings.TrimSpace(name) == strings.TrimSpace(layerName) {
+			trimmed, trimmedIndex = layer, i
+		}
+		names = append(names, fmt.Sprintf("%q", name))
 	}
 
+	if trimmed != nil {
+		return trimmed, trimmedIndex, nil
+	}
 	if layerName != "" {
+		if len(names) > 0 {
+			return nil, -1, fmt.Errorf("no segmentation layer named %q found; segmentation layers: %s", layerName, strings.Join(names, ", "))
+		}
 		return nil, -1, fmt.Errorf("no segmentation layer named %q found", layerName)
 	}
 	return nil, -1, fmt.Errorf("no segmentation layer found")
