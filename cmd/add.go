@@ -160,6 +160,9 @@ func init() {
 	mustRegisterFlagCompletion(addCmd, "layer", noFileCompletion)
 
 	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if err := validateAddClassifiers(addCellClasses, addCellTypes, addCellSubtypes); err != nil {
+			return err
+		}
 		effectiveRegions, err := resolveAddRegionFilters(addRegions, addBundles)
 		if err != nil {
 			return err
@@ -547,6 +550,25 @@ func fieldSet(fields []string) map[string]bool {
 func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error {
 	if !baseFilters.HasAny() && !hasGroupFlags {
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
+	}
+	return nil
+}
+
+// Empty classifier values would create query groups with no WHERE condition.
+func validateAddClassifiers(cellClasses, cellTypes, cellSubtypes []string) error {
+	for _, dimension := range []struct {
+		flag   string
+		values []string
+	}{
+		{"--cell-class", cellClasses},
+		{"--cell-type", cellTypes},
+		{"--cell-subtype", cellSubtypes},
+	} {
+		for _, value := range dimension.values {
+			if value == "" {
+				return fmt.Errorf("%s cannot be empty", dimension.flag)
+			}
+		}
 	}
 	return nil
 }

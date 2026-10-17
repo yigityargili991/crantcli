@@ -15,6 +15,8 @@
   crantcli warns when a file's permissions cannot be changed.
 - Reject a JSON `null` state in `change-def-state`, `--state`, and piped
   input. A stored `null` default now falls back to the built-in scene.
+- Reject an empty `--cell-class`, `--cell-type`, or `--cell-subtype` value in
+  `add`; it queried every neuron.
 
 ## v0.22.0 - 2026-10-13
 
