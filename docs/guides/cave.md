@@ -81,6 +81,9 @@ the clipboard. Unlike other commands, `--refresh-state` never falls back to the
 default scene; without a state it stops before querying anything. A root that
 was split into several current roots is replaced by all of them.
 
+Labels published with `--labels` stay keyed by the old root IDs, so replaced
+segments appear without labels.
+
 ## Inspect history and metadata
 
 Show edit history:
