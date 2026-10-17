@@ -18,6 +18,13 @@ func TestShellSplit(t *testing.T) {
 		{"add --x ''", []string{"add", "--x", ""}, false},
 		{"add\t--open\n", []string{"add", "--open"}, false},
 		{"add --layer 'seg", nil, true},
+		// Outside quotes a backslash escapes the next character, as in the
+		// '\'' shellQuote writes for an apostrophe; inside quotes it is data.
+		{`add --layer 'Bob'\''s layer'`, []string{"add", "--layer", "Bob's layer"}, false},
+		{`add --layer Bob\'s\ layer`, []string{"add", "--layer", "Bob's layer"}, false},
+		{`add --layer a\\b`, []string{"add", "--layer", `a\b`}, false},
+		{`add --layer 'a\b' "c\d"`, []string{"add", "--layer", `a\b`, `c\d`}, false},
+		{`add --layer x\`, nil, true},
 	}
 	for _, tt := range tests {
 		got, err := shellSplit(tt.in)

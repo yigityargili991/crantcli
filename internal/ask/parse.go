@@ -20,15 +20,21 @@ type command struct {
 func shellSplit(s string) ([]string, error) {
 	var out []string
 	var cur strings.Builder
-	inTok, quote := false, rune(0)
+	inTok, quote, escaped := false, rune(0), false
 	for _, r := range s {
 		switch {
+		case escaped:
+			cur.WriteRune(r)
+			inTok, escaped = true, false
 		case quote != 0:
 			if r == quote {
 				quote = 0
 			} else {
 				cur.WriteRune(r)
 			}
+		case r == '\\':
+			// Outside quotes, consume an escape such as shellQuote's '\''.
+			escaped = true
 		case r == '\'' || r == '"':
 			quote, inTok = r, true
 		case r == ' ' || r == '\t' || r == '\n':
@@ -41,6 +47,9 @@ func shellSplit(s string) ([]string, error) {
 			cur.WriteRune(r)
 			inTok = true
 		}
+	}
+	if escaped {
+		return nil, errors.New("trailing escape")
 	}
 	if quote != 0 {
 		return nil, errors.New("unterminated quote")

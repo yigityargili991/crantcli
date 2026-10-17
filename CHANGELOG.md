@@ -21,6 +21,8 @@
 - Keep backslashes in a double-quoted `--labels-hook` command unless they
   escape a quote or a backslash, so quoted Windows paths such as
   `"C:\Tools\hook.exe"` work.
+- Accept `ask` suggestions whose values contain an apostrophe, such as a
+  layer named `Bob's layer`.
 
 ## v0.22.0 - 2026-10-13
 

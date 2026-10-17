@@ -202,6 +202,24 @@ func TestSuggestErrors(t *testing.T) {
 	}
 }
 
+func TestSuggestAcceptsQuotedApostrophe(t *testing.T) {
+	// The grammar offers values as shellQuote writes them, so an apostrophe
+	// arrives as '\'' and Suggest must read it back.
+	spec, v := testSpec(), testVocab()
+	quoted := shellQuote("Bob's layer")
+	m := &fakeModel{out: " add --layer " + quoted}
+	argv, err := Suggest(m, spec, v, `add a neuron to the "Bob's layer" layer`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.grammar, gLit(quoted)) {
+		t.Errorf("grammar does not offer %s:\n%s", gLit(quoted), m.grammar)
+	}
+	if want := []string{"add", "--layer", "Bob's layer"}; !reflect.DeepEqual(argv, want) {
+		t.Errorf("argv = %q, want %q", argv, want)
+	}
+}
+
 func TestLoadVocab(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ask", "vocab.json")
 	calls := 0
