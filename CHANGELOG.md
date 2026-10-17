@@ -18,6 +18,9 @@
 - Reject an empty `--cell-class`, `--cell-type`, or `--cell-subtype` value in
   `add`; it queried every neuron.
 - Reject `NaN` and infinite coordinates in `lookup-column --pos`.
+- Keep backslashes in a double-quoted `--labels-hook` command unless they
+  escape a quote or a backslash, so quoted Windows paths such as
+  `"C:\Tools\hook.exe"` work.
 
 ## v0.22.0 - 2026-10-13
 

@@ -228,7 +228,8 @@ func splitHookFields(s string) ([]string, error) {
 		haveField = false
 	}
 
-	for _, r := range s {
+	runes := []rune(s)
+	for i, r := range runes {
 		if escaped {
 			current.WriteRune(r)
 			haveField = true
@@ -241,8 +242,14 @@ func splitHookFields(s string) ([]string, error) {
 				continue
 			}
 			if quote == '"' && r == '\\' {
-				escaped = true
-				continue
+				var next rune
+				if i+1 < len(runes) {
+					next = runes[i+1]
+				}
+				if next == '"' || next == '\\' {
+					escaped = true
+					continue
+				}
 			}
 			current.WriteRune(r)
 			haveField = true
