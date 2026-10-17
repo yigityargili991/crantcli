@@ -196,10 +196,12 @@ func init() {
 			if !checkQuiet {
 				fmt.Fprintln(os.Stderr, "No neurons found matching criteria")
 			}
-			return nil
-		}
-
-		if !checkQuiet && !checkMapping {
+			// A refresh still delivers the state, unchanged, so a script gets
+			// the output it asked for.
+			if !checkRefreshState {
+				return nil
+			}
+		} else if !checkQuiet && !checkMapping {
 			fmt.Fprintf(os.Stderr, "Checking %d neurons against CAVE...\n", len(neurons))
 		}
 

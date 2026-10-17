@@ -483,6 +483,21 @@ func TestCheckCaveRefreshStateChecksLayerBeforeQuerying(t *testing.T) {
 	}
 }
 
+func TestCheckCaveRefreshStateWithoutMatchesWritesState(t *testing.T) {
+	isolateCheckCaveRun(t, func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+		return nil, nil
+	}, nil)
+	statePath := writeCheckCaveState(t, "100")
+	outPath := filepath.Join(t.TempDir(), "out.json")
+
+	if _, _, err := executeRootForTest(t, "check-cave", "--cell-type", "none", "--refresh-state", "-s", statePath, "-o", outPath); err != nil {
+		t.Fatalf("check-cave: %v", err)
+	}
+	if got := readCheckCaveSegments(t, outPath); !reflect.DeepEqual(got, []interface{}{"100"}) {
+		t.Errorf("segments = %v, want the state unchanged", got)
+	}
+}
+
 func TestCheckCaveRefreshStateAddsEveryRootOfASplit(t *testing.T) {
 	// Root 100 held two neurons; a split left each supervoxel in its own root.
 	var gotFilters *seatable.Filters
