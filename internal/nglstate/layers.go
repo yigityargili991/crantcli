@@ -1,6 +1,9 @@
 package nglstate
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // FindSegmentationLayer finds the first segmentation layer in the state, or
 // one matching the given name. Returns the layer map and its index. Of course, this all is tuned to our dataset
@@ -92,10 +95,15 @@ func ReplaceSegments(layer map[string]interface{}, mappings map[string]string) i
 			for _, s := range segs {
 				str := fmt.Sprintf("%v", s)
 				next := str
-				if mapped, ok := mappings[str]; ok {
-					next = mapped
+				prefix := ""
+				if strings.HasPrefix(str, "!") {
+					prefix = "!"
+				}
+				lookup := strings.TrimPrefix(str, "!")
+				if mapped, ok := mappings[lookup]; ok {
+					next = prefix + mapped
 					replaced++
-					migrateSegmentColor(colors, str, next)
+					migrateSegmentColor(colors, lookup, mapped)
 				}
 				if !seen[next] {
 					seen[next] = true

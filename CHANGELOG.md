@@ -8,6 +8,8 @@
   a Neuroglancer URL, as documented.
 - Repair legacy `graphene://middleauth https://` sources in state URLs when
   the layer source is an object or a list, as in the built-in CRANT scene.
+- Replace stale hidden segments (`!<root_id>`) in
+  `check-cave --refresh-state` and keep them hidden; they were left unchanged.
 
 ## v0.22.0 - 2026-10-13
 

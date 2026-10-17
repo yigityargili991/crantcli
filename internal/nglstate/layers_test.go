@@ -229,6 +229,34 @@ func TestReplaceSegments(t *testing.T) {
 			wantReplaced: 1,
 		},
 		{
+			name:         "hidden IDs keep their prefix",
+			layer:        map[string]interface{}{"segments": []interface{}{"!old1", "keep"}},
+			mappings:     map[string]string{"old1": "new1"},
+			wantSegments: []interface{}{"!new1", "keep"},
+			wantReplaced: 1,
+		},
+		{
+			name:         "hidden and visible IDs stay distinct",
+			layer:        map[string]interface{}{"segments": []interface{}{"!old1", "new1", "old1", "keep"}},
+			mappings:     map[string]string{"old1": "new1"},
+			wantSegments: []interface{}{"!new1", "new1", "keep"},
+			wantReplaced: 2,
+		},
+		{
+			name:         "unmapped hidden IDs are preserved",
+			layer:        map[string]interface{}{"segments": []interface{}{"!keep", "old1"}},
+			mappings:     map[string]string{"old1": "new1"},
+			wantSegments: []interface{}{"!keep", "new1"},
+			wantReplaced: 1,
+		},
+		{
+			name:         "only one leading bang marks a hidden ID",
+			layer:        map[string]interface{}{"segments": []interface{}{"!!old1"}},
+			mappings:     map[string]string{"old1": "new1"},
+			wantSegments: []interface{}{"!!old1"},
+			wantReplaced: 0,
+		},
+		{
 			name:         "empty mappings leave layer unchanged",
 			layer:        map[string]interface{}{"segments": []interface{}{"old1"}},
 			mappings:     map[string]string{},
@@ -289,6 +317,43 @@ func TestReplaceSegments_MigratesSegmentColors(t *testing.T) {
 	if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
 		t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
 	}
+}
+
+func TestReplaceSegments_MigratesHiddenSegmentColors(t *testing.T) {
+	// segmentColors is keyed by bare IDs, hidden segments included.
+	t.Run("color moves to the new ID", func(t *testing.T) {
+		layer := map[string]interface{}{
+			"segments": []interface{}{"!old1", "keep"},
+			"segmentColors": map[string]interface{}{
+				"old1": "#ff0000",
+				"keep": "#ffffff",
+			},
+		}
+		if got := ReplaceSegments(layer, map[string]string{"old1": "new1"}); got != 1 {
+			t.Fatalf("replaced = %d, want 1", got)
+		}
+		wantColors := map[string]interface{}{"new1": "#ff0000", "keep": "#ffffff"}
+		if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
+		}
+	})
+
+	t.Run("existing target color wins", func(t *testing.T) {
+		layer := map[string]interface{}{
+			"segments": []interface{}{"!old1", "new1"},
+			"segmentColors": map[string]interface{}{
+				"old1": "#ff0000",
+				"new1": "#00ff00",
+			},
+		}
+		if got := ReplaceSegments(layer, map[string]string{"old1": "new1"}); got != 1 {
+			t.Fatalf("replaced = %d, want 1", got)
+		}
+		wantColors := map[string]interface{}{"new1": "#00ff00"}
+		if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
+		}
+	})
 }
 
 func TestSetSegmentColor(t *testing.T) {
