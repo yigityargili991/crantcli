@@ -129,6 +129,30 @@ func publishTestModel(t *testing.T, base string) []byte {
 	return plain
 }
 
+// grammarRecorder is an ask engine that keeps the grammar it was given.
+type grammarRecorder struct{ grammar string }
+
+func (g *grammarRecorder) Complete(_, grammar string) (string, error) {
+	g.grammar = grammar
+	return " add", nil
+}
+
+func TestAskGrammarNeedsRootIDForCaveHistory(t *testing.T) {
+	// cave-history's Use reads "[root_id...]", but its Args validator requires
+	// one. check-cave's root IDs are optional: --all and filters cover the
+	// no-ID case.
+	m := &grammarRecorder{}
+	if _, err := ask.Suggest(m, ask.BuildSpec(rootCmd, "ask"), ask.NewVocab(nil), "show PEN neurons"); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if strings.Contains(m.grammar, `"cave-history"`) {
+		t.Error("grammar offers cave-history for a request without a root ID")
+	}
+	if !strings.Contains(m.grammar, `"check-cave"`) {
+		t.Error("grammar dropped check-cave, whose root IDs are optional")
+	}
+}
+
 func TestAskPrintsSuggestion(t *testing.T) {
 	_, engine := setupAskTest(t)
 	out, errOut, err := executeAsk(t, "ask", "--print", "--model", modelFile(t), "show", "PEN", "neurons")

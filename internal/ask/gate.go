@@ -247,7 +247,17 @@ func gatedArgs(c *CmdSpec, e evidence) (argRule, bool) {
 	case c.Path == "list":
 		return argRule{vals: labelFields, min: 1, max: 1}, true
 	case strings.Contains(c.ArgsUse, "root_id...]"):
-		return argRule{vals: uniq(e.ids)}, true
+		if len(e.ids) == 0 {
+			if c.ArgsMin > 0 {
+				return argRule{}, false
+			}
+			return argRule{}, true
+		}
+		min := 0
+		if c.ArgsMin > 0 {
+			min = 1
+		}
+		return argRule{vals: uniq(e.ids), min: min}, true
 	case strings.HasPrefix(c.ArgsUse, "<root_id>"):
 		if len(e.ids) == 0 {
 			return argRule{}, false

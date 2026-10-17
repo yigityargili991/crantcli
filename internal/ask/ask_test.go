@@ -74,6 +74,26 @@ func TestBuildSpec(t *testing.T) {
 	}
 }
 
+func TestBuildSpecCarriesRequiredArgs(t *testing.T) {
+	root := &cobra.Command{Use: "crantcli"}
+	runE := false
+	required := &cobra.Command{Use: "required [root_id...]", Args: cobra.MinimumNArgs(1),
+		RunE: func(*cobra.Command, []string) error { runE = true; return nil }}
+	optional := &cobra.Command{Use: "optional [root_id...]", Run: func(*cobra.Command, []string) {}}
+	root.AddCommand(required, optional)
+
+	spec := BuildSpec(root)
+	if got := findCmd(spec, "required"); got == nil || got.ArgsMin != 1 {
+		t.Errorf("required ArgsMin = %+v, want 1", got)
+	}
+	if got := findCmd(spec, "optional"); got == nil || got.ArgsMin != 0 {
+		t.Errorf("optional ArgsMin = %+v, want 0", got)
+	}
+	if runE {
+		t.Error("BuildSpec ran the command instead of inspecting its Args validator")
+	}
+}
+
 func TestRetrieve(t *testing.T) {
 	v := testVocab()
 	tests := []struct {

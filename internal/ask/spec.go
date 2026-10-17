@@ -22,6 +22,7 @@ type FlagSpec struct {
 type CmdSpec struct {
 	Path    string // "add", "labels clean"
 	ArgsUse string
+	ArgsMin int // 1 when the command's Args validator rejects zero arguments
 	Flags   []FlagSpec
 }
 
@@ -61,7 +62,7 @@ func BuildSpec(root *cobra.Command, skip ...string) []*CmdSpec {
 }
 
 func specFor(c *cobra.Command) *CmdSpec {
-	s := &CmdSpec{Path: commandPath(c)}
+	s := &CmdSpec{Path: commandPath(c), ArgsMin: minArgs(c)}
 	if parts := strings.SplitN(c.Use, " ", 2); len(parts) == 2 {
 		s.ArgsUse = strings.TrimSpace(strings.ReplaceAll(parts[1], "[flags]", ""))
 	}
@@ -73,6 +74,16 @@ func specFor(c *cobra.Command) *CmdSpec {
 			Default: f.DefValue, Field: classificationFlags[f.Name]})
 	})
 	return s
+}
+
+// minArgs reports whether the command's Args validator requires at least one
+// positional argument. Validators only inspect the command and arguments, so
+// calling one with no arguments is safe; RunE is never called.
+func minArgs(c *cobra.Command) int {
+	if c.Args != nil && c.Args(c, nil) != nil {
+		return 1
+	}
+	return 0
 }
 
 // commandPath is the command's path below the root ("labels clean").

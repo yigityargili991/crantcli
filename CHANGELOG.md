@@ -23,6 +23,8 @@
   `"C:\Tools\hook.exe"` work.
 - Accept `ask` suggestions whose values contain an apostrophe, such as a
   layer named `Bob's layer`.
+- Stop `ask` from suggesting `cave-history` without a root ID, which the
+  command requires.
 
 ## v0.22.0 - 2026-10-13
 
