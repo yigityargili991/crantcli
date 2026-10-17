@@ -47,10 +47,27 @@ func RootCommand() *cobra.Command {
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		if !errors.Is(err, errStaleFound) {
-			fmt.Fprintln(os.Stderr, err)
-		}
-		os.Exit(1)
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil && !errors.Is(err, errStaleFound) {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	if code := exitCode(cmd, err); code != 0 {
+		os.Exit(code)
+	}
+}
+
+// exitCode maps a command's result to the process exit status. check-cave
+// --quiet answers "stale root IDs found" with 1, so check-cave failures use 2
+// to stay distinguishable from that answer.
+func exitCode(cmd *cobra.Command, err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, errStaleFound):
+		return 1
+	case cmd == checkCaveCmd:
+		return 2
+	default:
+		return 1
 	}
 }

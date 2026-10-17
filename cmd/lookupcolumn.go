@@ -120,6 +120,9 @@ func parsePos(s string) (float64, float64, float64, error) {
 		if err != nil {
 			return 0, 0, 0, posErr
 		}
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, 0, 0, posErr
+		}
 		coords[i] = f
 	}
 	return coords[0], coords[1], coords[2], nil

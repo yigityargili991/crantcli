@@ -46,6 +46,11 @@ For automation, quiet mode prints only stale entries and exits with status `1` w
 crantcli check-cave --all --quiet
 ```
 
+Any failure exits with status `2` instead, including a root that could not be
+checked, for example because CAVE rejected the token. A script can therefore
+tell stale roots from an incomplete check. Without `--quiet`, stale roots still
+exit with `0`.
+
 ## Refresh a Neuroglancer state
 
 Replace stale segment IDs while leaving current and unrelated IDs intact:
@@ -70,6 +75,14 @@ crantcli check-cave \
 ```
 
 When combining `--mapping` with `--refresh-state`, provide `--output` so mapping text and state JSON do not share standard output.
+
+The state comes from `--state`, piped standard input, or a Neuroglancer URL on
+the clipboard. Unlike other commands, `--refresh-state` never falls back to the
+default scene; without a state it stops before querying anything. A root that
+was split into several current roots is replaced by all of them.
+
+Labels published with `--labels` stay keyed by the old root IDs, so replaced
+segments appear without labels.
 
 ## Inspect history and metadata
 

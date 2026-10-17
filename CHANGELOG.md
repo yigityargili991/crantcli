@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Exit with status 2 when `check-cave` fails or cannot check a root, so
+  scripts can tell an incomplete check from stale roots (status 1 with
+  `--quiet`). A root that could not be checked, for example because CAVE
+  rejected the token, now fails the command instead of exiting with 0.
+- Read the state and find the layer before `check-cave --refresh-state`
+  queries anything, and stop with an error when `--state`, piped input, and
+  the clipboard provide no state instead of refreshing the default scene.
+
+### Fixed
+
+- Report a supervoxel that CAVE cannot resolve as an error in `check-cave`.
+  With more than 10 neurons, CAVE's `0` answer read as a stale root, so
+  `--mapping` printed `0` and `--refresh-state` replaced the neuron with
+  segment 0.
+- Replace a split root with all of its current roots in
+  `check-cave --refresh-state`; only one was kept. Root ID arguments now check
+  every row stored under the root, in one query.
+- Match stored root IDs that carry surrounding whitespace or leading zeros in
+  `check-cave --mapping` and `--refresh-state`, and accept supervoxel IDs with
+  surrounding whitespace, as `root-info` does.
+- Write the unchanged state when `check-cave --refresh-state` matches no
+  neurons; it wrote nothing.
+- Keep the color of a stale segment that is missing from the segment list by
+  moving it to the current root.
+- Match a `--layer` name that differs only in surrounding spaces, such as the
+  built-in scene's `proofreadable seg `, and list the segmentation layers when
+  none matches.
+- Reject an empty filter value in `check-cave`; with `--all` it checked every
+  neuron.
+- Neutralize control characters in `check-cave` error lines, which echoed root
+  IDs from SeaTable unescaped.
+- Read an existing path given to `--state` as a JSON file before trying it as
+  a Neuroglancer URL, as documented.
+- Repair legacy `graphene://middleauth https://` sources in state URLs when
+  the layer source is an object or a list, as in the built-in CRANT scene.
+- Replace stale hidden segments (`!<root_id>`) in
+  `check-cave --refresh-state` and keep them hidden; they were left unchanged.
+- Restrict an existing `--output` file or custom default state to owner-only
+  permissions (0600) when overwriting it, as already done for new files.
+  crantcli warns when a file's permissions cannot be changed.
+- Reject a JSON `null` state in `change-def-state`, `--state`, and piped
+  input. A stored `null` default now falls back to the built-in scene.
+- Reject an empty `--cell-class`, `--cell-type`, or `--cell-subtype` value in
+  `add`; it queried every neuron.
+- Reject `NaN` and infinite coordinates in `lookup-column --pos`.
+- Keep backslashes in a double-quoted `--labels-hook` command unless they
+  escape a quote or a backslash, so quoted Windows paths such as
+  `"C:\Tools\hook.exe"` work.
+- Accept `ask` suggestions whose values contain an apostrophe, such as a
+  layer named `Bob's layer`.
+- Stop `ask` from suggesting `cave-history` without a root ID, which the
+  command requires.
+
 ## v0.22.0 - 2026-10-13
 
 ### Added

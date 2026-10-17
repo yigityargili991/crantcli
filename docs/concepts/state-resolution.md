@@ -39,9 +39,12 @@ silently ignored.
 !!! note
     `state-transfer` intentionally treats the clipboard as a list of IDs, so it uses an explicit base state or a default template instead of trying to decode those IDs as a URL.
 
+!!! note
+    `check-cave --refresh-state` updates a state you supply, so it stops at the clipboard step: without `--state`, piped JSON, or a clipboard URL it reports an error instead of using a default.
+
 ## Default layer selection
 
-If a command edits segments and `--layer` is absent, it selects the first segmentation layer in the state. Provide the layer name when that choice would be ambiguous:
+If a command edits segments and `--layer` is absent, it selects the first segmentation layer in the state. Provide the layer name when that choice would be ambiguous. An exact name wins; otherwise a name that differs only in surrounding spaces matches, so `--layer "proofreadable seg"` finds the built-in scene's `proofreadable seg ` layer:
 
 ```bash
 crantcli add \

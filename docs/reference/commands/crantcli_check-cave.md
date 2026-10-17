@@ -10,6 +10,9 @@ chunkedgraph by looking up each neuron's supervoxel_id.
 Supervoxel IDs are stable, but root IDs can change when proofreading edits
 (merges/splits) happen in CAVE. This command detects stale root IDs.
 
+The exit status is 0 on success, 1 when --quiet finds stale root IDs, and 2
+when the command fails or any root ID cannot be checked.
+
 ```
 crantcli check-cave [root_id...] [flags]
 ```
@@ -57,7 +60,7 @@ crantcli check-cave [root_id...] [flags]
       --refresh-state         Replace stale segment IDs in a Neuroglancer state with current CAVE root IDs
       --region string         Filter by region
       --side string           Filter by side
-  -s, --state string          Neuroglancer state (URL or file path) for --refresh-state
+  -s, --state string          Neuroglancer state (URL or file path) for --refresh-state (default: piped stdin, then a clipboard URL)
       --super-class string    Filter by super_class
       --tract string          Filter by tract
 ```

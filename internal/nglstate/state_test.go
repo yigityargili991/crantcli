@@ -52,6 +52,33 @@ func TestLoadState_PrefersExistingFileEvenIfNameLooksLikeURL(t *testing.T) {
 	}
 }
 
+func TestLoadState_PrefersExistingPathSpelledAsURL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot represent a relative path containing ':' and '//'")
+	}
+
+	root := t.TempDir()
+	statePath := filepath.Join(root, "https:", "neuroglancer", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatalf("create fixture directory: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"from":"file"}`), 0o600); err != nil {
+		t.Fatalf("write fixture state: %v", err)
+	}
+	t.Chdir(root)
+
+	result, err := LoadState("https://neuroglancer/state.json", false)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if result.Source != SourceFile {
+		t.Fatalf("source = %q, want %q", result.Source, SourceFile)
+	}
+	if got := result.State["from"]; got != "file" {
+		t.Fatalf("state from = %#v, want file", got)
+	}
+}
+
 func TestLoadStateFromURL(t *testing.T) {
 	const stateURL = `https://example.org/#!{"layers":[],"position":[1,2,3]}`
 
@@ -67,6 +94,23 @@ func TestLoadStateFromURL(t *testing.T) {
 	}
 	if _, ok := result.State["position"]; !ok {
 		t.Fatal("decoded state is missing position")
+	}
+}
+
+func TestLoadStateFromLongURL(t *testing.T) {
+	// A path component longer than the filesystem allows fails the file read
+	// with ENAMETOOLONG, not "not exist"; the URL must still be decoded.
+	stateURL := `https://example.org/#!{"from":"url","padding":"` + strings.Repeat("a", 300) + `"}`
+
+	result, err := LoadState(stateURL, false)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if result.Source != SourceURL {
+		t.Fatalf("source = %q, want %q", result.Source, SourceURL)
+	}
+	if got := result.State["from"]; got != "url" {
+		t.Fatalf("state from = %#v, want url", got)
 	}
 }
 
@@ -160,6 +204,58 @@ func TestLoadStateClipboardDiagnostics(t *testing.T) {
 	})
 }
 
+func TestLoadInputStateRefusesDefaults(t *testing.T) {
+	previousRead := stateClipboardRead
+	previousWarnings := stateWarningWriter
+	previousCachePath := testCachePath
+	var warnings bytes.Buffer
+	stateWarningWriter = &warnings
+	testCachePath = t.TempDir()
+	replaceStdin(t, "")
+	t.Cleanup(func() {
+		stateClipboardRead = previousRead
+		stateWarningWriter = previousWarnings
+		testCachePath = previousCachePath
+	})
+	// A configured default must not stand in for the user's state either.
+	if err := WriteDefaultState([]byte(`{"layers":[],"custom":true}`)); err != nil {
+		t.Fatalf("WriteDefaultState: %v", err)
+	}
+
+	tests := []struct {
+		name, clip string
+		clipErr    error
+		wantErr    string
+	}{
+		{"clipboard without a URL", "576460752669867599", nil, "no state given"},
+		{"clipboard unavailable", "", errors.New("no desktop"), "clipboard input unavailable: no desktop"},
+		{"viewer URL without a state fragment", "https://spelunker.cave-explorer.org/", nil, "without a state fragment"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warnings.Reset()
+			stateClipboardRead = func() (string, error) { return tt.clip, tt.clipErr }
+			result, err := LoadInputState("")
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("LoadInputState() = %+v, %v; want error containing %q", result, err, tt.wantErr)
+			}
+			if warnings.Len() != 0 {
+				t.Errorf("unexpected warning %q", warnings.String())
+			}
+		})
+	}
+
+	t.Run("clipboard state loads", func(t *testing.T) {
+		stateClipboardRead = func() (string, error) {
+			return "https://spelunker.cave-explorer.org/#!%7B%22layers%22:[]%7D", nil
+		}
+		result, err := LoadInputState("")
+		if err != nil || result.Source != SourceClipboard {
+			t.Fatalf("LoadInputState() = %+v, %v; want clipboard state", result, err)
+		}
+	})
+}
+
 func TestLoadStateUsesCustomDefault(t *testing.T) {
 	previousCachePath := testCachePath
 	testCachePath = t.TempDir()
@@ -183,10 +279,56 @@ func TestLoadStateUsesCustomDefault(t *testing.T) {
 	}
 }
 
+func TestLoadStateIgnoresNullCustomDefault(t *testing.T) {
+	previousCachePath := testCachePath
+	testCachePath = t.TempDir()
+	t.Cleanup(func() {
+		testCachePath = previousCachePath
+	})
+	replaceStdin(t, "")
+
+	// Older change-def-state versions could store "null"; it must not stand
+	// in for the built-in scene.
+	if err := WriteDefaultState([]byte("null\n")); err != nil {
+		t.Fatalf("WriteDefaultState: %v", err)
+	}
+	result, err := LoadState("", true)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if result.Source != SourceTemplate {
+		t.Fatalf("source = %q, want %q", result.Source, SourceTemplate)
+	}
+	if _, ok := result.State["layers"]; !ok {
+		t.Fatal("LoadState did not fall back to the built-in scene")
+	}
+}
+
+func TestLoadStateRejectsNullStdin(t *testing.T) {
+	replaceStdin(t, "null\n")
+
+	_, err := LoadState("", true)
+	if err == nil || !strings.Contains(err.Error(), "parsing stdin") {
+		t.Fatalf("LoadState() error = %v, want parsing stdin error", err)
+	}
+}
+
 func TestLoadStateExplicitInputErrors(t *testing.T) {
 	t.Run("invalid file JSON", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "state.json")
 		if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+			t.Fatalf("write state: %v", err)
+		}
+
+		_, err := LoadState(path, false)
+		if err == nil || !strings.Contains(err.Error(), "parsing state file") {
+			t.Fatalf("LoadState() error = %v, want parsing state file error", err)
+		}
+	})
+
+	t.Run("null file state", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		if err := os.WriteFile(path, []byte("null\n"), 0o600); err != nil {
 			t.Fatalf("write state: %v", err)
 		}
 

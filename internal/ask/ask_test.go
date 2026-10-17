@@ -74,6 +74,26 @@ func TestBuildSpec(t *testing.T) {
 	}
 }
 
+func TestBuildSpecCarriesRequiredArgs(t *testing.T) {
+	root := &cobra.Command{Use: "crantcli"}
+	runE := false
+	required := &cobra.Command{Use: "required [root_id...]", Args: cobra.MinimumNArgs(1),
+		RunE: func(*cobra.Command, []string) error { runE = true; return nil }}
+	optional := &cobra.Command{Use: "optional [root_id...]", Run: func(*cobra.Command, []string) {}}
+	root.AddCommand(required, optional)
+
+	spec := BuildSpec(root)
+	if got := findCmd(spec, "required"); got == nil || got.ArgsMin != 1 {
+		t.Errorf("required ArgsMin = %+v, want 1", got)
+	}
+	if got := findCmd(spec, "optional"); got == nil || got.ArgsMin != 0 {
+		t.Errorf("optional ArgsMin = %+v, want 0", got)
+	}
+	if runE {
+		t.Error("BuildSpec ran the command instead of inspecting its Args validator")
+	}
+}
+
 func TestRetrieve(t *testing.T) {
 	v := testVocab()
 	tests := []struct {
@@ -199,6 +219,24 @@ func TestSuggestErrors(t *testing.T) {
 	}
 	if _, err := Suggest(&fakeModel{}, spec, v, "  "); err == nil {
 		t.Error("expected an error for an empty request")
+	}
+}
+
+func TestSuggestAcceptsQuotedApostrophe(t *testing.T) {
+	// The grammar offers values as shellQuote writes them, so an apostrophe
+	// arrives as '\'' and Suggest must read it back.
+	spec, v := testSpec(), testVocab()
+	quoted := shellQuote("Bob's layer")
+	m := &fakeModel{out: " add --layer " + quoted}
+	argv, err := Suggest(m, spec, v, `add a neuron to the "Bob's layer" layer`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.grammar, gLit(quoted)) {
+		t.Errorf("grammar does not offer %s:\n%s", gLit(quoted), m.grammar)
+	}
+	if want := []string{"add", "--layer", "Bob's layer"}; !reflect.DeepEqual(argv, want) {
+		t.Errorf("argv = %q, want %q", argv, want)
 	}
 }
 

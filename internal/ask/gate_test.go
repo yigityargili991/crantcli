@@ -56,6 +56,8 @@ func TestGatedArgs(t *testing.T) {
 		{"list field", CmdSpec{Path: "list", ArgsUse: "<field>"}, without, argRule{vals: labelFields, min: 1, max: 1}, true},
 		{"many ids", CmdSpec{Path: "check-cave", ArgsUse: "[root_id...]"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}}, true},
 		{"many ids, none given", CmdSpec{Path: "check-cave", ArgsUse: "[root_id...]"}, without, argRule{}, true},
+		{"required many ids", CmdSpec{Path: "cave-history", ArgsUse: "[root_id...]", ArgsMin: 1}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1}, true},
+		{"required many ids, none given", CmdSpec{Path: "cave-history", ArgsUse: "[root_id...]", ArgsMin: 1}, without, argRule{}, false},
 		{"required id", CmdSpec{Path: "root-info", ArgsUse: "<root_id>"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1, max: 1}, true},
 		{"required id missing", CmdSpec{Path: "root-info", ArgsUse: "<root_id>"}, without, argRule{}, false},
 		{"optional id", CmdSpec{Path: "lookup-column", ArgsUse: "[root_id]"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, max: 1}, true},
@@ -81,6 +83,9 @@ func TestGrammarArgs(t *testing.T) {
 	}
 	if got := grammarArgs(g, argRule{vals: []string{"x"}}); got != one+"{0,4}" {
 		t.Errorf("repeated arg = %q", got)
+	}
+	if got := grammarArgs(g, argRule{vals: []string{"x"}, min: 1}); got != one+"{1,4}" {
+		t.Errorf("required repeated arg = %q", got)
 	}
 	if !slices.Contains(g.rules, one+` ::= " " ( "x" )`) {
 		t.Errorf("rules = %q", g.rules)

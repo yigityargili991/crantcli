@@ -477,6 +477,81 @@ func TestValidateAddInputs(t *testing.T) {
 	}
 }
 
+func TestAddClassifierValidation(t *testing.T) {
+	tests := []struct {
+		name            string
+		apply           func()
+		wantErr         bool
+		wantCellType    string
+		wantCellSubtype string
+	}{
+		// An empty value still counts as a group flag, but its query group has
+		// no WHERE condition and would match every neuron.
+		{name: "empty cell class", apply: func() { addCellClasses = []string{""} }, wantErr: true},
+		{name: "empty cell type", apply: func() { addCellTypes = []string{""} }, wantErr: true},
+		{name: "empty cell subtype", apply: func() { addCellSubtypes = []string{""} }, wantErr: true},
+		{name: "mixed empty and valid values", apply: func() { addCellTypes = []string{"", "ER"} }, wantErr: true},
+		{
+			name: "empty classifier with base filter",
+			apply: func() {
+				addSide = "left"
+				addCellClasses = []string{""}
+			},
+			wantErr: true,
+		},
+		{name: "valid classifier", apply: func() { addCellTypes = []string{"ER"} }, wantCellType: "ER"},
+		{name: "whitespace classifier keeps its SQL predicate", apply: func() { addCellSubtypes = []string{" "} }, wantCellSubtype: " "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateAddCommandRun(t)
+			// The helper's default region would make the base filters
+			// non-empty on its own.
+			addRegions = nil
+			addBundles = nil
+			addRootIDsOnly = true
+			tt.apply()
+
+			clientCreated := false
+			addNewClient = func() (*seatable.Client, error) {
+				clientCreated = true
+				return &seatable.Client{}, nil
+			}
+			var got *seatable.Filters
+			addQueryNeurons = func(_ *seatable.Client, filters *seatable.Filters) ([]seatable.NeuronRow, error) {
+				copied := *filters
+				got = &copied
+				return nil, nil
+			}
+
+			err := addCmd.RunE(addCmd, nil)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("the run accepted an empty classifier value")
+				}
+				if clientCreated {
+					t.Error("the run created a SeaTable client before rejecting the empty classifier")
+				}
+				if got != nil {
+					t.Fatalf("the run queried SeaTable with filters %+v", *got)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("the run rejected a valid classifier: %v", err)
+			}
+			if got == nil {
+				t.Fatal("the run did not query SeaTable")
+			}
+			if got.CellType != tt.wantCellType || got.CellSubtype != tt.wantCellSubtype {
+				t.Fatalf("query filters = %+v, want cell_type %q and cell_subtype %q", *got, tt.wantCellType, tt.wantCellSubtype)
+			}
+		})
+	}
+}
+
 func TestBuildColorByGroups(t *testing.T) {
 	rows := []seatable.NeuronRow{
 		{RootID: "100", CellType: "ER", Side: "left"},

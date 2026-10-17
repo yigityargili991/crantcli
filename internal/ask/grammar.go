@@ -80,6 +80,8 @@ func grammarArgs(g *gbnf, a argRule) string {
 		return one
 	case a.max == 1:
 		return one + "?"
+	case a.min == 1:
+		return one + "{1,4}"
 	default:
 		return one + "{0,4}"
 	}

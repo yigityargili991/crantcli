@@ -180,14 +180,16 @@ The hosted label source was probably cleaned up. Cleaning a gist or custom sourc
 
 ## `check-cave --quiet` exits with status 1
 
-This is expected when stale root IDs are found. Quiet mode is designed for scripts:
+This is expected when stale root IDs are found. Quiet mode is designed for scripts,
+and uses status `2` when the check fails or a root cannot be checked:
 
 ```bash
-if crantcli check-cave --all --quiet; then
-  echo "All checked roots are current"
-else
-  echo "At least one checked root is stale"
-fi
+crantcli check-cave --all --quiet
+case $? in
+  0) echo "All checked roots are current" ;;
+  1) echo "At least one checked root is stale" ;;
+  *) echo "The check failed or is incomplete" ;;
+esac
 ```
 
 ## A piped command ignores the clipboard or `--generate`

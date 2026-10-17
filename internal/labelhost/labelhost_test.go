@@ -213,6 +213,43 @@ func TestPublishHook_QuotedCommand(t *testing.T) {
 	}
 }
 
+func TestSplitHookFields(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"single quotes are literal", `'a\b'`, []string{`a\b`}},
+		{"single quotes group words", `'two words'`, []string{"two words"}},
+		{"escaped space unquoted", `escaped\ space`, []string{"escaped space"}},
+		{"escaped quote in double quotes", `"a \"b\" c"`, []string{`a "b" c`}},
+		{"escaped backslash in double quotes", `"a \\ b"`, []string{`a \ b`}},
+		// Inside double quotes a backslash escapes only '"' or '\', so a quoted
+		// Windows path keeps its separators.
+		{"Windows path in double quotes", `"C:\Tools\label hook.exe" --flag`, []string{`C:\Tools\label hook.exe`, "--flag"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := splitHookFields(tt.in)
+			if err != nil {
+				t.Fatalf("splitHookFields(%q): %v", tt.in, err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("splitHookFields(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitHookFieldsUnterminatedQuote(t *testing.T) {
+	// In `"abc\"` the last quote is escaped, so the field never closes.
+	for _, in := range []string{`"unterminated`, `'unterminated`, `"abc\"`} {
+		if _, err := splitHookFields(in); err == nil || !strings.Contains(err.Error(), "unterminated quote") {
+			t.Errorf("splitHookFields(%q) error = %v, want unterminated quote", in, err)
+		}
+	}
+}
+
 func TestPublishHook_BadOutput(t *testing.T) {
 	withManifest(t, time.Now())
 	run = func([]byte, string, ...string) ([]byte, error) { return []byte("not json"), nil }

@@ -30,7 +30,7 @@ crantcli root-info ROOT_ID
 
 ## Refreshing a scene
 
-`check-cave --refresh-state` replaces stale stored roots with their current CAVE roots in a selected segmentation layer. It does not update the CRANT table.
+`check-cave --refresh-state` replaces stale stored roots with their current CAVE roots in a selected segmentation layer. A root split into several current roots is replaced by all of them. It does not update the CRANT table.
 
 ```bash
 crantcli check-cave \

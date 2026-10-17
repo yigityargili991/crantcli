@@ -57,7 +57,7 @@ func WriteDefaultState(jsonData []byte) error {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, jsonData, 0o600); err != nil {
+	if err := writeFile0600(path, jsonData); err != nil {
 		return fmt.Errorf("writing default state: %w", err)
 	}
 	return nil

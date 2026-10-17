@@ -1,9 +1,17 @@
 package nglstate
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+)
 
 // FindSegmentationLayer finds the first segmentation layer in the state, or
 // one matching the given name. Returns the layer map and its index. Of course, this all is tuned to our dataset
+//
+// An exact name wins; otherwise a name that differs only in surrounding
+// whitespace matches, as the built-in scene's "proofreadable seg " does.
 func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[string]interface{}, int, error) {
 	layersRaw, ok := state["layers"]
 	if !ok {
@@ -15,6 +23,9 @@ func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[
 		return nil, -1, fmt.Errorf("'layers' is not an array")
 	}
 
+	var trimmed map[string]interface{}
+	trimmedIndex := -1
+	var names []string
 	for i, l := range layers {
 		layer, ok := l.(map[string]interface{})
 		if !ok {
@@ -26,17 +37,26 @@ func FindSegmentationLayer(state map[string]interface{}, layerName string) (map[
 			continue
 		}
 
-		if layerName != "" {
-			name, _ := layer["name"].(string)
-			if name != layerName {
-				continue
-			}
+		if layerName == "" {
+			return layer, i, nil
 		}
-
-		return layer, i, nil
+		name, _ := layer["name"].(string)
+		if name == layerName {
+			return layer, i, nil
+		}
+		if trimmed == nil && strings.TrimSpace(name) == strings.TrimSpace(layerName) {
+			trimmed, trimmedIndex = layer, i
+		}
+		names = append(names, fmt.Sprintf("%q", name))
 	}
 
+	if trimmed != nil {
+		return trimmed, trimmedIndex, nil
+	}
 	if layerName != "" {
+		if len(names) > 0 {
+			return nil, -1, fmt.Errorf("no segmentation layer named %q found; segmentation layers: %s", layerName, strings.Join(names, ", "))
+		}
 		return nil, -1, fmt.Errorf("no segmentation layer named %q found", layerName)
 	}
 	return nil, -1, fmt.Errorf("no segmentation layer found")
@@ -76,14 +96,21 @@ func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
 }
 
 // ReplaceSegments replaces segment IDs that appear in mappings and deduplicates
-// the final segment list while preserving the first-seen order.
-func ReplaceSegments(layer map[string]interface{}, mappings map[string]string) int {
+// the final segment list while preserving the first-seen order. A root split
+// into several current roots maps to all of them, and each takes its place.
+func ReplaceSegments(layer map[string]interface{}, mappings map[string][]string) int {
 	if len(mappings) == 0 {
 		return 0
 	}
 
 	var segments []string
 	seen := make(map[string]bool)
+	appendSegment := func(id string) {
+		if !seen[id] {
+			seen[id] = true
+			segments = append(segments, id)
+		}
+	}
 	replaced := 0
 	colors := segmentColors(layer)
 
@@ -91,21 +118,26 @@ func ReplaceSegments(layer map[string]interface{}, mappings map[string]string) i
 		if segs, ok := segsRaw.([]interface{}); ok {
 			for _, s := range segs {
 				str := fmt.Sprintf("%v", s)
-				next := str
-				if mapped, ok := mappings[str]; ok {
-					next = mapped
-					replaced++
-					migrateSegmentColor(colors, str, next)
+				prefix := ""
+				if strings.HasPrefix(str, "!") {
+					prefix = "!"
 				}
-				if !seen[next] {
-					seen[next] = true
-					segments = append(segments, next)
+				lookup := strings.TrimPrefix(str, "!")
+				mapped, ok := mappings[lookup]
+				if !ok {
+					appendSegment(str)
+					continue
+				}
+				replaced++
+				for _, id := range mapped {
+					migrateSegmentColor(colors, lookup, id)
+					appendSegment(prefix + id)
 				}
 			}
 		}
 	}
 
-	removeMappedSegmentColors(colors, mappings)
+	moveMappedSegmentColors(colors, mappings)
 	layer["segments"] = toInterfaceSlice(segments)
 	return replaced
 }
@@ -132,11 +164,17 @@ func migrateSegmentColor(colors map[string]interface{}, oldID, newID string) {
 	}
 }
 
-func removeMappedSegmentColors(colors map[string]interface{}, mappings map[string]string) {
+// moveMappedSegmentColors moves the colors of mapped IDs that the segment list
+// did not hold, then drops every mapped ID's color. Sorting keeps the result
+// independent of map order when two old IDs share a new one.
+func moveMappedSegmentColors(colors map[string]interface{}, mappings map[string][]string) {
 	if colors == nil {
 		return
 	}
-	for oldID := range mappings {
+	for _, oldID := range slices.Sorted(maps.Keys(mappings)) {
+		for _, newID := range mappings[oldID] {
+			migrateSegmentColor(colors, oldID, newID)
+		}
 		delete(colors, oldID)
 	}
 }
