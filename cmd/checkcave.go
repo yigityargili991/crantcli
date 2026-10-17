@@ -248,15 +248,14 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 		results[i] = checkResult{
 			RootID:       n.RootID,
 			SupervoxelID: n.SupervoxelID,
+			CaveRootID:   "-",
 		}
 		if n.SupervoxelID == "" {
-			results[i].CaveRootID = "-"
 			results[i].Status = statusNoSupervoxel
 			continue
 		}
 		svID, err := strconv.ParseUint(n.SupervoxelID, 10, 64)
 		if err != nil {
-			results[i].CaveRootID = "-"
 			results[i].Status = statusError
 			results[i].Err = fmt.Errorf("invalid supervoxel_id %q: %w", n.SupervoxelID, err)
 			continue
@@ -264,7 +263,6 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 		// Parse as uint64 to compare numerically (avoids leading-zero/whitespace mismatches).
 		rootID, err := strconv.ParseUint(strings.TrimSpace(n.RootID), 10, 64)
 		if err != nil {
-			results[i].CaveRootID = "-"
 			results[i].Status = statusError
 			results[i].Err = fmt.Errorf("invalid root_id %q: %w", n.RootID, err)
 			continue
@@ -276,12 +274,20 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 		return results, nil
 	}
 
-	setResult := func(idx int, caveRoot, storedRoot uint64) {
-		results[idx].CaveRootID = strconv.FormatUint(caveRoot, 10)
-		if storedRoot == caveRoot {
-			results[idx].Status = statusOK
+	setResult := func(item indexed, caveRoot uint64) {
+		// CAVE's batch endpoint answers 0 for a supervoxel it cannot resolve.
+		// No root is 0 or equal to one of its own supervoxels, so either means
+		// the lookup failed, not that the root changed.
+		if caveRoot == 0 || caveRoot == item.svID {
+			results[item.idx].Status = statusError
+			results[item.idx].Err = fmt.Errorf("CAVE has no root for supervoxel %d", item.svID)
+			return
+		}
+		results[item.idx].CaveRootID = strconv.FormatUint(caveRoot, 10)
+		if item.rootID == caveRoot {
+			results[item.idx].Status = statusOK
 		} else {
-			results[idx].Status = statusStale
+			results[item.idx].Status = statusStale
 		}
 	}
 
@@ -289,12 +295,11 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 		for _, item := range withSV {
 			caveRoot, err := caveClient.GetRootID(item.svID)
 			if err != nil {
-				results[item.idx].CaveRootID = "-"
 				results[item.idx].Status = statusError
 				results[item.idx].Err = err
 				continue
 			}
-			setResult(item.idx, caveRoot, item.rootID)
+			setResult(item, caveRoot)
 		}
 	} else {
 		svIDs := make([]uint64, len(withSV))
@@ -309,7 +314,7 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 			return nil, fmt.Errorf("CAVE returned %d root IDs for %d supervoxels", len(caveRoots), len(svIDs))
 		}
 		for i, item := range withSV {
-			setResult(item.idx, caveRoots[i], item.rootID)
+			setResult(item, caveRoots[i])
 		}
 	}
 

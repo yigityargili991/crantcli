@@ -5,13 +5,46 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"crantcli/internal/cave"
 	"crantcli/internal/seatable"
 )
+
+// fakeCAVE serves CAVE's single and batch root lookups from resolve.
+func fakeCAVE(t *testing.T, resolve func(sv uint64) uint64) *cave.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/roots_binary") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			out := make([]byte, len(body))
+			for i := 0; i+8 <= len(body); i += 8 {
+				binary.LittleEndian.PutUint64(out[i:], resolve(binary.LittleEndian.Uint64(body[i:])))
+			}
+			w.Write(out)
+			return
+		}
+		// .../node/<supervoxel>/root
+		parts := strings.Split(r.URL.Path, "/")
+		sv, err := strconv.ParseUint(parts[len(parts)-2], 10, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		fmt.Fprintf(w, `{"root_id": %d}`, resolve(sv))
+	}))
+	t.Cleanup(srv.Close)
+	return cave.NewTestClient(srv.URL, srv.Client())
+}
 
 func TestCheckNeurons_SingleOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -238,5 +271,46 @@ func TestCheckNeurons_BatchMode(t *testing.T) {
 		if r.Status != statusOK {
 			t.Errorf("results[%d].Status = %q, want %s", i, r.Status, statusOK)
 		}
+	}
+}
+
+func TestCheckNeurons_UnresolvedSupervoxelIsAnError(t *testing.T) {
+	// CAVE's batch endpoint answers 0 for a supervoxel it cannot resolve. A
+	// root of 0, or one equal to the supervoxel, is a failed lookup and must
+	// not read as a root that changed.
+	resolve := func(sv uint64) uint64 {
+		switch sv {
+		case 100:
+			return 0
+		case 101:
+			return 101
+		default:
+			return sv + 1000
+		}
+	}
+	for _, n := range []int{2, batchThreshold + 1} {
+		t.Run(fmt.Sprintf("%d neurons", n), func(t *testing.T) {
+			neurons := make([]seatable.NeuronCaveCheckRow, n)
+			for i := range neurons {
+				neurons[i] = seatable.NeuronCaveCheckRow{RootID: fmt.Sprint(1100 + i), SupervoxelID: fmt.Sprint(100 + i)}
+			}
+			results, err := checkNeurons(fakeCAVE(t, resolve), neurons)
+			if err != nil {
+				t.Fatalf("checkNeurons: %v", err)
+			}
+			for _, r := range results[:2] {
+				if r.Status != statusError || r.CaveRootID != "-" || r.Err == nil {
+					t.Errorf("result %+v, want an error without a CAVE root", r)
+				}
+			}
+			for _, r := range results[2:] {
+				if r.Status != statusOK {
+					t.Errorf("result %+v, want ok", r)
+				}
+			}
+			if got := staleRootMappings(results); len(got) != 0 {
+				t.Errorf("mappings = %v, want none", got)
+			}
+		})
 	}
 }

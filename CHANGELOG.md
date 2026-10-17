@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Report a supervoxel that CAVE cannot resolve as an error in `check-cave`.
+  With more than 10 neurons, CAVE's `0` answer read as a stale root, so
+  `--mapping` printed `0` and `--refresh-state` replaced the neuron with
+  segment 0.
 - Read an existing path given to `--state` as a JSON file before trying it as
   a Neuroglancer URL, as documented.
 - Repair legacy `graphene://middleauth https://` sources in state URLs when
