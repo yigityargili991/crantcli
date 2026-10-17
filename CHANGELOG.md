@@ -33,6 +33,8 @@
   none matches.
 - Reject an empty filter value in `check-cave`; with `--all` it checked every
   neuron.
+- Neutralize control characters in `check-cave` error lines, which echoed root
+  IDs from SeaTable unescaped.
 - Read an existing path given to `--state` as a JSON file before trying it as
   a Neuroglancer URL, as documented.
 - Repair legacy `graphene://middleauth https://` sources in state URLs when

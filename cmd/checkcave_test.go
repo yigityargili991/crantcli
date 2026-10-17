@@ -421,6 +421,18 @@ func TestRootMappingMapKeepsEverySplitRoot(t *testing.T) {
 	}
 }
 
+func TestWriteResultErrorsNeutralizesControlCharacters(t *testing.T) {
+	// root_id comes from SeaTable, which any collaborator can edit.
+	results := []checkResult{{RootID: "\x1b]0;title\a\x1b[2J", Status: statusError, Err: errors.New("bad\x1b[31m")}}
+	var buf bytes.Buffer
+	if _, err := writeResultErrors(&buf, results); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(buf.String(), "\x1b\a") {
+		t.Fatalf("error line kept control characters: %q", buf.String())
+	}
+}
+
 func TestCanonicalRootIDs(t *testing.T) {
 	got, err := canonicalRootIDs([]string{" 0123", "123", "456"})
 	if err != nil || !reflect.DeepEqual(got, []string{"123", "456"}) {

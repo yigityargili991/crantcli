@@ -444,7 +444,7 @@ func printResults(results []checkResult, quiet bool) (int, int, error) {
 		}
 
 		if r.Err != nil {
-			fmt.Fprintf(os.Stderr, "  error for %s: %v\n", r.RootID, r.Err)
+			fmt.Fprintln(os.Stderr, resultErrorLine(r))
 		}
 		if quiet && r.Status != statusStale {
 			continue
@@ -485,6 +485,12 @@ func printResults(results []checkResult, quiet bool) (int, int, error) {
 	return staleCount, errCount, nil
 }
 
+// resultErrorLine formats a failed check. The root ID comes from SeaTable, so
+// control characters are neutralized before the line reaches a terminal.
+func resultErrorLine(r checkResult) string {
+	return "  error for " + textout.Sanitize(r.RootID) + ": " + textout.Sanitize(r.Err.Error())
+}
+
 func failOnResultErrors(w io.Writer, results []checkResult) error {
 	errCount, err := writeResultErrors(w, results)
 	if err != nil {
@@ -507,7 +513,7 @@ func writeResultErrors(w io.Writer, results []checkResult) (int, error) {
 			continue
 		}
 		errCount++
-		if _, err := fmt.Fprintf(w, "  error for %s: %v\n", r.RootID, r.Err); err != nil {
+		if _, err := fmt.Fprintln(w, resultErrorLine(r)); err != nil {
 			return errCount, fmt.Errorf("writing error output: %w", err)
 		}
 	}
