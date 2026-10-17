@@ -382,6 +382,32 @@ func TestReplaceSegments_MovesColorsOfSplitAndUnlistedIDs(t *testing.T) {
 			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
 		}
 	})
+
+	t.Run("color of an ID missing from the segment list moves", func(t *testing.T) {
+		layer := map[string]interface{}{
+			"segments":      []interface{}{"keep"},
+			"segmentColors": map[string]interface{}{"old1": "#ff0000", "keep": "#ffffff"},
+		}
+		if got := ReplaceSegments(layer, map[string][]string{"old1": {"new1"}}); got != 0 {
+			t.Fatalf("replaced = %d, want 0", got)
+		}
+		wantColors := map[string]interface{}{"new1": "#ff0000", "keep": "#ffffff"}
+		if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
+		}
+	})
+
+	t.Run("listed ID's color wins a shared new ID", func(t *testing.T) {
+		layer := map[string]interface{}{
+			"segments":      []interface{}{"old2"},
+			"segmentColors": map[string]interface{}{"old1": "#ff0000", "old2": "#0000ff"},
+		}
+		ReplaceSegments(layer, map[string][]string{"old1": {"new1"}, "old2": {"new1"}})
+		wantColors := map[string]interface{}{"new1": "#0000ff"}
+		if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
+		}
+	})
 }
 
 func TestSetSegmentColor(t *testing.T) {

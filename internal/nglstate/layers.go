@@ -2,6 +2,8 @@ package nglstate
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -120,7 +122,7 @@ func ReplaceSegments(layer map[string]interface{}, mappings map[string][]string)
 		}
 	}
 
-	removeMappedSegmentColors(colors, mappings)
+	moveMappedSegmentColors(colors, mappings)
 	layer["segments"] = toInterfaceSlice(segments)
 	return replaced
 }
@@ -147,11 +149,17 @@ func migrateSegmentColor(colors map[string]interface{}, oldID, newID string) {
 	}
 }
 
-func removeMappedSegmentColors(colors map[string]interface{}, mappings map[string][]string) {
+// moveMappedSegmentColors moves the colors of mapped IDs that the segment list
+// did not hold, then drops every mapped ID's color. Sorting keeps the result
+// independent of map order when two old IDs share a new one.
+func moveMappedSegmentColors(colors map[string]interface{}, mappings map[string][]string) {
 	if colors == nil {
 		return
 	}
-	for oldID := range mappings {
+	for _, oldID := range slices.Sorted(maps.Keys(mappings)) {
+		for _, newID := range mappings[oldID] {
+			migrateSegmentColor(colors, oldID, newID)
+		}
 		delete(colors, oldID)
 	}
 }

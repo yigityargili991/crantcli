@@ -26,6 +26,8 @@
   surrounding whitespace, as `root-info` does.
 - Write the unchanged state when `check-cave --refresh-state` matches no
   neurons; it wrote nothing.
+- Keep the color of a stale segment that is missing from the segment list by
+  moving it to the current root.
 - Read an existing path given to `--state` as a JSON file before trying it as
   a Neuroglancer URL, as documented.
 - Repair legacy `graphene://middleauth https://` sources in state URLs when
