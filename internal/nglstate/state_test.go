@@ -52,6 +52,33 @@ func TestLoadState_PrefersExistingFileEvenIfNameLooksLikeURL(t *testing.T) {
 	}
 }
 
+func TestLoadState_PrefersExistingPathSpelledAsURL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot represent a relative path containing ':' and '//'")
+	}
+
+	root := t.TempDir()
+	statePath := filepath.Join(root, "https:", "neuroglancer", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatalf("create fixture directory: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"from":"file"}`), 0o600); err != nil {
+		t.Fatalf("write fixture state: %v", err)
+	}
+	t.Chdir(root)
+
+	result, err := LoadState("https://neuroglancer/state.json", false)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if result.Source != SourceFile {
+		t.Fatalf("source = %q, want %q", result.Source, SourceFile)
+	}
+	if got := result.State["from"]; got != "file" {
+		t.Fatalf("state from = %#v, want file", got)
+	}
+}
+
 func TestLoadStateFromURL(t *testing.T) {
 	const stateURL = `https://example.org/#!{"layers":[],"position":[1,2,3]}`
 
@@ -67,6 +94,23 @@ func TestLoadStateFromURL(t *testing.T) {
 	}
 	if _, ok := result.State["position"]; !ok {
 		t.Fatal("decoded state is missing position")
+	}
+}
+
+func TestLoadStateFromLongURL(t *testing.T) {
+	// A path component longer than the filesystem allows fails the file read
+	// with ENAMETOOLONG, not "not exist"; the URL must still be decoded.
+	stateURL := `https://example.org/#!{"from":"url","padding":"` + strings.Repeat("a", 300) + `"}`
+
+	result, err := LoadState(stateURL, false)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if result.Source != SourceURL {
+		t.Fatalf("source = %q, want %q", result.Source, SourceURL)
+	}
+	if got := result.State["from"]; got != "url" {
+		t.Fatalf("state from = %#v, want url", got)
 	}
 }
 

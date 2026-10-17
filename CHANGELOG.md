@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Read an existing path given to `--state` as a JSON file before trying it as
+  a Neuroglancer URL, as documented.
+
 ## v0.22.0 - 2026-10-13
 
 ### Added
