@@ -65,8 +65,8 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 }
 
 func parseStateJSON(fragment string) (map[string]interface{}, error) {
-	var state map[string]interface{}
-	if err := json.Unmarshal([]byte(fragment), &state); err != nil {
+	state, err := parseJSON([]byte(fragment))
+	if err != nil {
 		return nil, err
 	}
 	repairLegacyMiddleauthSource(state)

@@ -227,10 +227,56 @@ func TestLoadStateUsesCustomDefault(t *testing.T) {
 	}
 }
 
+func TestLoadStateIgnoresNullCustomDefault(t *testing.T) {
+	previousCachePath := testCachePath
+	testCachePath = t.TempDir()
+	t.Cleanup(func() {
+		testCachePath = previousCachePath
+	})
+	replaceStdin(t, "")
+
+	// Older change-def-state versions could store "null"; it must not stand
+	// in for the built-in scene.
+	if err := WriteDefaultState([]byte("null\n")); err != nil {
+		t.Fatalf("WriteDefaultState: %v", err)
+	}
+	result, err := LoadState("", true)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if result.Source != SourceTemplate {
+		t.Fatalf("source = %q, want %q", result.Source, SourceTemplate)
+	}
+	if _, ok := result.State["layers"]; !ok {
+		t.Fatal("LoadState did not fall back to the built-in scene")
+	}
+}
+
+func TestLoadStateRejectsNullStdin(t *testing.T) {
+	replaceStdin(t, "null\n")
+
+	_, err := LoadState("", true)
+	if err == nil || !strings.Contains(err.Error(), "parsing stdin") {
+		t.Fatalf("LoadState() error = %v, want parsing stdin error", err)
+	}
+}
+
 func TestLoadStateExplicitInputErrors(t *testing.T) {
 	t.Run("invalid file JSON", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "state.json")
 		if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+			t.Fatalf("write state: %v", err)
+		}
+
+		_, err := LoadState(path, false)
+		if err == nil || !strings.Contains(err.Error(), "parsing state file") {
+			t.Fatalf("LoadState() error = %v, want parsing state file error", err)
+		}
+	})
+
+	t.Run("null file state", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		if err := os.WriteFile(path, []byte("null\n"), 0o600); err != nil {
 			t.Fatalf("write state: %v", err)
 		}
 

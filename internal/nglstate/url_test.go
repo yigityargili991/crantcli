@@ -113,6 +113,11 @@ func TestDecodeURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "null state",
+			input:   "https://example.org/#!null",
+			wantErr: true,
+		},
+		{
 			name:    "invalid json",
 			input:   "https://example.org/#!not-json",
 			wantErr: true,

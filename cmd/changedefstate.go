@@ -85,6 +85,10 @@ func runChangeDefState(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}
 
+	if state == nil {
+		return fmt.Errorf("invalid JSON: expected a JSON object")
+	}
+
 	// Pretty-print for storage
 	pretty, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

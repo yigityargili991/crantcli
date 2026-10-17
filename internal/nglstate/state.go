@@ -146,6 +146,10 @@ func parseJSON(data []byte) (map[string]interface{}, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
+	// "null" unmarshals into a nil map without an error.
+	if state == nil {
+		return nil, errors.New("expected a JSON object, got null")
+	}
 	return state, nil
 }
 

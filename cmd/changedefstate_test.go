@@ -83,6 +83,58 @@ func TestRunChangeDefStateValidatesInput(t *testing.T) {
 	}
 }
 
+func TestRunChangeDefStateRejectsNull(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	resetChangeDefStateFlags(t)
+
+	if err := runChangeDefState(changeDefStateCmd, []string{`{"zoom":4,"layers":[]}`}); err != nil {
+		t.Fatalf("seed default state: %v", err)
+	}
+	defaultPath := filepath.Join(home, ".crantcli", "default_state.json")
+	before, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatalf("read seeded default state: %v", err)
+	}
+
+	// JSON null unmarshals into a nil map without an error.
+	inputPath := filepath.Join(t.TempDir(), "null.json")
+	if err := os.WriteFile(inputPath, []byte("null\n"), 0o600); err != nil {
+		t.Fatalf("write null input: %v", err)
+	}
+	if err := runChangeDefState(changeDefStateCmd, []string{inputPath}); err == nil {
+		t.Fatal("runChangeDefState accepted JSON null")
+	}
+
+	after, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatalf("read default state after rejection: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("default state = %q after rejecting null, want unchanged %q", after, before)
+	}
+}
+
+func TestRunChangeDefStateAcceptsEmptyObject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	resetChangeDefStateFlags(t)
+
+	if err := runChangeDefState(changeDefStateCmd, []string{`{}`}); err != nil {
+		t.Fatalf("runChangeDefState rejected an empty object: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".crantcli", "default_state.json"))
+	if err != nil {
+		t.Fatalf("read default state: %v", err)
+	}
+	if string(data) != "{}\n" {
+		t.Fatalf("stored default = %q, want an empty object", data)
+	}
+}
+
 func resetChangeDefStateFlags(t *testing.T) {
 	t.Helper()
 
