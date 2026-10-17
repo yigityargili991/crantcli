@@ -14,6 +14,8 @@ import (
 
 	"crantcli/internal/cave"
 	"crantcli/internal/seatable"
+
+	"github.com/spf13/pflag"
 )
 
 // fakeCAVE serves CAVE's single and batch root lookups from resolve.
@@ -44,6 +46,35 @@ func fakeCAVE(t *testing.T, resolve func(sv uint64) uint64) *cave.Client {
 	}))
 	t.Cleanup(srv.Close)
 	return cave.NewTestClient(srv.URL, srv.Client())
+}
+
+// isolateCheckCaveRun resets check-cave's flags and replaces its SeaTable
+// query and CAVE client for a test that runs the command.
+func isolateCheckCaveRun(t *testing.T, query func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error), caveClient *cave.Client) {
+	t.Helper()
+	resetFlags := func() {
+		checkCaveCmd.Flags().VisitAll(func(f *pflag.Flag) {
+			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
+		})
+	}
+	previousSeaTable := checkCaveNewSeaTableClient
+	previousCAVE := checkCaveNewCAVEClient
+	previousQuery := checkCaveQueryNeurons
+	previousToken := getAPIToken
+	t.Cleanup(func() {
+		resetFlags()
+		checkCaveNewSeaTableClient = previousSeaTable
+		checkCaveNewCAVEClient = previousCAVE
+		checkCaveQueryNeurons = previousQuery
+		getAPIToken = previousToken
+	})
+
+	resetFlags()
+	getAPIToken = func() string { return "test-token" }
+	checkCaveNewSeaTableClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
+	checkCaveNewCAVEClient = func() (*cave.Client, error) { return caveClient, nil }
+	checkCaveQueryNeurons = query
 }
 
 func TestCheckNeurons_SingleOK(t *testing.T) {
@@ -123,7 +154,7 @@ func TestFailOnResultErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if got, want := err.Error(), "2 CAVE lookup errors; output incomplete"; got != want {
+	if got, want := err.Error(), "2 of 3 checks failed; output incomplete"; got != want {
 		t.Fatalf("error = %q, want %q", got, want)
 	}
 
@@ -312,5 +343,60 @@ func TestCheckNeurons_UnresolvedSupervoxelIsAnError(t *testing.T) {
 				t.Errorf("mappings = %v, want none", got)
 			}
 		})
+	}
+}
+
+func TestCheckCaveFailedLookupsExitWithStatus2(t *testing.T) {
+	// Root 1 is stale; supervoxel 20 cannot be resolved.
+	rows := []seatable.NeuronCaveCheckRow{{RootID: "1", SupervoxelID: "10"}, {RootID: "2", SupervoxelID: "20"}}
+	resolve := func(sv uint64) uint64 {
+		if sv == 20 {
+			return 0
+		}
+		return 5
+	}
+	for _, args := range [][]string{{"--all"}, {"--all", "--quiet"}, {"--all", "--mapping"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			isolateCheckCaveRun(t, func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+				return rows, nil
+			}, fakeCAVE(t, resolve))
+
+			_, _, err := executeRootForTest(t, append([]string{"check-cave"}, args...)...)
+			if err == nil || !strings.Contains(err.Error(), "1 of 2 checks failed") {
+				t.Fatalf("error = %v, want a failed check", err)
+			}
+			if code := exitCode(checkCaveCmd, err); code != 2 {
+				t.Errorf("exit status = %d, want 2", code)
+			}
+		})
+	}
+}
+
+func TestCheckCaveQuietStaleExitsWithStatus1(t *testing.T) {
+	isolateCheckCaveRun(t, func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+		return []seatable.NeuronCaveCheckRow{{RootID: "1", SupervoxelID: "10"}}, nil
+	}, fakeCAVE(t, func(uint64) uint64 { return 5 }))
+
+	_, _, err := executeRootForTest(t, "check-cave", "--all", "--quiet")
+	if code := exitCode(checkCaveCmd, err); code != 1 {
+		t.Fatalf("exit status = %d (%v), want 1", code, err)
+	}
+}
+
+func TestCheckCaveFlagErrorExitsWithStatus2(t *testing.T) {
+	isolateCheckCaveRun(t, nil, nil)
+	var out, errOut bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&errOut)
+	rootCmd.SetArgs([]string{"check-cave", "--no-such-flag"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	cmd, err := rootCmd.ExecuteC()
+	if code := exitCode(cmd, err); err == nil || code != 2 {
+		t.Fatalf("exit status = %d (%v), want 2", code, err)
 	}
 }

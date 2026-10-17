@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func executeRootForTest(t *testing.T, args ...string) (string, string, error) {
@@ -71,5 +74,24 @@ func TestSetupRequiresTerminal(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(tempHome, ".crantcli")); !os.IsNotExist(statErr) {
 		t.Fatal("setup wrote credentials despite non-terminal stdin")
+	}
+}
+
+func TestExitCode(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *cobra.Command
+		err  error
+		want int
+	}{
+		{"success", checkCaveCmd, nil, 0},
+		{"stale root IDs", checkCaveCmd, errStaleFound, 1},
+		{"check-cave failure", checkCaveCmd, errors.New("boom"), 2},
+		{"other command failure", addCmd, errors.New("boom"), 1},
+	}
+	for _, tt := range tests {
+		if got := exitCode(tt.cmd, tt.err); got != tt.want {
+			t.Errorf("%s: exitCode = %d, want %d", tt.name, got, tt.want)
+		}
 	}
 }

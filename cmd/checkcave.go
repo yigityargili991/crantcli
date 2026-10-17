@@ -26,6 +26,12 @@ const (
 	statusError        = "error"
 )
 
+var (
+	checkCaveNewSeaTableClient = seatable.NewClient
+	checkCaveNewCAVEClient     = cave.NewClient
+	checkCaveQueryNeurons      = seatable.QueryNeuronsForCaveCheck
+)
+
 var checkCaveCmd = &cobra.Command{
 	Use:   "check-cave [root_id...]",
 	Short: "Check if root IDs are still current in CAVE",
@@ -33,7 +39,10 @@ var checkCaveCmd = &cobra.Command{
 chunkedgraph by looking up each neuron's supervoxel_id.
 
 Supervoxel IDs are stable, but root IDs can change when proofreading edits
-(merges/splits) happen in CAVE. This command detects stale root IDs.`,
+(merges/splits) happen in CAVE. This command detects stale root IDs.
+
+The exit status is 0 on success, 1 when --quiet finds stale root IDs, and 2
+when the command fails or any root ID cannot be checked.`,
 	Example: `  # Check a single root ID
   crantcli check-cave 720575940610453042
 
@@ -142,12 +151,12 @@ func init() {
 			return fmt.Errorf("combine --mapping and --refresh-state only with --output to avoid mixing mapping and state JSON on stdout")
 		}
 
-		stClient, err := seatable.NewClient()
+		stClient, err := checkCaveNewSeaTableClient()
 		if err != nil {
 			return err
 		}
 
-		caveClient, err := cave.NewClient()
+		caveClient, err := checkCaveNewCAVEClient()
 		if err != nil {
 			return err
 		}
@@ -166,7 +175,7 @@ func init() {
 				neurons = append(neurons, *row)
 			}
 		} else {
-			neurons, err = seatable.QueryNeuronsForCaveCheck(stClient, filters)
+			neurons, err = checkCaveQueryNeurons(stClient, filters)
 			if err != nil {
 				return err
 			}
@@ -205,10 +214,14 @@ func init() {
 		} else if checkRefreshState {
 			staleCount = len(staleMappings)
 		} else {
-			var err error
-			staleCount, err = printResults(results, checkQuiet)
+			var errCount int
+			staleCount, errCount, err = printResults(results, checkQuiet)
 			if err != nil {
 				return err
+			}
+			// A root that could not be checked must not pass for a current one.
+			if errCount > 0 {
+				return incompleteCheckError(errCount, len(results))
 			}
 		}
 
@@ -321,7 +334,9 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 	return results, nil
 }
 
-func printResults(results []checkResult, quiet bool) (int, error) {
+// printResults writes the result table and summary and returns the number of
+// stale and failed checks.
+func printResults(results []checkResult, quiet bool) (int, int, error) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
 	var staleCount, okCount, noSVCount, errCount int
@@ -358,7 +373,7 @@ func printResults(results []checkResult, quiet bool) (int, error) {
 	}
 
 	if err := w.Flush(); err != nil {
-		return 0, fmt.Errorf("writing output: %w", err)
+		return 0, 0, fmt.Errorf("writing output: %w", err)
 	}
 
 	if !quiet {
@@ -378,7 +393,7 @@ func printResults(results []checkResult, quiet bool) (int, error) {
 		fmt.Fprintf(os.Stderr, "%s\n", strings.Join(parts, ", "))
 	}
 
-	return staleCount, nil
+	return staleCount, errCount, nil
 }
 
 func failOnResultErrors(w io.Writer, results []checkResult) error {
@@ -387,9 +402,13 @@ func failOnResultErrors(w io.Writer, results []checkResult) error {
 		return err
 	}
 	if errCount > 0 {
-		return fmt.Errorf("%d CAVE lookup errors; output incomplete", errCount)
+		return incompleteCheckError(errCount, len(results))
 	}
 	return nil
+}
+
+func incompleteCheckError(failed, total int) error {
+	return fmt.Errorf("%d of %d checks failed; output incomplete", failed, total)
 }
 
 func writeResultErrors(w io.Writer, results []checkResult) (int, error) {

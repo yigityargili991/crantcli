@@ -46,6 +46,11 @@ For automation, quiet mode prints only stale entries and exits with status `1` w
 crantcli check-cave --all --quiet
 ```
 
+Any failure exits with status `2` instead, including a root that could not be
+checked, for example because CAVE rejected the token. A script can therefore
+tell stale roots from an incomplete check. Without `--quiet`, stale roots still
+exit with `0`.
+
 ## Refresh a Neuroglancer state
 
 Replace stale segment IDs while leaving current and unrelated IDs intact:

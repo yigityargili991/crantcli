@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- Exit with status 2 when `check-cave` fails or cannot check a root, so
+  scripts can tell an incomplete check from stale roots (status 1 with
+  `--quiet`). A root that could not be checked, for example because CAVE
+  rejected the token, now fails the command instead of exiting with 0.
+
 ### Fixed
 
 - Report a supervoxel that CAVE cannot resolve as an error in `check-cave`.
