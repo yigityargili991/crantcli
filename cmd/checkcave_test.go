@@ -3,11 +3,14 @@ package cmd
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -78,6 +81,40 @@ func isolateCheckCaveRun(t *testing.T, query func(*seatable.Client, *seatable.Fi
 	checkCaveQueryNeurons = query
 }
 
+func writeCheckCaveState(t *testing.T, segments ...interface{}) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]interface{}{
+		"layers": []interface{}{
+			map[string]interface{}{"name": "seg", "type": "segmentation", "segments": segments},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func readCheckCaveSegments(t *testing.T, path string) []interface{} {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		Layers []struct {
+			Segments []interface{} `json:"segments"`
+		} `json:"layers"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state.Layers[0].Segments
+}
+
 func TestCheckNeurons_SingleOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"root_id": 999}`)
@@ -108,12 +145,16 @@ func TestStaleRootMappings(t *testing.T) {
 		{RootID: "222", CaveRootID: "333", Status: statusStale},
 		{RootID: "444", CaveRootID: "-", Status: statusError},
 		{RootID: "555", CaveRootID: "666", Status: statusStale},
+		// A duplicate row adds nothing; a split root maps to each current root.
+		{RootID: "222", CaveRootID: "333", Status: statusStale},
+		{RootID: "555", CaveRootID: "777", Status: statusStale},
 	}
 
 	got := staleRootMappings(results)
 	want := []rootMapping{
 		{OldRootID: "222", CurrentRootID: "333"},
 		{OldRootID: "555", CurrentRootID: "666"},
+		{OldRootID: "555", CurrentRootID: "777"},
 	}
 
 	if len(got) != len(want) {
@@ -365,6 +406,84 @@ func TestCheckNeurons_NormalizesStoredIDs(t *testing.T) {
 	want := []rootMapping{{OldRootID: "999", CurrentRootID: "888"}}
 	if got := staleRootMappings(results); !reflect.DeepEqual(got, want) {
 		t.Errorf("mappings = %v, want %v", got, want)
+	}
+}
+
+func TestRootMappingMapKeepsEverySplitRoot(t *testing.T) {
+	got := rootMappingMap([]rootMapping{
+		{OldRootID: "100", CurrentRootID: "201"},
+		{OldRootID: "100", CurrentRootID: "202"},
+		{OldRootID: "300", CurrentRootID: "301"},
+	})
+	want := map[string][]string{"100": {"201", "202"}, "300": {"301"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rootMappingMap = %v, want %v", got, want)
+	}
+}
+
+func TestCanonicalRootIDs(t *testing.T) {
+	got, err := canonicalRootIDs([]string{" 0123", "123", "456"})
+	if err != nil || !reflect.DeepEqual(got, []string{"123", "456"}) {
+		t.Fatalf("canonicalRootIDs = %q, %v; want [123 456]", got, err)
+	}
+	if _, err := canonicalRootIDs([]string{"123", "12a"}); err == nil || !strings.Contains(err.Error(), `invalid root_id "12a"`) {
+		t.Fatalf("canonicalRootIDs error = %v, want invalid root_id", err)
+	}
+}
+
+func TestQueryRootSupervoxels(t *testing.T) {
+	previousQuery := checkCaveQueryNeurons
+	t.Cleanup(func() { checkCaveQueryNeurons = previousQuery })
+	var gotFilters *seatable.Filters
+	checkCaveQueryNeurons = func(_ *seatable.Client, f *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+		gotFilters = f
+		// Table order; root 100 has two rows.
+		return []seatable.NeuronCaveCheckRow{
+			{RootID: "200", SupervoxelID: "3"},
+			{RootID: "100", SupervoxelID: "1"},
+			{RootID: "100", SupervoxelID: "2"},
+		}, nil
+	}
+
+	got, err := queryRootSupervoxels(&seatable.Client{}, []string{"100", "200"})
+	if err != nil {
+		t.Fatalf("queryRootSupervoxels: %v", err)
+	}
+	want := []seatable.NeuronCaveCheckRow{
+		{RootID: "100", SupervoxelID: "1"},
+		{RootID: "100", SupervoxelID: "2"},
+		{RootID: "200", SupervoxelID: "3"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+	if gotFilters == nil || !reflect.DeepEqual(gotFilters.RootIDs, []string{"100", "200"}) {
+		t.Errorf("query filters = %+v, want root IDs [100 200]", gotFilters)
+	}
+
+	if _, err := queryRootSupervoxels(&seatable.Client{}, []string{"100", "300"}); err == nil || err.Error() != `no neuron found with root_id "300"` {
+		t.Errorf("missing root error = %v", err)
+	}
+}
+
+func TestCheckCaveRefreshStateAddsEveryRootOfASplit(t *testing.T) {
+	// Root 100 held two neurons; a split left each supervoxel in its own root.
+	var gotFilters *seatable.Filters
+	isolateCheckCaveRun(t, func(_ *seatable.Client, f *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+		gotFilters = f
+		return []seatable.NeuronCaveCheckRow{{RootID: "100", SupervoxelID: "1"}, {RootID: "100", SupervoxelID: "2"}}, nil
+	}, fakeCAVE(t, func(sv uint64) uint64 { return 200 + sv }))
+	statePath := writeCheckCaveState(t, "100", "300")
+	outPath := filepath.Join(t.TempDir(), "out.json")
+
+	if _, _, err := executeRootForTest(t, "check-cave", "100", "0100", "--refresh-state", "-s", statePath, "-o", outPath); err != nil {
+		t.Fatalf("check-cave: %v", err)
+	}
+	if gotFilters == nil || !reflect.DeepEqual(gotFilters.RootIDs, []string{"100"}) {
+		t.Errorf("query filters = %+v, want root IDs [100]", gotFilters)
+	}
+	if got, want := readCheckCaveSegments(t, outPath), []interface{}{"201", "202", "300"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("segments = %v, want %v", got, want)
 	}
 }
 

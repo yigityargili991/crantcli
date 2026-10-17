@@ -151,6 +151,11 @@ func init() {
 			return fmt.Errorf("combine --mapping and --refresh-state only with --output to avoid mixing mapping and state JSON on stdout")
 		}
 
+		rootIDs, err := canonicalRootIDs(args)
+		if err != nil {
+			return err
+		}
+
 		stClient, err := checkCaveNewSeaTableClient()
 		if err != nil {
 			return err
@@ -162,23 +167,13 @@ func init() {
 		}
 
 		var neurons []seatable.NeuronCaveCheckRow
-
 		if hasArgs {
-			for _, rootID := range args {
-				row, err := seatable.QueryNeuronSupervoxel(stClient, rootID)
-				if err != nil {
-					return fmt.Errorf("querying root_id %s: %w", rootID, err)
-				}
-				if row == nil {
-					return fmt.Errorf("no neuron found with root_id %q", rootID)
-				}
-				neurons = append(neurons, *row)
-			}
+			neurons, err = queryRootSupervoxels(stClient, rootIDs)
 		} else {
 			neurons, err = checkCaveQueryNeurons(stClient, filters)
-			if err != nil {
-				return err
-			}
+		}
+		if err != nil {
+			return err
 		}
 
 		if len(neurons) == 0 {
@@ -244,6 +239,51 @@ func init() {
 // whitespace and leading zeros.
 func parseRootID(s string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimSpace(s), 10, 64)
+}
+
+// canonicalRootIDs validates root_id arguments and returns them in canonical
+// form, in argument order, without duplicates.
+func canonicalRootIDs(args []string) ([]string, error) {
+	ids := make([]string, 0, len(args))
+	seen := make(map[string]bool, len(args))
+	for _, arg := range args {
+		rootID, err := parseRootID(arg)
+		if err != nil {
+			return nil, fmt.Errorf("invalid root_id %q: %w", arg, err)
+		}
+		id := strconv.FormatUint(rootID, 10)
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// queryRootSupervoxels returns every row stored under the given root IDs, in
+// argument order. One root has several rows when it held several neurons, and
+// after a split each row's supervoxel can resolve to a different root.
+func queryRootSupervoxels(client *seatable.Client, rootIDs []string) ([]seatable.NeuronCaveCheckRow, error) {
+	rows, err := checkCaveQueryNeurons(client, &seatable.Filters{RootIDs: rootIDs})
+	if err != nil {
+		return nil, err
+	}
+	byRoot := make(map[string][]seatable.NeuronCaveCheckRow, len(rootIDs))
+	for _, row := range rows {
+		key := row.RootID
+		if rootID, err := parseRootID(row.RootID); err == nil {
+			key = strconv.FormatUint(rootID, 10)
+		}
+		byRoot[key] = append(byRoot[key], row)
+	}
+	neurons := make([]seatable.NeuronCaveCheckRow, 0, len(rows))
+	for _, id := range rootIDs {
+		if len(byRoot[id]) == 0 {
+			return nil, fmt.Errorf("no neuron found with root_id %q", id)
+		}
+		neurons = append(neurons, byRoot[id]...)
+	}
+	return neurons, nil
 }
 
 type checkResult struct {
@@ -436,13 +476,20 @@ func writeResultErrors(w io.Writer, results []checkResult) (int, error) {
 	return errCount, nil
 }
 
+// staleRootMappings lists each distinct old-to-current pair once. A root split
+// into several neurons yields one pair per current root.
 func staleRootMappings(results []checkResult) []rootMapping {
 	mappings := make([]rootMapping, 0)
+	seen := make(map[rootMapping]bool)
 	for _, r := range results {
 		if r.Status != statusStale || r.CaveRootID == "" || r.CaveRootID == "-" {
 			continue
 		}
-		mappings = append(mappings, rootMapping{OldRootID: r.RootID, CurrentRootID: r.CaveRootID})
+		mapping := rootMapping{OldRootID: r.RootID, CurrentRootID: r.CaveRootID}
+		if !seen[mapping] {
+			seen[mapping] = true
+			mappings = append(mappings, mapping)
+		}
 	}
 	return mappings
 }
@@ -478,10 +525,11 @@ func refreshStateSegments(mappings []rootMapping, stateArg, outputFile, layerNam
 	return nglstate.WriteState(result, outputFile)
 }
 
-func rootMappingMap(mappings []rootMapping) map[string]string {
-	result := make(map[string]string, len(mappings))
+// rootMappingMap groups current roots by old root; a split root has several.
+func rootMappingMap(mappings []rootMapping) map[string][]string {
+	result := make(map[string][]string, len(mappings))
 	for _, mapping := range mappings {
-		result[mapping.OldRootID] = mapping.CurrentRootID
+		result[mapping.OldRootID] = append(result[mapping.OldRootID], mapping.CurrentRootID)
 	}
 	return result
 }

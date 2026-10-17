@@ -15,6 +15,9 @@
   With more than 10 neurons, CAVE's `0` answer read as a stale root, so
   `--mapping` printed `0` and `--refresh-state` replaced the neuron with
   segment 0.
+- Replace a split root with all of its current roots in
+  `check-cave --refresh-state`; only one was kept. Root ID arguments now check
+  every row stored under the root, in one query.
 - Match stored root IDs that carry surrounding whitespace or leading zeros in
   `check-cave --mapping` and `--refresh-state`, and accept supervoxel IDs with
   surrounding whitespace, as `root-info` does.

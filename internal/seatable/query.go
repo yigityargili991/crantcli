@@ -367,28 +367,6 @@ func selectOptionNameMap(idToName map[string]string) map[string]string {
 	return m
 }
 
-// QueryNeuronSupervoxel looks up the supervoxel_id for a single root ID.
-func QueryNeuronSupervoxel(client *Client, rootID string) (*NeuronCaveCheckRow, error) {
-	sql := fmt.Sprintf("SELECT `root_id`, `%s` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
-		config.SupervoxelIDColumn,
-		config.SeaTableTable,
-		escapeSQL(rootID))
-
-	resp, err := client.ExecuteSQL(sql)
-	if err != nil {
-		return nil, err
-	}
-	if len(resp.Results) == 0 {
-		return nil, nil
-	}
-
-	r := resp.Results[0]
-	return &NeuronCaveCheckRow{
-		RootID:       toString(r["root_id"]),
-		SupervoxelID: toString(r[config.SupervoxelIDColumn]),
-	}, nil
-}
-
 // QueryNeuronInfo looks up a single neuron row by root ID and resolves fields
 // needed for root-info, preserving unknown columns as display strings.
 func QueryNeuronInfo(client *Client, rootID string) (*NeuronInfoRow, error) {

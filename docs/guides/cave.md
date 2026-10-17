@@ -76,6 +76,8 @@ crantcli check-cave \
 
 When combining `--mapping` with `--refresh-state`, provide `--output` so mapping text and state JSON do not share standard output.
 
+A root that was split into several current roots is replaced by all of them.
+
 ## Inspect history and metadata
 
 Show edit history:

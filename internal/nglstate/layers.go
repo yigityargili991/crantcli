@@ -79,14 +79,21 @@ func AddSegments(layer map[string]interface{}, rootIDs []string, replace bool) {
 }
 
 // ReplaceSegments replaces segment IDs that appear in mappings and deduplicates
-// the final segment list while preserving the first-seen order.
-func ReplaceSegments(layer map[string]interface{}, mappings map[string]string) int {
+// the final segment list while preserving the first-seen order. A root split
+// into several current roots maps to all of them, and each takes its place.
+func ReplaceSegments(layer map[string]interface{}, mappings map[string][]string) int {
 	if len(mappings) == 0 {
 		return 0
 	}
 
 	var segments []string
 	seen := make(map[string]bool)
+	appendSegment := func(id string) {
+		if !seen[id] {
+			seen[id] = true
+			segments = append(segments, id)
+		}
+	}
 	replaced := 0
 	colors := segmentColors(layer)
 
@@ -94,20 +101,20 @@ func ReplaceSegments(layer map[string]interface{}, mappings map[string]string) i
 		if segs, ok := segsRaw.([]interface{}); ok {
 			for _, s := range segs {
 				str := fmt.Sprintf("%v", s)
-				next := str
 				prefix := ""
 				if strings.HasPrefix(str, "!") {
 					prefix = "!"
 				}
 				lookup := strings.TrimPrefix(str, "!")
-				if mapped, ok := mappings[lookup]; ok {
-					next = prefix + mapped
-					replaced++
-					migrateSegmentColor(colors, lookup, mapped)
+				mapped, ok := mappings[lookup]
+				if !ok {
+					appendSegment(str)
+					continue
 				}
-				if !seen[next] {
-					seen[next] = true
-					segments = append(segments, next)
+				replaced++
+				for _, id := range mapped {
+					migrateSegmentColor(colors, lookup, id)
+					appendSegment(prefix + id)
 				}
 			}
 		}
@@ -140,7 +147,7 @@ func migrateSegmentColor(colors map[string]interface{}, oldID, newID string) {
 	}
 }
 
-func removeMappedSegmentColors(colors map[string]interface{}, mappings map[string]string) {
+func removeMappedSegmentColors(colors map[string]interface{}, mappings map[string][]string) {
 	if colors == nil {
 		return
 	}

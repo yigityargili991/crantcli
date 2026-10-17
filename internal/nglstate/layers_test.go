@@ -203,70 +203,84 @@ func TestReplaceSegments(t *testing.T) {
 	tests := []struct {
 		name         string
 		layer        map[string]interface{}
-		mappings     map[string]string
+		mappings     map[string][]string
 		wantSegments []interface{}
 		wantReplaced int
 	}{
 		{
 			name:         "replaces stale IDs and preserves others",
 			layer:        map[string]interface{}{"segments": []interface{}{"old1", "keep", "old2"}},
-			mappings:     map[string]string{"old1": "new1", "old2": "new2"},
+			mappings:     map[string][]string{"old1": {"new1"}, "old2": {"new2"}},
 			wantSegments: []interface{}{"new1", "keep", "new2"},
 			wantReplaced: 2,
 		},
 		{
 			name:         "deduplicates current IDs",
 			layer:        map[string]interface{}{"segments": []interface{}{"old1", "new1", "old2", "keep"}},
-			mappings:     map[string]string{"old1": "new1", "old2": "new1"},
+			mappings:     map[string][]string{"old1": {"new1"}, "old2": {"new1"}},
 			wantSegments: []interface{}{"new1", "keep"},
 			wantReplaced: 2,
 		},
 		{
 			name:         "handles numeric segment values",
 			layer:        map[string]interface{}{"segments": []interface{}{float64(123), "keep"}},
-			mappings:     map[string]string{"123": "456"},
+			mappings:     map[string][]string{"123": {"456"}},
 			wantSegments: []interface{}{"456", "keep"},
 			wantReplaced: 1,
 		},
 		{
 			name:         "hidden IDs keep their prefix",
 			layer:        map[string]interface{}{"segments": []interface{}{"!old1", "keep"}},
-			mappings:     map[string]string{"old1": "new1"},
+			mappings:     map[string][]string{"old1": {"new1"}},
 			wantSegments: []interface{}{"!new1", "keep"},
 			wantReplaced: 1,
 		},
 		{
 			name:         "hidden and visible IDs stay distinct",
 			layer:        map[string]interface{}{"segments": []interface{}{"!old1", "new1", "old1", "keep"}},
-			mappings:     map[string]string{"old1": "new1"},
+			mappings:     map[string][]string{"old1": {"new1"}},
 			wantSegments: []interface{}{"!new1", "new1", "keep"},
 			wantReplaced: 2,
 		},
 		{
 			name:         "unmapped hidden IDs are preserved",
 			layer:        map[string]interface{}{"segments": []interface{}{"!keep", "old1"}},
-			mappings:     map[string]string{"old1": "new1"},
+			mappings:     map[string][]string{"old1": {"new1"}},
 			wantSegments: []interface{}{"!keep", "new1"},
 			wantReplaced: 1,
 		},
 		{
 			name:         "only one leading bang marks a hidden ID",
 			layer:        map[string]interface{}{"segments": []interface{}{"!!old1"}},
-			mappings:     map[string]string{"old1": "new1"},
+			mappings:     map[string][]string{"old1": {"new1"}},
 			wantSegments: []interface{}{"!!old1"},
 			wantReplaced: 0,
 		},
 		{
+			name:         "split root takes all current roots",
+			layer:        map[string]interface{}{"segments": []interface{}{"old1", "keep"}},
+			mappings:     map[string][]string{"old1": {"new1", "new2"}},
+			wantSegments: []interface{}{"new1", "new2", "keep"},
+			wantReplaced: 1,
+		},
+		{
+			name:         "hidden split root stays hidden",
+			layer:        map[string]interface{}{"segments": []interface{}{"!old1", "new2"}},
+			mappings:     map[string][]string{"old1": {"new1", "new2"}},
+			wantSegments: []interface{}{"!new1", "!new2", "new2"},
+			wantReplaced: 1,
+		},
+		{
 			name:         "empty mappings leave layer unchanged",
 			layer:        map[string]interface{}{"segments": []interface{}{"old1"}},
-			mappings:     map[string]string{},
+			mappings:     map[string][]string{},
 			wantSegments: []interface{}{"old1"},
 			wantReplaced: 0,
 		},
 		{
 			name:         "missing segments becomes empty list",
 			layer:        map[string]interface{}{},
-			mappings:     map[string]string{"old1": "new1"},
+			mappings:     map[string][]string{"old1": {"new1"}},
 			wantSegments: []interface{}{},
 			wantReplaced: 0,
 		},
@@ -296,9 +310,9 @@ func TestReplaceSegments_MigratesSegmentColors(t *testing.T) {
 		},
 	}
 
-	replaced := ReplaceSegments(layer, map[string]string{
-		"old1": "new1",
-		"old2": "new2",
+	replaced := ReplaceSegments(layer, map[string][]string{
+		"old1": {"new1"},
+		"old2": {"new2"},
 	})
 	if replaced != 2 {
 		t.Fatalf("replaced = %d, want 2", replaced)
@@ -329,7 +343,7 @@ func TestReplaceSegments_MigratesHiddenSegmentColors(t *testing.T) {
 				"keep": "#ffffff",
 			},
 		}
-		if got := ReplaceSegments(layer, map[string]string{"old1": "new1"}); got != 1 {
+		if got := ReplaceSegments(layer, map[string][]string{"old1": {"new1"}}); got != 1 {
 			t.Fatalf("replaced = %d, want 1", got)
 		}
 		wantColors := map[string]interface{}{"new1": "#ff0000", "keep": "#ffffff"}
@@ -346,10 +360,24 @@ func TestReplaceSegments_MigratesHiddenSegmentColors(t *testing.T) {
 				"new1": "#00ff00",
 			},
 		}
-		if got := ReplaceSegments(layer, map[string]string{"old1": "new1"}); got != 1 {
+		if got := ReplaceSegments(layer, map[string][]string{"old1": {"new1"}}); got != 1 {
 			t.Fatalf("replaced = %d, want 1", got)
 		}
 		wantColors := map[string]interface{}{"new1": "#00ff00"}
+		if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
+			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
+		}
+	})
+}
+
+func TestReplaceSegments_MovesColorsOfSplitAndUnlistedIDs(t *testing.T) {
+	t.Run("split root color goes to every current root", func(t *testing.T) {
+		layer := map[string]interface{}{
+			"segments":      []interface{}{"old1"},
+			"segmentColors": map[string]interface{}{"old1": "#ff0000"},
+		}
+		ReplaceSegments(layer, map[string][]string{"old1": {"new1", "new2"}})
+		wantColors := map[string]interface{}{"new1": "#ff0000", "new2": "#ff0000"}
 		if got := layer["segmentColors"]; !reflect.DeepEqual(got, wantColors) {
 			t.Fatalf("segmentColors = %#v, want %#v", got, wantColors)
 		}
