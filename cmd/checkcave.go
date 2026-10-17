@@ -240,6 +240,12 @@ func init() {
 	rootCmd.AddCommand(checkCaveCmd)
 }
 
+// parseRootID parses a stored or typed root ID, tolerating surrounding
+// whitespace and leading zeros.
+func parseRootID(s string) (uint64, error) {
+	return strconv.ParseUint(strings.TrimSpace(s), 10, 64)
+}
+
 type checkResult struct {
 	RootID       string
 	SupervoxelID string
@@ -260,24 +266,29 @@ func checkNeurons(caveClient *cave.Client, neurons []seatable.NeuronCaveCheckRow
 	for i, n := range neurons {
 		results[i] = checkResult{
 			RootID:       n.RootID,
-			SupervoxelID: n.SupervoxelID,
+			SupervoxelID: strings.TrimSpace(n.SupervoxelID),
 			CaveRootID:   "-",
 		}
-		if n.SupervoxelID == "" {
+		// Parse as uint64 to compare numerically (avoids leading-zero/whitespace
+		// mismatches), and report the canonical form, which is how states and
+		// --mapping spell the ID.
+		rootID, rootErr := parseRootID(n.RootID)
+		if rootErr == nil {
+			results[i].RootID = strconv.FormatUint(rootID, 10)
+		}
+		if results[i].SupervoxelID == "" {
 			results[i].Status = statusNoSupervoxel
 			continue
 		}
-		svID, err := strconv.ParseUint(n.SupervoxelID, 10, 64)
+		svID, err := strconv.ParseUint(results[i].SupervoxelID, 10, 64)
 		if err != nil {
 			results[i].Status = statusError
 			results[i].Err = fmt.Errorf("invalid supervoxel_id %q: %w", n.SupervoxelID, err)
 			continue
 		}
-		// Parse as uint64 to compare numerically (avoids leading-zero/whitespace mismatches).
-		rootID, err := strconv.ParseUint(strings.TrimSpace(n.RootID), 10, 64)
-		if err != nil {
+		if rootErr != nil {
 			results[i].Status = statusError
-			results[i].Err = fmt.Errorf("invalid root_id %q: %w", n.RootID, err)
+			results[i].Err = fmt.Errorf("invalid root_id %q: %w", n.RootID, rootErr)
 			continue
 		}
 		withSV = append(withSV, indexed{idx: i, svID: svID, rootID: rootID})

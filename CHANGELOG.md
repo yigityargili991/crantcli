@@ -15,6 +15,9 @@
   With more than 10 neurons, CAVE's `0` answer read as a stale root, so
   `--mapping` printed `0` and `--refresh-state` replaced the neuron with
   segment 0.
+- Match stored root IDs that carry surrounding whitespace or leading zeros in
+  `check-cave --mapping` and `--refresh-state`, and accept supervoxel IDs with
+  surrounding whitespace, as `root-info` does.
 - Read an existing path given to `--state` as a JSON file before trying it as
   a Neuroglancer URL, as documented.
 - Repair legacy `graphene://middleauth https://` sources in state URLs when

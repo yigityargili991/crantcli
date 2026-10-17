@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -343,6 +344,27 @@ func TestCheckNeurons_UnresolvedSupervoxelIsAnError(t *testing.T) {
 				t.Errorf("mappings = %v, want none", got)
 			}
 		})
+	}
+}
+
+func TestCheckNeurons_NormalizesStoredIDs(t *testing.T) {
+	results, err := checkNeurons(fakeCAVE(t, func(uint64) uint64 { return 888 }), []seatable.NeuronCaveCheckRow{
+		{RootID: " 0999\n", SupervoxelID: " 100 "},
+		{RootID: "777", SupervoxelID: " \t"},
+	})
+	if err != nil {
+		t.Fatalf("checkNeurons: %v", err)
+	}
+	if r := results[0]; r.Status != statusStale || r.RootID != "999" || r.SupervoxelID != "100" {
+		t.Errorf("results[0] = %+v, want stale 999 with supervoxel 100", r)
+	}
+	if r := results[1]; r.Status != statusNoSupervoxel || r.Err != nil {
+		t.Errorf("results[1] = %+v, want no_supervoxel", r)
+	}
+	// The mapping must name the ID the way a Neuroglancer state does.
+	want := []rootMapping{{OldRootID: "999", CurrentRootID: "888"}}
+	if got := staleRootMappings(results); !reflect.DeepEqual(got, want) {
+		t.Errorf("mappings = %v, want %v", got, want)
 	}
 }
 
