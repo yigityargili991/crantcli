@@ -60,7 +60,7 @@ crantcli check-cave [root_id...] [flags]
       --refresh-state         Replace stale segment IDs in a Neuroglancer state with current CAVE root IDs
       --region string         Filter by region
       --side string           Filter by side
-  -s, --state string          Neuroglancer state (URL or file path) for --refresh-state
+  -s, --state string          Neuroglancer state (URL or file path) for --refresh-state (default: piped stdin, then a clipboard URL)
       --super-class string    Filter by super_class
       --tract string          Filter by tract
 ```

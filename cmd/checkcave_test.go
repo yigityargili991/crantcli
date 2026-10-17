@@ -466,6 +466,23 @@ func TestQueryRootSupervoxels(t *testing.T) {
 	}
 }
 
+func TestCheckCaveRefreshStateChecksLayerBeforeQuerying(t *testing.T) {
+	queried := false
+	isolateCheckCaveRun(t, func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+		queried = true
+		return nil, nil
+	}, nil)
+	statePath := writeCheckCaveState(t, "100")
+
+	_, _, err := executeRootForTest(t, "check-cave", "--all", "--refresh-state", "-s", statePath, "--layer", "missing")
+	if err == nil || !strings.Contains(err.Error(), `no segmentation layer named "missing"`) {
+		t.Fatalf("error = %v, want missing layer", err)
+	}
+	if queried {
+		t.Error("check-cave queried SeaTable before rejecting the layer")
+	}
+}
+
 func TestCheckCaveRefreshStateAddsEveryRootOfASplit(t *testing.T) {
 	// Root 100 held two neurons; a split left each supervoxel in its own root.
 	var gotFilters *seatable.Filters

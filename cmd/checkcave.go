@@ -103,7 +103,7 @@ func init() {
 	checkCaveCmd.Flags().StringVar(&checkProofread, "proofread", "", "Filter by proofread status")
 	checkCaveCmd.Flags().BoolVar(&checkMapping, "mapping", false, "Print stale mappings as old_root_id<TAB>current_cave_root_id")
 	checkCaveCmd.Flags().BoolVar(&checkRefreshState, "refresh-state", false, "Replace stale segment IDs in a Neuroglancer state with current CAVE root IDs")
-	checkCaveCmd.Flags().StringVarP(&checkState, "state", "s", "", "Neuroglancer state (URL or file path) for --refresh-state")
+	checkCaveCmd.Flags().StringVarP(&checkState, "state", "s", "", "Neuroglancer state (URL or file path) for --refresh-state (default: piped stdin, then a clipboard URL)")
 	checkCaveCmd.Flags().StringVarP(&checkOutput, "output", "o", "", "Output file path for --refresh-state (default: clipboard or stdout)")
 	checkCaveCmd.Flags().StringVarP(&checkLayer, "layer", "l", "", "Target segmentation layer name for --refresh-state")
 	checkCaveCmd.ValidArgsFunction = noFileCompletion
@@ -154,6 +154,22 @@ func init() {
 		rootIDs, err := canonicalRootIDs(args)
 		if err != nil {
 			return err
+		}
+
+		// Resolve the state and its layer before the slow lookups, so a bad
+		// --state or --layer fails at once and the clipboard is read now
+		// rather than whenever the check ends.
+		var state *nglstate.LoadResult
+		var layer map[string]interface{}
+		if checkRefreshState {
+			state, err = nglstate.LoadInputState(checkState)
+			if err != nil {
+				return err
+			}
+			layer, _, err = nglstate.FindSegmentationLayer(state.State, checkLayer)
+			if err != nil {
+				return err
+			}
 		}
 
 		stClient, err := checkCaveNewSeaTableClient()
@@ -221,7 +237,7 @@ func init() {
 		}
 
 		if checkRefreshState {
-			if err := refreshStateSegments(staleMappings, checkState, checkOutput, checkLayer); err != nil {
+			if err := refreshStateSegments(state, layer, staleMappings, checkOutput); err != nil {
 				return err
 			}
 		}
@@ -508,17 +524,7 @@ func writeMappings(w io.Writer, mappings []rootMapping) error {
 	return nil
 }
 
-func refreshStateSegments(mappings []rootMapping, stateArg, outputFile, layerName string) error {
-	result, err := nglstate.LoadState(stateArg, false)
-	if err != nil {
-		return err
-	}
-
-	layer, _, err := nglstate.FindSegmentationLayer(result.State, layerName)
-	if err != nil {
-		return err
-	}
-
+func refreshStateSegments(result *nglstate.LoadResult, layer map[string]interface{}, mappings []rootMapping, outputFile string) error {
 	replaced := nglstate.ReplaceSegments(layer, rootMappingMap(mappings))
 	fmt.Fprintf(os.Stderr, "Replaced %d stale segments in state\n", replaced)
 

@@ -204,6 +204,58 @@ func TestLoadStateClipboardDiagnostics(t *testing.T) {
 	})
 }
 
+func TestLoadInputStateRefusesDefaults(t *testing.T) {
+	previousRead := stateClipboardRead
+	previousWarnings := stateWarningWriter
+	previousCachePath := testCachePath
+	var warnings bytes.Buffer
+	stateWarningWriter = &warnings
+	testCachePath = t.TempDir()
+	replaceStdin(t, "")
+	t.Cleanup(func() {
+		stateClipboardRead = previousRead
+		stateWarningWriter = previousWarnings
+		testCachePath = previousCachePath
+	})
+	// A configured default must not stand in for the user's state either.
+	if err := WriteDefaultState([]byte(`{"layers":[],"custom":true}`)); err != nil {
+		t.Fatalf("WriteDefaultState: %v", err)
+	}
+
+	tests := []struct {
+		name, clip string
+		clipErr    error
+		wantErr    string
+	}{
+		{"clipboard without a URL", "576460752669867599", nil, "no state given"},
+		{"clipboard unavailable", "", errors.New("no desktop"), "clipboard input unavailable: no desktop"},
+		{"viewer URL without a state fragment", "https://spelunker.cave-explorer.org/", nil, "without a state fragment"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warnings.Reset()
+			stateClipboardRead = func() (string, error) { return tt.clip, tt.clipErr }
+			result, err := LoadInputState("")
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("LoadInputState() = %+v, %v; want error containing %q", result, err, tt.wantErr)
+			}
+			if warnings.Len() != 0 {
+				t.Errorf("unexpected warning %q", warnings.String())
+			}
+		})
+	}
+
+	t.Run("clipboard state loads", func(t *testing.T) {
+		stateClipboardRead = func() (string, error) {
+			return "https://spelunker.cave-explorer.org/#!%7B%22layers%22:[]%7D", nil
+		}
+		result, err := LoadInputState("")
+		if err != nil || result.Source != SourceClipboard {
+			t.Fatalf("LoadInputState() = %+v, %v; want clipboard state", result, err)
+		}
+	})
+}
+
 func TestLoadStateUsesCustomDefault(t *testing.T) {
 	previousCachePath := testCachePath
 	testCachePath = t.TempDir()

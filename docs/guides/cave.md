@@ -76,7 +76,10 @@ crantcli check-cave \
 
 When combining `--mapping` with `--refresh-state`, provide `--output` so mapping text and state JSON do not share standard output.
 
-A root that was split into several current roots is replaced by all of them.
+The state comes from `--state`, piped standard input, or a Neuroglancer URL on
+the clipboard. Unlike other commands, `--refresh-state` never falls back to the
+default scene; without a state it stops before querying anything. A root that
+was split into several current roots is replaced by all of them.
 
 ## Inspect history and metadata
 

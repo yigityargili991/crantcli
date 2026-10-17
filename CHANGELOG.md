@@ -8,6 +8,9 @@
   scripts can tell an incomplete check from stale roots (status 1 with
   `--quiet`). A root that could not be checked, for example because CAVE
   rejected the token, now fails the command instead of exiting with 0.
+- Read the state and find the layer before `check-cave --refresh-state`
+  queries anything, and stop with an error when `--state`, piped input, and
+  the clipboard provide no state instead of refreshing the default scene.
 
 ### Fixed
 

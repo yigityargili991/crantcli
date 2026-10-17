@@ -41,6 +41,10 @@ type LoadResult struct {
 	OutputURL string
 }
 
+// errNoInputState reports that neither --state, stdin, nor the clipboard
+// supplied a state.
+var errNoInputState = errors.New("no state given: pass --state, pipe state JSON on stdin, or copy a Neuroglancer URL")
+
 // LoadState loads a Neuroglancer state using smart resolution:
 // 1. If stateArg is an existing file path, read it
 // 2. If stateArg is a Neuroglancer URL, decode it
@@ -48,6 +52,18 @@ type LoadResult struct {
 // 4. If stdin is empty, try clipboard for a Neuroglancer URL
 // 5. If generate is true or nothing found, use default template
 func LoadState(stateArg string, generate bool) (*LoadResult, error) {
+	return loadState(stateArg, generate, true)
+}
+
+// LoadInputState resolves a state the way LoadState does without generate,
+// but returns an error instead of falling back to a default state. Commands
+// that update the user's own state use it, since editing a default scene
+// would not do what was asked.
+func LoadInputState(stateArg string) (*LoadResult, error) {
+	return loadState(stateArg, false, false)
+}
+
+func loadState(stateArg string, generate, useDefault bool) (*LoadResult, error) {
 	// Explicit --state argument
 	if stateArg != "" {
 		// Prefer existing files, even if the filename contains URL-like substrings
@@ -105,10 +121,16 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	if !generate {
 		clip, clipErr := stateClipboardRead()
 		if clipErr != nil {
+			if !useDefault {
+				return nil, fmt.Errorf("%w (clipboard input unavailable: %v)", errNoInputState, clipErr)
+			}
 			fmt.Fprintf(stateWarningWriter, "Warning: clipboard input unavailable; using the default state: %v\n", clipErr)
 		} else if IsNeuroglancerURL(clip) {
 			state, err := DecodeURL(clip)
 			if errors.Is(err, errNoFragment) {
+				if !useDefault {
+					return nil, fmt.Errorf("%w (the clipboard holds a Neuroglancer viewer URL without a state fragment)", errNoInputState)
+				}
 				fmt.Fprintln(stateWarningWriter, "Warning: clipboard holds a Neuroglancer viewer URL without a state fragment; using the default state")
 			} else if err != nil {
 				return nil, fmt.Errorf("decoding clipboard URL: %w", err)
@@ -116,6 +138,10 @@ func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 				return &LoadResult{State: state, Source: SourceClipboard, OriginalURL: clip}, nil
 			}
 		}
+	}
+
+	if !useDefault {
+		return nil, errNoInputState
 	}
 
 	// Check for user-configured default state
