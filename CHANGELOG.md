@@ -6,6 +6,8 @@
 
 - Read an existing path given to `--state` as a JSON file before trying it as
   a Neuroglancer URL, as documented.
+- Repair legacy `graphene://middleauth https://` sources in state URLs when
+  the layer source is an object or a list, as in the built-in CRANT scene.
 
 ## v0.22.0 - 2026-10-13
 

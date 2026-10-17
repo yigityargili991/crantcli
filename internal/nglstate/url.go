@@ -116,12 +116,27 @@ func repairLegacyMiddleauthSource(state map[string]interface{}) {
 		if !ok {
 			continue
 		}
-		src, ok := layer["source"].(string)
-		if !ok {
-			continue
-		}
-		if strings.Contains(src, "graphene://middleauth https://") {
-			layer["source"] = strings.ReplaceAll(src, "graphene://middleauth https://", "graphene://middleauth+https://")
+		if src, ok := layer["source"]; ok {
+			layer["source"] = repairLegacyMiddleauthValue(src)
 		}
 	}
+}
+
+func repairLegacyMiddleauthValue(source interface{}) interface{} {
+	switch src := source.(type) {
+	case string:
+		return strings.ReplaceAll(src, "graphene://middleauth https://", "graphene://middleauth+https://")
+	case map[string]interface{}:
+		if u, ok := src["url"].(string); ok {
+			src["url"] = strings.ReplaceAll(u, "graphene://middleauth https://", "graphene://middleauth+https://")
+		}
+	case []interface{}:
+		for i, entry := range src {
+			switch entry.(type) {
+			case string, map[string]interface{}:
+				src[i] = repairLegacyMiddleauthValue(entry)
+			}
+		}
+	}
+	return source
 }

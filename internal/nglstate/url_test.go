@@ -76,6 +76,38 @@ func TestDecodeURL(t *testing.T) {
 			},
 		},
 		{
+			name:  "repairs legacy middleauth object source",
+			input: `https://example.org/#!{"layers":[{"source":{"url":"graphene://middleauth https://x","subsources":{"default":true}},"type":"segmentation"}]}`,
+			want: map[string]interface{}{
+				"layers": []interface{}{
+					map[string]interface{}{
+						"source": map[string]interface{}{
+							"url":        "graphene://middleauth+https://x",
+							"subsources": map[string]interface{}{"default": true},
+						},
+						"type": "segmentation",
+					},
+				},
+			},
+		},
+		{
+			// The embedded CRANT scene lists its graphene source this way.
+			name:  "repairs legacy middleauth sources in a list",
+			input: `https://example.org/#!{"layers":[{"source":[{"url":"graphene://middleauth https://x"},"graphene://middleauth https://y","https://z"],"type":"segmentation"}]}`,
+			want: map[string]interface{}{
+				"layers": []interface{}{
+					map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{"url": "graphene://middleauth+https://x"},
+							"graphene://middleauth+https://y",
+							"https://z",
+						},
+						"type": "segmentation",
+					},
+				},
+			},
+		},
+		{
 			name:    "no fragment",
 			input:   "https://example.org/",
 			wantErr: true,
