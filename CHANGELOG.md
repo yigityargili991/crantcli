@@ -10,6 +10,9 @@
   the layer source is an object or a list, as in the built-in CRANT scene.
 - Replace stale hidden segments (`!<root_id>`) in
   `check-cave --refresh-state` and keep them hidden; they were left unchanged.
+- Restrict an existing `--output` file or custom default state to owner-only
+  permissions (0600) when overwriting it, as already done for new files.
+  crantcli warns when a file's permissions cannot be changed.
 
 ## v0.22.0 - 2026-10-13
 

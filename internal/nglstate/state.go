@@ -155,11 +155,45 @@ func writeToFile(state map[string]interface{}, path string) error {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
 	// 0600: states can embed capability URLs (e.g. unlisted-gist label sources).
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+	if err := writeFile0600(path, append(data, '\n')); err != nil {
 		return fmt.Errorf("writing file %q: %w", path, err)
 	}
 	fmt.Fprintf(os.Stderr, "Wrote state to %s\n", path)
 	return nil
+}
+
+// writeFile0600 writes data to path, creating it with mode 0600. OpenFile's
+// mode applies only to new files, so an existing regular file that others can
+// access is restricted before it is truncated. Devices, pipes, and symbolic
+// links are written through, as os.WriteFile would.
+func writeFile0600(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return err
+	}
+	if info.Mode().IsRegular() {
+		if info.Mode().Perm()&0o077 != 0 {
+			// FAT mounts and files owned by another user cannot change mode;
+			// warn rather than refuse a write os.WriteFile would have made.
+			if err := f.Chmod(0o600); err != nil {
+				fmt.Fprintf(stateWarningWriter, "Warning: state file is accessible by other users and could not be restricted: %v\n", err)
+			}
+		}
+		if err := f.Truncate(0); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func writeStateJSON(w io.Writer, state map[string]interface{}) error {
