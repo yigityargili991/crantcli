@@ -17,6 +17,7 @@
   input. A stored `null` default now falls back to the built-in scene.
 - Reject an empty `--cell-class`, `--cell-type`, or `--cell-subtype` value in
   `add`; it queried every neuron.
+- Reject `NaN` and infinite coordinates in `lookup-column --pos`.
 
 ## v0.22.0 - 2026-10-13
 

@@ -26,6 +26,13 @@ func TestParsePos(t *testing.T) {
 		{"non-numeric y", "100,abc,300", 0, 0, 0, true},
 		{"non-numeric z", "100,200,abc", 0, 0, 0, true},
 		{"negative values", "-100.5,-200.3,-300.1", -100.5, -200.3, -300.1, false},
+		{"scientific notation", "1e3,-2.5e-2,+3E+4", 1000, -0.025, 30000, false},
+		{"zeros", "0,0,0", 0, 0, 0, false},
+		{"NaN", "NaN,200,300", 0, 0, 0, true},
+		{"positive infinity", "100,+Inf,300", 0, 0, 0, true},
+		{"negative infinity", "100,-Inf,300", 0, 0, 0, true},
+		{"infinity word", "100,200,Infinity", 0, 0, 0, true},
+		{"overflow", "1e400,200,300", 0, 0, 0, true},
 	}
 
 	for _, tt := range tests {
