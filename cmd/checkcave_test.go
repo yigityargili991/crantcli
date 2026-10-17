@@ -556,6 +556,18 @@ func TestCheckCaveQuietStaleExitsWithStatus1(t *testing.T) {
 	}
 }
 
+func TestCheckCaveRejectsEmptyFilter(t *testing.T) {
+	isolateCheckCaveRun(t, func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronCaveCheckRow, error) {
+		t.Error("check-cave queried SeaTable with an empty filter")
+		return nil, nil
+	}, nil)
+
+	_, _, err := executeRootForTest(t, "check-cave", "--all", "--region", " ")
+	if err == nil || err.Error() != "--region cannot be empty" {
+		t.Fatalf("error = %v, want --region cannot be empty", err)
+	}
+}
+
 func TestCheckCaveFlagErrorExitsWithStatus2(t *testing.T) {
 	isolateCheckCaveRun(t, nil, nil)
 	var out, errOut bytes.Buffer

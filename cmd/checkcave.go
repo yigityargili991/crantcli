@@ -32,6 +32,20 @@ var (
 	checkCaveQueryNeurons      = seatable.QueryNeuronsForCaveCheck
 )
 
+// checkCaveFilterFlags lists the classification filters check-cave accepts.
+var checkCaveFilterFlags = []string{
+	"super-class",
+	"cell-class",
+	"cell-type",
+	"cell-subtype",
+	"side",
+	"region",
+	"tract",
+	"nerve",
+	"hemilineage",
+	"proofread",
+}
+
 var checkCaveCmd = &cobra.Command{
 	Use:   "check-cave [root_id...]",
 	Short: "Check if root IDs are still current in CAVE",
@@ -107,21 +121,13 @@ func init() {
 	checkCaveCmd.Flags().StringVarP(&checkOutput, "output", "o", "", "Output file path for --refresh-state (default: clipboard or stdout)")
 	checkCaveCmd.Flags().StringVarP(&checkLayer, "layer", "l", "", "Target segmentation layer name for --refresh-state")
 	checkCaveCmd.ValidArgsFunction = noFileCompletion
-	registerClassificationFlagCompletions(checkCaveCmd,
-		"super-class",
-		"cell-class",
-		"cell-type",
-		"cell-subtype",
-		"side",
-		"region",
-		"tract",
-		"nerve",
-		"hemilineage",
-		"proofread",
-	)
+	registerClassificationFlagCompletions(checkCaveCmd, checkCaveFilterFlags...)
 	mustRegisterFlagCompletion(checkCaveCmd, "layer", noFileCompletion)
 
 	checkCaveCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if err := validateCheckCaveFilters(cmd); err != nil {
+			return err
+		}
 		filters := &seatable.Filters{
 			SuperClass:  checkSuperClass,
 			CellClass:   checkCellClass,
@@ -251,6 +257,20 @@ func init() {
 	}
 
 	rootCmd.AddCommand(checkCaveCmd)
+}
+
+// validateCheckCaveFilters rejects a blank filter value. It names no subset:
+// the query drops an empty one, which widens --all to every neuron.
+func validateCheckCaveFilters(cmd *cobra.Command) error {
+	for _, name := range checkCaveFilterFlags {
+		if !cmd.Flags().Changed(name) {
+			continue
+		}
+		if value, _ := cmd.Flags().GetString(name); strings.TrimSpace(value) == "" {
+			return fmt.Errorf("--%s cannot be empty", name)
+		}
+	}
+	return nil
 }
 
 // parseRootID parses a stored or typed root ID, tolerating surrounding
