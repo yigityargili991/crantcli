@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Read `CRANTTABLE_TOKEN_FILE` and `CAVE_TOKEN_FILE` only when they name a
+  regular file of at most 64 KiB. A FIFO hung the command, and a huge file was
+  read entirely into memory; any other file now draws a warning that names the
+  path.
+
 ## v0.22.2 - 2026-10-21
 
 ### Security
