@@ -5,12 +5,15 @@
 ### Added
 
 - Load the state a Neuroglancer Share link points to, whether the link is in
-  the clipboard or passed with `--state`. crantcli fetches it from the state
-  server and carries on as with a URL that embeds the state, and the URL it
-  writes still embeds it. Each token goes only to the hosts of the auth server
-  that issued it: the CAVE token to `proofreading.zetta.ai`, and a new
-  optional global CAVE token to `global.daf-apis.com`, where Spelunker's Share
-  button stores states.
+  the clipboard or passed with `--state`, and also when its fragment was
+  percent-encoded. crantcli fetches it from the state server and carries on as
+  with a URL that embeds the state, and the URL it writes still embeds it.
+  Each token goes only to the exact host of the auth server that issued it,
+  over https on the default port: the CAVE token to `proofreading.zetta.ai`,
+  and a new optional global CAVE token to `global.daf-apis.com`, where
+  Spelunker's Share button stores states. A link whose host is not ASCII is
+  refused, since it can imitate another host, and an error never repeats a
+  token the state server echoes back.
 - Store the global CAVE token with `crantcli setup`, or set
   `CAVE_GLOBAL_TOKEN` or `CAVE_GLOBAL_TOKEN_FILE`. Without them, crantcli
   reads the token caveclient saved in
@@ -25,6 +28,9 @@
   get a URL that carries the state. These commands failed with
   `invalid character 'm' looking for beginning of value` and kept failing until
   something else was copied.
+- Skip a blank or whitespace-only `CRANTTABLE_TOKEN`, `CAVE_TOKEN`, token file,
+  or stored credential and keep looking for a token. A CI variable holding a
+  space hid the `*_TOKEN_FILE` variable, and the command reported no token.
 
 ## v0.22.2 - 2026-10-21
 
