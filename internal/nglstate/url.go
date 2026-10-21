@@ -70,6 +70,13 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 	// PathUnescape rather than QueryUnescape, so a '+' in a graphene source
 	// survives instead of becoming a space.
 	if decoded, err := url.PathUnescape(fragment); err == nil {
+		// A Share link that went through a URL encoder names its location
+		// only once decoded (#!middleauth%2Bhttps%3A%2F%2F...). The viewer
+		// would not fetch it, but no state starts with a scheme, so the
+		// decoded location is unambiguous.
+		if remoteStateFragment.MatchString(decoded) {
+			return nil, &remoteStateError{location: decoded}
+		}
 		if state, parseErr := parseStateJSON(decoded); parseErr == nil {
 			return state, nil
 		}

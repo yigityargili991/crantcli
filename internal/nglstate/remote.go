@@ -9,7 +9,8 @@ import (
 // Neuroglancer Share link names one in its fragment, for example
 // #!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>.
 type RemoteState struct {
-	// Location is the fragment after "#!", exactly as the link spells it.
+	// Location is the fragment after "#!", exactly as the link spells it, or
+	// percent-decoded when only the decoded fragment names a location.
 	Location string
 }
 

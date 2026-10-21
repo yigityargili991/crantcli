@@ -90,6 +90,50 @@ func TestLoadStateResolvesShareLink(t *testing.T) {
 	}
 }
 
+func TestLoadStateResolvesPercentEncodedShareLink(t *testing.T) {
+	// A Share link whose fragment went through a URL encoder loads like its
+	// plain form. The resolver, and through it statesrv's host checks, gets
+	// the same location either way, so a host refused a token is refused by
+	// both routes.
+	tests := []struct {
+		name, encoded, plain string
+	}{
+		{"Share link", "middleauth%2Bhttps%3A%2F%2Fglobal.daf-apis.com%2Fnglstate%2Fapi%2Fv1%2F5195345298243584", testShareLocation},
+		{"escaped host", "middleauth%2Bhttps%3A%2F%2Fglobal.daf-ap%25C4%25B0s.com%2Fnglstate%2Fapi%2Fv1%2F42", "middleauth+https://global.daf-ap%C4%B0s.com/nglstate/api/v1/42"},
+		{"non-ASCII host", "middleauth%2Bhttps%3A%2F%2Fglobal.daf-ap%C4%B0s.com%2Fnglstate%2Fapi%2Fv1%2F42", "middleauth+https://global.daf-apİs.com/nglstate/api/v1/42"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			encodedLink := "https://spelunker.cave-explorer.org/#!" + tt.encoded
+			var asked []RemoteState
+			warnings := isolateRemoteLoad(t, encodedLink, fakeResolver(testStoredState, nil, &asked))
+
+			fromClipboard, err := LoadState("", false)
+			if err != nil {
+				t.Fatalf("LoadState(clipboard): %v", err)
+			}
+			fromArg, err := LoadState(encodedLink, false)
+			if err != nil {
+				t.Fatalf("LoadState(--state): %v", err)
+			}
+			if _, err := LoadState("https://spelunker.cave-explorer.org/#!"+tt.plain, false); err != nil {
+				t.Fatalf("LoadState(plain link): %v", err)
+			}
+			if len(asked) != 3 || asked[0] != asked[2] || asked[1] != asked[2] || asked[2].Location != tt.plain {
+				t.Fatalf("resolver asked for %+v, want %q for the encoded and plain links alike", asked, tt.plain)
+			}
+			for _, result := range []*LoadResult{fromClipboard, fromArg} {
+				if result.OriginalURL != encodedLink || result.Remote == nil || result.Remote.Location != tt.plain {
+					t.Fatalf("original URL = %q, remote = %+v; want the link as given and %q", result.OriginalURL, result.Remote, tt.plain)
+				}
+			}
+			if warnings.Len() != 0 {
+				t.Fatalf("unexpected warning %q", warnings.String())
+			}
+		})
+	}
+}
+
 func TestLoadStateReadsFetchedStateLikeEmbeddedState(t *testing.T) {
 	// Old scenes store graphene sources with the '+' decoded to a space;
 	// a fetched state gets the same repair as one decoded from a URL.
