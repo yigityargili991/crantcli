@@ -59,7 +59,9 @@ hosts of the auth server that issued it: the CAVE token for
 `proofreading.zetta.ai` and its subdomains, and the
 [global CAVE token](../getting-started/configure.md#which-token-does-each-workflow-need)
 for `global.daf-apis.com`, where Spelunker's **Share** button stores states.
-States stored anywhere other than `https://`, such as `gs://`, are not fetched.
+States stored anywhere other than `https://`, such as `gs://`, are not fetched,
+nor are states on a host whose name contains non-ASCII characters, which can
+imitate another host's name.
 A link that cannot be loaded is an error that names it, not a reason to fall
 back to a default state; see
 [A Neuroglancer Share link does not load](../help/troubleshooting.md#a-neuroglancer-share-link-does-not-load).

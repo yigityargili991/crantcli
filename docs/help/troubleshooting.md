@@ -216,6 +216,10 @@ crantcli sends each token only to the hosts of the auth server that issued it:
   `crantcli setup` or `CAVE_TOKEN`.
 - States stored anywhere other than `https://`, such as `gs://`, are not
   fetched.
+- A link whose host contains non-ASCII characters is refused, because such a
+  name can imitate another server's. The error spells the characters out, as
+  in `"global.daf-ap\u0130s.com"`. Write an internationalized host name in its
+  ASCII `xn--` form.
 
 Without a token, the error lists every place crantcli looked:
 `this state server needs the global CAVE token, which is not configured

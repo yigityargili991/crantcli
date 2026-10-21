@@ -181,6 +181,11 @@ func TestCredentialMatches(t *testing.T) {
 		{"evilproofreading.zetta.ai", false},
 		{"proofreading.zetta.ai.example.org", false},
 		{"", false},
+		// "İ" (U+0130) lowercases to "i", but net/http contacts these hosts
+		// under their IDNA forms, such as xn--proofreading-v4g.zetta.ai.
+		{"proofreadİng.zetta.ai", false},
+		{"PROOFREADİNG.ZETTA.AI", false},
+		{"data.proofreadİng.zetta.ai", false},
 	}
 	for _, tt := range tests {
 		if got := cred.matches(tt.host); got != tt.want {

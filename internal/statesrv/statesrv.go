@@ -53,10 +53,18 @@ type Credential struct {
 
 // matches reports whether host is the auth server's host or a subdomain of
 // it. An auth server that is not https matches nothing, so a token never
-// travels unencrypted.
+// travels unencrypted. A host that is not ASCII matches nothing either:
+// net/http contacts it under its IDNA form, not the name lowercasing gives.
 func (c *Credential) matches(host string) bool {
 	auth, err := url.Parse(c.AuthServer)
 	if err != nil || auth.Scheme != "https" || auth.Hostname() == "" {
+		return false
+	}
+	// strings.ToLower folds "global.daf-apİs.com" (U+0130) onto
+	// global.daf-apis.com, but net/http dials and verifies that host as
+	// global.xn--daf-apis-u0e.com, a domain anyone can register. An ASCII host
+	// is contacted under the name it is matched by.
+	if !isASCII(host) || !isASCII(auth.Hostname()) {
 		return false
 	}
 	authHost := strings.ToLower(auth.Hostname())
@@ -179,7 +187,19 @@ func stateURL(location string) (*url.URL, error) {
 	if target.Hostname() == "" {
 		return nil, fmt.Errorf("the state location %q names no host", location)
 	}
+	// net/http would contact a non-ASCII host under its IDNA form, which can
+	// be another domain than the one the link seems to name. %+q spells out
+	// the characters that make it look like an ASCII name.
+	if host := target.Hostname(); !isASCII(host) {
+		return nil, fmt.Errorf("the state location's host %+q contains non-ASCII characters and may imitate another host; crantcli accepts only ASCII host names, such as an internationalized name's xn-- form", host)
+	}
 	return target, nil
+}
+
+// isASCII reports whether s is all ASCII, the only host names net/http
+// contacts as written.
+func isASCII(s string) bool {
+	return !strings.ContainsFunc(s, func(r rune) bool { return r > unicode.MaxASCII })
 }
 
 func (r *Resolver) credentialFor(host string) *Credential {
