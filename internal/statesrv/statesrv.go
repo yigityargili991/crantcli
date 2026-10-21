@@ -15,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -136,7 +138,7 @@ type Resolver struct {
 // Resolve returns the state JSON stored at location, the fragment of a Share
 // link after "#!". A location whose scheme is not https or middleauth+https
 // returns an error wrapping errors.ErrUnsupported.
-func (r *Resolver) Resolve(location string) ([]byte, error) {
+func (r *Resolver) Resolve(location string) (data []byte, err error) {
 	target, err := stateURL(location)
 	if err != nil {
 		return nil, err
@@ -161,6 +163,14 @@ func (r *Resolver) Resolve(location string) ([]byte, error) {
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
+		// The server gets the token and can repeat it in whatever Go puts in
+		// an error, such as a header or a malformed response line, so no
+		// error from here on carries it.
+		defer func() {
+			if err != nil {
+				err = redactToken(err, token)
+			}
+		}()
 	}
 
 	resp, err := httpx.Do(r.client(), req)
@@ -169,7 +179,7 @@ func (r *Resolver) Resolve(location string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxStateBytes+1))
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxStateBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading the state: %w", err)
 	}
@@ -177,7 +187,7 @@ func (r *Resolver) Resolve(location string) ([]byte, error) {
 		return nil, fmt.Errorf("the state exceeds %d bytes", maxStateBytes)
 	}
 	if !json.Valid(data) {
-		return nil, fmt.Errorf("the state server's response is not JSON (Content-Type %q)", resp.Header.Get("Content-Type"))
+		return nil, describeNonJSON(resp.Header.Get("Content-Type"))
 	}
 	return data, nil
 }
@@ -289,4 +299,33 @@ func bearerRealm(challenge string) string {
 		}
 	}
 	return ""
+}
+
+// describeNonJSON says the response is not a state and names its media type,
+// such as text/html for a sign-in page. It leaves out the Content-Type's
+// parameters, which the server fills as it likes, and a media type that is
+// not type/subtype. The media type keeps the server's spelling, which
+// mime.ParseMediaType would lowercase, so Resolve can find a token in it.
+func describeNonJSON(contentType string) error {
+	_, _, err := mime.ParseMediaType(contentType)
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	mediaType = strings.TrimSpace(mediaType)
+	if (err != nil && !errors.Is(err, mime.ErrInvalidMediaParameter)) || !strings.Contains(mediaType, "/") {
+		return errors.New("the state server's response is not JSON")
+	}
+	return fmt.Errorf("the state server's response is not JSON (Content-Type %q)", mediaType)
+}
+
+// redactToken returns an error with err's message, in which token reads
+// [REDACTED] both as is and as %q spells it, the way net/http quotes server
+// text. It does not wrap err, whose errors still hold the server's words.
+func redactToken(err error, token string) error {
+	msg := err.Error()
+	quoted := strconv.Quote(token)
+	for _, spelling := range []string{token, quoted[1 : len(quoted)-1]} {
+		if spelling != "" {
+			msg = strings.ReplaceAll(msg, spelling, "[REDACTED]")
+		}
+	}
+	return errors.New(msg)
 }

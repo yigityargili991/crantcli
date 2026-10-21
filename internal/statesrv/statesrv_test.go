@@ -3,6 +3,7 @@ package statesrv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -323,9 +324,92 @@ func TestResolveNonJSON(t *testing.T) {
 	})
 
 	_, err := srv.resolver(nil).Resolve("middleauth+https://example.com/nglstate/api/v1/1")
-	want := `response is not JSON (Content-Type "text/html; charset=utf-8")`
+	want := `response is not JSON (Content-Type "text/html")`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Resolve() error = %v, want it to contain %q", err, want)
+	}
+}
+
+func TestResolveErrorsHideEchoedToken(t *testing.T) {
+	// A state server that received the token can repeat it in anything Go
+	// puts into an error, and crantcli prints errors to terminals and CI
+	// logs.
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{
+			name: "Content-Type parameter",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html; echo="+r.Header.Get("Authorization"))
+				_, _ = io.WriteString(w, "<!doctype html><title>Sign in</title>")
+			},
+			want: `response is not JSON (Content-Type "text/html")`,
+		},
+		{
+			name: "Content-Type media type",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/x-"+strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				_, _ = io.WriteString(w, "<!doctype html><title>Sign in</title>")
+			},
+			want: `response is not JSON (Content-Type "application/x-[REDACTED]")`,
+		},
+		{
+			name: "malformed header line",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				hijacker, ok := w.(http.Hijacker)
+				if !ok {
+					return
+				}
+				conn, _, err := hijacker.Hijack()
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				// The NUL makes the line malformed, and net/http quotes the
+				// whole line into its error.
+				_, _ = fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Type: %s\x00\r\nContent-Length: 2\r\n\r\n{}", r.Header.Get("Authorization"))
+			},
+			want: `malformed MIME header line: "Content-Type: Bearer [REDACTED]\x00"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newStateServer(t, tt.handler)
+			resolver := srv.resolver(nil)
+			// Capitals show that no error lowercases the token either.
+			resolver.Credentials[0].Token = func() (string, string) { return "Secret-Token", "CAVE_TOKEN" }
+
+			_, err := resolver.Resolve("middleauth+https://example.com/nglstate/api/v1/1")
+			if err == nil {
+				t.Fatal("Resolve() succeeded, want an error")
+			}
+			// Neither the error nor one it wraps, which errors.As could
+			// find, may hold the token in any case.
+			for e := err; e != nil; e = errors.Unwrap(e) {
+				if strings.Contains(strings.ToLower(e.Error()), "secret-token") {
+					t.Fatalf("Resolve() error = %q, which repeats the token the server echoed", e)
+				}
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Resolve() error = %q, want it to contain %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRedactToken(t *testing.T) {
+	tests := []struct{ token, message, want string }{
+		{"secret-token", "echo=Bearer secret-token; again secret-token", "echo=Bearer [REDACTED]; again [REDACTED]"},
+		// %q escapes the quotes and backslashes a token may contain.
+		{`se"cr\et`, `malformed MIME header line: "Authorization: Bearer se\"cr\\et"`, `malformed MIME header line: "Authorization: Bearer [REDACTED]"`},
+		{"secret-token", "the state server has no such state (HTTP 404)", "the state server has no such state (HTTP 404)"},
+	}
+	for _, tt := range tests {
+		if got := redactToken(errors.New(tt.message), tt.token).Error(); got != tt.want {
+			t.Errorf("redactToken(%q, %q) = %q, want %q", tt.message, tt.token, got, tt.want)
+		}
 	}
 }
 
