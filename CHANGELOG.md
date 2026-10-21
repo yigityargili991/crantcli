@@ -7,6 +7,12 @@
 - Stop passing CRANT, CAVE, and GitHub tokens to the installer that
   `crantcli update` runs. It now keeps only `CRANTCLI_GITHUB_TOKEN`, which it
   downloads with, as the docs promise for every program crantcli starts.
+- Move a CAVE token saved in `~/.crantinject/cave_credentials` into the
+  credential manager, as the docs promise, instead of ignoring it and leaving
+  the secret file on disk. Early 0.6.0 builds stored it there.
+- Read credential files in `~/.crantinject/` and `~/.crant_type_look/` only
+  when the keyring holds no token. With the Linux file fallback, a file left
+  by an older version replaced a newer token in Secret Service.
 
 ## v0.22.2 - 2026-10-21
 
