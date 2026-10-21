@@ -200,6 +200,7 @@ func removeCredentialFiles(paths []string) error {
 func readFileCredential(paths []string) (token, sourcePath string) {
 	for _, path := range paths {
 		token, err := readEncodedTokenAtPath(path)
+		token = strings.TrimSpace(token)
 		if err == nil && token != "" {
 			return token, path
 		}
@@ -254,6 +255,16 @@ func storeEncodedToken(path, token string) error {
 	return nil
 }
 
+// readKeyringCredential returns the token stored for account, or "" when
+// there is none. A stored value that is only whitespace is no token.
+func readKeyringCredential(account string) string {
+	stored, err := activeCredentialKeyring.Get(credentialKeyringService, account)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stored)
+}
+
 func storeKeyringCredential(account, token string) error {
 	if err := activeCredentialKeyring.Set(credentialKeyringService, account, token); err != nil {
 		return err
@@ -281,7 +292,7 @@ func readStoredCredential(account string, filePaths []string) string {
 	}
 
 	if token == "" {
-		if stored, err := activeCredentialKeyring.Get(credentialKeyringService, account); err == nil {
+		if stored := readKeyringCredential(account); stored != "" {
 			if !credentialFileFallbackAllowed {
 				fileToken, _ := readFileCredential(filePaths)
 				if fileToken != "" && fileToken != stored {
@@ -392,7 +403,7 @@ func GetAPIToken() string {
 	if token := ReadStoredToken(); token != "" {
 		return token
 	}
-	if token := os.Getenv("CRANTTABLE_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("CRANTTABLE_TOKEN")); token != "" {
 		return token
 	}
 	if path := os.Getenv("CRANTTABLE_TOKEN_FILE"); path != "" {
@@ -437,7 +448,7 @@ func LookupCAVEToken() (token, source string) {
 	if token := ReadStoredCAVEToken(); token != "" {
 		return token, storedCredentialSource
 	}
-	if token := os.Getenv("CAVE_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("CAVE_TOKEN")); token != "" {
 		return token, "CAVE_TOKEN"
 	}
 	if path := os.Getenv("CAVE_TOKEN_FILE"); path != "" {
@@ -485,7 +496,7 @@ func LookupCAVEGlobalToken() (token, source string) {
 	if token := ReadStoredCAVEGlobalToken(); token != "" {
 		return token, storedCredentialSource
 	}
-	if token := os.Getenv("CAVE_GLOBAL_TOKEN"); token != "" {
+	if token := strings.TrimSpace(os.Getenv("CAVE_GLOBAL_TOKEN")); token != "" {
 		return token, "CAVE_GLOBAL_TOKEN"
 	}
 	if path := os.Getenv("CAVE_GLOBAL_TOKEN_FILE"); path != "" {

@@ -522,6 +522,11 @@ func TestLookupCAVEGlobalTokenPrecedence(t *testing.T) {
 	writeCAVEClientToken(t, home, `{"token": " caveclient-token\n"}`, 0o600)
 	expect("caveclient-token", 3)
 
+	// A blank CAVE_GLOBAL_TOKEN is no token either: the lookup moves on to
+	// caveclient's file instead of stopping at the variable.
+	t.Setenv("CAVE_GLOBAL_TOKEN", blankToken)
+	expect("caveclient-token", 3)
+
 	// An empty token file is no token: the lookup moves on to caveclient's.
 	tokenFile := filepath.Join(t.TempDir(), "global-token")
 	if err := os.WriteFile(tokenFile, []byte("\n"), 0o600); err != nil {
@@ -581,6 +586,115 @@ func TestLookupCAVETokenNamesSource(t *testing.T) {
 	if got := GetCAVEToken(); got != "stored-token" {
 		t.Fatalf("GetCAVEToken() = %q, want stored-token", got)
 	}
+}
+
+// blankToken is whitespace that can stand where a token belongs, such as a
+// CI variable set to a space. It is no token.
+const blankToken = " \t\r\n"
+
+func TestTokenLookupsSkipBlankValues(t *testing.T) {
+	tests := []struct {
+		name, envVar, fileVar, account string
+		lookup                         func() (token, source string)
+		// namesSource is false for GetAPIToken, which does not say where
+		// its token came from.
+		namesSource bool
+	}{
+		{"GetAPIToken", "CRANTTABLE_TOKEN", "CRANTTABLE_TOKEN_FILE", seaTableCredentialAccount,
+			func() (string, string) { return GetAPIToken(), "" }, false},
+		{"LookupCAVEToken", "CAVE_TOKEN", "CAVE_TOKEN_FILE", caveCredentialAccount, LookupCAVEToken, true},
+		{"LookupCAVEGlobalToken", "CAVE_GLOBAL_TOKEN", "CAVE_GLOBAL_TOKEN_FILE", caveGlobalCredentialAccount,
+			LookupCAVEGlobalToken, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, backend := setupTestHome(t)
+			expect := func(wantToken, wantSource string) {
+				t.Helper()
+				if !tt.namesSource {
+					wantSource = ""
+				}
+				if token, source := tt.lookup(); token != wantToken || source != wantSource {
+					t.Errorf("%s() = %q, %q; want %q, %q", tt.name, token, source, wantToken, wantSource)
+				}
+			}
+			tokenFile := filepath.Join(t.TempDir(), "token-file")
+			writeTokenFile := func(content string) {
+				t.Helper()
+				if err := os.WriteFile(tokenFile, []byte(content), 0o600); err != nil {
+					t.Fatalf("write token file: %v", err)
+				}
+			}
+			t.Setenv(tt.envVar, blankToken)
+			t.Setenv(tt.fileVar, tokenFile)
+
+			// Whitespace in the variable and in the file is no token.
+			writeTokenFile(blankToken)
+			expect("", "")
+
+			// A blank variable does not hide the token file.
+			writeTokenFile("file-token\n")
+			expect("file-token", tt.fileVar)
+
+			// A token is used without the whitespace around it.
+			t.Setenv(tt.envVar, " env-token\n")
+			expect("env-token", tt.envVar)
+
+			// A blank stored token does not hide the variable.
+			key := credentialKey(credentialKeyringService, tt.account)
+			backend.values[key] = blankToken
+			expect("env-token", tt.envVar)
+
+			backend.values[key] = " stored-token\n"
+			expect("stored-token", storedCredentialSource)
+		})
+	}
+}
+
+func TestReadStoredCredentialSkipsBlankValues(t *testing.T) {
+	t.Run("blank file does not hide an older one", func(t *testing.T) {
+		// readStoredCredential reads the credential store first, or on
+		// Linux the files first.
+		for _, fallbackAllowed := range []bool{false, true} {
+			home, backend := setupTestHome(t)
+			credentialFileFallbackAllowed = fallbackAllowed
+			writeEncodedToken(t, filepath.Join(home, ".crantcli", "credentials"), blankToken)
+			writeEncodedToken(t, filepath.Join(home, ".crant_type_look", "credentials"), " legacy-token\n")
+
+			if got := ReadStoredToken(); got != "legacy-token" {
+				t.Errorf("file fallback %v: ReadStoredToken() = %q, want legacy-token", fallbackAllowed, got)
+			}
+			if got := backend.values[credentialKey(credentialKeyringService, seaTableCredentialAccount)]; got != "legacy-token" {
+				t.Errorf("file fallback %v: migrated keyring token = %q, want legacy-token", fallbackAllowed, got)
+			}
+		}
+	})
+
+	t.Run("blank file is not migrated", func(t *testing.T) {
+		home, backend := setupTestHome(t)
+		writeEncodedToken(t, filepath.Join(home, ".crantcli", "cave_credentials"), blankToken)
+
+		if got := ReadStoredCAVEToken(); got != "" {
+			t.Errorf("ReadStoredCAVEToken() = %q, want no token", got)
+		}
+		if got, ok := backend.values[credentialKey(credentialKeyringService, caveCredentialAccount)]; ok {
+			t.Errorf("blank credential file was migrated into the credential store as %q", got)
+		}
+	})
+
+	t.Run("blank store entry gives way to the file", func(t *testing.T) {
+		home, backend := setupTestHome(t)
+		key := credentialKey(credentialKeyringService, caveGlobalCredentialAccount)
+		backend.values[key] = blankToken
+		writeEncodedToken(t, filepath.Join(home, ".crantcli", "cave_global_credentials"), "file-token")
+
+		if got := ReadStoredCAVEGlobalToken(); got != "file-token" {
+			t.Errorf("ReadStoredCAVEGlobalToken() = %q, want file-token", got)
+		}
+		if got := backend.values[key]; got != "file-token" {
+			t.Errorf("keyring token = %q, want the migrated file-token", got)
+		}
+	})
 }
 
 func TestLookupCAVEGlobalTokenOnlyReadsCAVEClientFile(t *testing.T) {
