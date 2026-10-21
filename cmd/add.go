@@ -302,7 +302,7 @@ func init() {
 			return err
 		}
 
-		fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.Source)
+		fmt.Fprintf(os.Stderr, "State loaded from %s\n", result.SourceDescription())
 
 		// Find segmentation layer and inject
 		layer, _, err := addFindSegmentationLayer(result.State, addLayer)

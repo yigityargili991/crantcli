@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"crantcli/internal/config"
+	"crantcli/internal/nglstate"
+	"crantcli/internal/statesrv"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +15,39 @@ import (
 var Version = "dev"
 
 var getAPIToken = config.GetAPIToken
+
+// stateServerResolver fetches the states Neuroglancer Share links point to.
+// Each token goes only to the host of the auth server that issued it, whose
+// state server accepts it, on the default https port: the CAVE token to
+// proofreading.zetta.ai, the global one to global.daf-apis.com. The CAVE
+// server, data.proofreading.zetta.ai, has no state server, so this resolver
+// sends it no token.
+var stateServerResolver = &statesrv.Resolver{
+	Credentials: []statesrv.Credential{
+		{
+			Name:       "CAVE token",
+			AuthServer: config.CAVEAuthServer,
+			Token:      config.LookupCAVEToken,
+			Sources:    config.CAVETokenSources(),
+			Setup:      "run 'crantcli setup' or set CAVE_TOKEN",
+		},
+		{
+			Name:       "global CAVE token",
+			AuthServer: config.CAVEGlobalAuthServer,
+			Token:      config.LookupCAVEGlobalToken,
+			Sources:    config.CAVEGlobalTokenSources(),
+			Setup:      "run 'crantcli setup' or set CAVE_GLOBAL_TOKEN",
+		},
+	},
+}
+
+func init() {
+	// Installed once, so every command that loads a state can read a Share
+	// link: from the clipboard (add, inspect), --state, and check-cave.
+	nglstate.SetRemoteStateResolver(func(remote nglstate.RemoteState) ([]byte, error) {
+		return stateServerResolver.Resolve(remote.Location)
+	})
+}
 
 var rootCmd = &cobra.Command{
 	Use:           "crantcli",

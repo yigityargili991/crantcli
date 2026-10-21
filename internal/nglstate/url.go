@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -12,6 +13,23 @@ import (
 // to one whose fragment cannot be decoded. Callers can treat the former as an
 // accidental paste (the bare viewer link) and the latter as real corruption.
 var errNoFragment = errors.New("URL has no fragment (expected #!{...} or #!url)")
+
+// remoteStateFragment matches a fragment that names where a state is stored
+// instead of holding it, which the viewer fetches rather than parses (the
+// same pattern its URL hash binding tests). The viewer's Share button copies
+// this form: #!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>.
+var remoteStateFragment = regexp.MustCompile(`^[a-z][a-z0-9+.-]*://`)
+
+// remoteStateError reports a URL whose state lives on a server. DecodeURL
+// does not fetch those (loadState does, through the installed resolver), and
+// parsing the location as JSON fails with a message that does not say why.
+type remoteStateError struct {
+	location string
+}
+
+func (e *remoteStateError) Error() string {
+	return fmt.Sprintf("the state is stored at %q (a Neuroglancer Share link), not in the URL, and crantcli cannot load it from there", e.location)
+}
 
 // splitFragment separates a URL into the part before the first '#' and the
 // still-encoded fragment after it, mirroring how a browser fills location.hash.
@@ -44,11 +62,21 @@ func DecodeURL(rawURL string) (map[string]interface{}, error) {
 		return nil, errNoFragment
 	}
 	fragment = strings.TrimPrefix(fragment, "!")
+	if remoteStateFragment.MatchString(fragment) {
+		return nil, &remoteStateError{location: fragment}
+	}
 
 	// Mirror the viewer, which percent-decodes the fragment before parsing it.
 	// PathUnescape rather than QueryUnescape, so a '+' in a graphene source
 	// survives instead of becoming a space.
 	if decoded, err := url.PathUnescape(fragment); err == nil {
+		// A Share link that went through a URL encoder names its location
+		// only once decoded (#!middleauth%2Bhttps%3A%2F%2F...). The viewer
+		// would not fetch it, but no state starts with a scheme, so the
+		// decoded location is unambiguous.
+		if remoteStateFragment.MatchString(decoded) {
+			return nil, &remoteStateError{location: decoded}
+		}
 		if state, parseErr := parseStateJSON(decoded); parseErr == nil {
 			return state, nil
 		}

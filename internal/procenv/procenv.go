@@ -12,6 +12,8 @@ var sensitiveKeys = map[string]struct{}{
 	"CRANTTABLE_TOKEN_FILE":   {},
 	"CAVE_TOKEN":              {},
 	"CAVE_TOKEN_FILE":         {},
+	"CAVE_GLOBAL_TOKEN":       {},
+	"CAVE_GLOBAL_TOKEN_FILE":  {},
 	"CRANTCLI_GITHUB_TOKEN":   {},
 	"GH_TOKEN":                {},
 	"GITHUB_TOKEN":            {},

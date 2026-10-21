@@ -32,7 +32,10 @@ const (
 type StatusError struct {
 	StatusCode int
 	Body       []byte
-	hideBody   bool
+	// Header holds the response headers, such as the WWW-Authenticate
+	// challenge of a 401. They are server-controlled like the body.
+	Header   http.Header
+	hideBody bool
 }
 
 // Error implements the error interface. The body is server-controlled, so
@@ -90,6 +93,7 @@ func Do(client *http.Client, req *http.Request) (*http.Response, error) {
 		return nil, &StatusError{
 			StatusCode: resp.StatusCode,
 			Body:       redactRequestCredentials(body, req),
+			Header:     resp.Header,
 			hideBody:   requestHasCredentials(req),
 		}
 	}

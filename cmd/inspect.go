@@ -25,7 +25,7 @@ With no --state and no piped stdin, the clipboard is read implicitly.`,
 			return err
 		}
 
-		fmt.Printf("Source: %s\n\n", result.Source)
+		fmt.Printf("Source: %s\n\n", result.SourceDescription())
 
 		layersRaw, ok := result.State["layers"]
 		if !ok {

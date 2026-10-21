@@ -186,6 +186,21 @@ func TestLoadStateClipboardDiagnostics(t *testing.T) {
 		}
 	})
 
+	t.Run("Share link fails naming the link", func(t *testing.T) {
+		warnings.Reset()
+		stateClipboardRead = func() (string, error) {
+			return "https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/5195345298243584", nil
+		}
+		_, err := LoadState("", false)
+		if err == nil || !strings.Contains(err.Error(), "the clipboard holds a Neuroglancer Share link") ||
+			!strings.Contains(err.Error(), "nglstate/api/v1/5195345298243584") {
+			t.Fatalf("LoadState error = %v, want a Share link error", err)
+		}
+		if warnings.Len() != 0 {
+			t.Fatalf("unexpected warning %q", warnings.String())
+		}
+	})
+
 	t.Run("valid state URL loads", func(t *testing.T) {
 		warnings.Reset()
 		stateClipboardRead = func() (string, error) {
@@ -230,6 +245,7 @@ func TestLoadInputStateRefusesDefaults(t *testing.T) {
 		{"clipboard without a URL", "576460752669867599", nil, "no state given"},
 		{"clipboard unavailable", "", errors.New("no desktop"), "clipboard input unavailable: no desktop"},
 		{"viewer URL without a state fragment", "https://spelunker.cave-explorer.org/", nil, "without a state fragment"},
+		{"Share link", "https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/5195345298243584", nil, "Neuroglancer Share link"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

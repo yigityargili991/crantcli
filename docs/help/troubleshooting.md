@@ -195,3 +195,51 @@ esac
 ## A piped command ignores the clipboard or `--generate`
 
 Non-empty piped JSON has the highest priority when `--state` is absent. Remove the pipe or provide `--state` explicitly.
+
+## A Neuroglancer Share link does not load
+
+The viewer's **Share** button copies a short link such as
+`https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>`,
+which points to a state stored on a state server instead of carrying it.
+crantcli fetches that state when the link is in the clipboard or passed with
+`--state`. A state server requires a token from the auth server it trusts, and
+crantcli sends each token only to the host of the auth server that issued it,
+on the default https port:
+
+- Links stored on `global.daf-apis.com`, where Spelunker's **Share** button
+  stores them, need the global CAVE token. crantcli looks in its credential
+  store (`crantcli setup`), then `CAVE_GLOBAL_TOKEN`, then
+  `CAVE_GLOBAL_TOKEN_FILE`, and last in the file caveclient saves the token
+  to, `~/.cloudvolume/secrets/global.daf-apis.com-cave-secret.json`, which it
+  reads but never changes. Copy a token from
+  <https://global.daf-apis.com/sticky_auth/settings/tokens>.
+- Links stored on `proofreading.zetta.ai` need the CAVE token, from
+  `crantcli setup` or `CAVE_TOKEN`.
+- States stored anywhere other than `https://`, such as `gs://`, are not
+  fetched.
+- A link whose host contains non-ASCII characters is refused, because such a
+  name can imitate another server's. The error spells the characters out, as
+  in `"global.daf-ap\u0130s.com"`. Write an internationalized host name in its
+  ASCII `xn--` form.
+
+Without a token, the error lists every place crantcli looked:
+`this state server needs the global CAVE token, which is not configured
+(checked crantcli's credential store, CAVE_GLOBAL_TOKEN, ...)`. When the server
+refuses a token, the error names where that token came from, as in `the state
+server rejected the global CAVE token from CAVE_GLOBAL_TOKEN (HTTP 401)`, so
+you know which one to replace. The token stored by `crantcli setup` takes
+precedence over the environment variables and caveclient's file, so replace a
+rejected stored token by running `crantcli setup` again.
+
+To use the view anyway, copy the URL from the browser's address bar instead of
+using **Share**; that URL carries the state. To start from the default scene,
+ignore the clipboard:
+
+```bash
+crantcli add --cell-type vDelta --generate --open
+```
+
+Earlier versions could not load any Share link: `add`, `inspect`, and
+`check-cave` failed with `decoding clipboard URL: decoding state JSON from URL
+fragment: invalid character 'm' looking for beginning of value` until something
+else was copied.

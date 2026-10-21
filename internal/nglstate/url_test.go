@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"reflect"
 	"strings"
@@ -57,6 +58,11 @@ func TestDecodeURL(t *testing.T) {
 			name:  "raw json fragment with a bare percent",
 			input: `https://example.org/#!{"name":"100% confidence"}`,
 			want:  map[string]interface{}{"name": "100% confidence"},
+		},
+		{
+			name:  "url encoded state holding a share link",
+			input: "https://example.org/#!%7B%22source%22%3A%22middleauth%2Bhttps%3A%2F%2Fx%22%7D",
+			want:  map[string]interface{}{"source": "middleauth+https://x"},
 		},
 		{
 			name:  "plus signs are preserved in fragment json",
@@ -138,6 +144,80 @@ func TestDecodeURL(t *testing.T) {
 			}
 			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("DecodeURL() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeURLRemoteState(t *testing.T) {
+	// The viewer's Share button copies a link naming where the state is
+	// stored. It is not malformed JSON and must not be reported as such. The
+	// location is kept exactly as the link spells it, escapes included:
+	// decoding a%2Fb would name a different URL.
+	for _, location := range []string{
+		"middleauth+https://global.daf-apis.com/nglstate/api/v1/5195345298243584",
+		"https://example.org/state.json",
+		"gs://bucket/state.json",
+		"middleauth+https://global.daf-ap%C4%B0s.com/nglstate/api/v1/42",
+		"https://example.org/a%2Fb/state.json",
+		"https://example.org/100%.json",
+	} {
+		t.Run(location, func(t *testing.T) {
+			_, err := DecodeURL("https://spelunker.cave-explorer.org/#!" + location)
+			var remote *remoteStateError
+			if !errors.As(err, &remote) || remote.location != location {
+				t.Fatalf("DecodeURL() error = %v, want a remote state error for %q", err, location)
+			}
+			if strings.Contains(err.Error(), "invalid character") {
+				t.Fatalf("DecodeURL() error = %q reads as malformed JSON", err)
+			}
+		})
+	}
+}
+
+func TestDecodeURLPercentEncodedRemoteState(t *testing.T) {
+	// URL encoders and bug-report formatters percent-encode a Share link's
+	// fragment. Decoded, it names the same location as the plain link.
+	tests := []struct {
+		fragment, location string
+	}{
+		{
+			"middleauth%2Bhttps%3A%2F%2Fglobal.daf-apis.com%2Fnglstate%2Fapi%2Fv1%2F5195345298243584",
+			"middleauth+https://global.daf-apis.com/nglstate/api/v1/5195345298243584",
+		},
+		{
+			"middleauth+https%3A%2F%2Fglobal.daf-apis.com/nglstate/api/v1/5195345298243584",
+			"middleauth+https://global.daf-apis.com/nglstate/api/v1/5195345298243584",
+		},
+		{"https%3A%2F%2Fexample.org%2Fstate.json", "https://example.org/state.json"},
+		{"gs%3A%2F%2Fbucket%2Fstate.json", "gs://bucket/state.json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fragment, func(t *testing.T) {
+			_, err := DecodeURL("https://spelunker.cave-explorer.org/#!" + tt.fragment)
+			var remote *remoteStateError
+			if !errors.As(err, &remote) || remote.location != tt.location {
+				t.Fatalf("DecodeURL() error = %v, want a remote state error for %q", err, tt.location)
+			}
+		})
+	}
+}
+
+func TestDecodeURLMalformedState(t *testing.T) {
+	// A fragment that names no location, even once decoded, is read as a
+	// state, and one that does not parse is reported as malformed JSON.
+	tests := []struct {
+		fragment, want string
+	}{
+		{`{"layers":[`, "decoding state JSON from URL fragment: unexpected end of JSON input"},
+		{"%7B%22layers%22%3A%5B", "decoding state JSON from URL fragment: invalid character '%' looking for beginning of value"},
+		{"middleauth%2Bhttps%3A%2Fglobal.daf-apis.com", "decoding state JSON from URL fragment: invalid character 'm' looking for beginning of value"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fragment, func(t *testing.T) {
+			_, err := DecodeURL("https://spelunker.cave-explorer.org/#!" + tt.fragment)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("DecodeURL() error = %v, want %q", err, tt.want)
 			}
 		})
 	}

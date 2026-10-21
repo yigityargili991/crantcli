@@ -11,6 +11,11 @@ crantcli add --cell-type ER --state "https://spelunker.cave-explorer.org/#!..."
 
 An existing file takes precedence even if its filename contains URL-like text.
 
+A link from the viewer's **Share** button works too, in the clipboard or with
+`--state`: crantcli fetches the state it points to.
+[Share links](../concepts/state-resolution.md#share-links) explains which
+state servers it can sign in to.
+
 ## Pipe a state
 
 ```bash
