@@ -286,9 +286,14 @@ func storeKeyringCredential(account, token string) error {
 }
 
 func readStoredCredential(account string, filePaths []string) string {
+	// On Linux the current fallback file can be newer than the system
+	// credential store, so it is read first. Legacy files are only migration
+	// sources and never replace a token the store already holds.
 	var token, sourcePath string
+	legacyPaths := filePaths
 	if credentialFileFallbackAllowed {
-		token, sourcePath = readFileCredential(filePaths)
+		token, sourcePath = readFileCredential(filePaths[:1])
+		legacyPaths = filePaths[1:]
 	}
 
 	if token == "" {
@@ -309,8 +314,8 @@ func readStoredCredential(account string, filePaths []string) string {
 		}
 	}
 
-	if token == "" && !credentialFileFallbackAllowed {
-		token, sourcePath = readFileCredential(filePaths)
+	if token == "" {
+		token, sourcePath = readFileCredential(legacyPaths)
 	}
 	if token == "" {
 		return ""
@@ -384,12 +389,48 @@ func StoreToken(token string) error {
 	)
 }
 
+// maxTokenFileBytes bounds the read of a file named by a token-file
+// variable, which holds a single token.
+const maxTokenFileBytes = 64 << 10
+
+// readTokenFile returns the trimmed token in the file at path, or "" when
+// there is none. Only a regular file (or a symbolic link to one) of at most
+// maxTokenFileBytes is read, so a FIFO cannot block the lookup and a huge
+// file is not loaded into memory. A missing file is ignored silently; any
+// other problem draws a warning that names the path but never the contents.
 func readTokenFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
+	token, err := readRawTokenAtPath(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not read token file %s: %v\n", path, err)
+		return ""
+	}
+	return token
+}
+
+func readRawTokenAtPath(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("not a regular file")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxTokenFileBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxTokenFileBytes {
+		return "", fmt.Errorf("larger than %d bytes", maxTokenFileBytes)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 // GetAPIToken retrieves the SeaTable API token from one of several sources.
@@ -412,28 +453,46 @@ func GetAPIToken() string {
 	return ""
 }
 
-func caveCredentialFilePath() string {
+func caveCredentialFilePathForDir(configDir string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, appConfigDir, "cave_credentials")
+	return filepath.Join(home, configDir, "cave_credentials")
+}
+
+func caveCredentialFilePath() string {
+	return caveCredentialFilePathForDir(appConfigDir)
+}
+
+// The CAVE token was added after the rename to crantinject, so
+// ~/.crant_type_look never held one.
+func legacyCAVECredentialFilePaths() []string {
+	return []string{caveCredentialFilePathForDir(legacyAppConfigDir)}
 }
 
 // ReadStoredCAVEToken reads the CAVE token from the system credential store.
 // Existing file credentials are migrated automatically.
 func ReadStoredCAVEToken() string {
-	return readStoredCredential(caveCredentialAccount, []string{caveCredentialFilePath()})
+	return readStoredCredential(
+		caveCredentialAccount,
+		append([]string{caveCredentialFilePath()}, legacyCAVECredentialFilePaths()...),
+	)
 }
 
 // StoreCAVEToken stores a CAVE token in the system credential store.
 func StoreCAVEToken(token string) error {
-	return storeCredential(caveCredentialAccount, caveCredentialFilePath(), token, nil)
+	return storeCredential(
+		caveCredentialAccount,
+		caveCredentialFilePath(),
+		token,
+		legacyCAVECredentialFilePaths(),
+	)
 }
 
 // GetCAVEToken retrieves the CAVE API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. System credential store (with migration from the older credential file)
+//  1. System credential store (with migration from older credential files)
 //  2. CAVE_TOKEN environment variable
 //  3. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
 func GetCAVEToken() string {

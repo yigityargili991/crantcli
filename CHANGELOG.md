@@ -31,6 +31,19 @@
 - Skip a blank or whitespace-only `CRANTTABLE_TOKEN`, `CAVE_TOKEN`, token file,
   or stored credential and keep looking for a token. A CI variable holding a
   space hid the `*_TOKEN_FILE` variable, and the command reported no token.
+- Stop passing CRANT, CAVE, and GitHub tokens to the installer that
+  `crantcli update` runs. It now keeps only `CRANTCLI_GITHUB_TOKEN`, which it
+  downloads with, as the docs promise for every program crantcli starts.
+- Move a CAVE token saved in `~/.crantinject/cave_credentials` into the
+  credential manager, as the docs promise, instead of ignoring it and leaving
+  the secret file on disk. Early 0.6.0 builds stored it there.
+- Read credential files in `~/.crantinject/` and `~/.crant_type_look/` only
+  when the keyring holds no token. With the Linux file fallback, a file left
+  by an older version replaced a newer token in Secret Service.
+- Read `CRANTTABLE_TOKEN_FILE` and `CAVE_TOKEN_FILE` only when they name a
+  regular file of at most 64 KiB. A FIFO hung the command, and a huge file was
+  read entirely into memory; any other file now draws a warning that names the
+  path.
 
 ## v0.22.2 - 2026-10-21
 
