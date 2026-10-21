@@ -256,9 +256,14 @@ func storeKeyringCredential(account, token string) error {
 }
 
 func readStoredCredential(account string, filePaths []string) string {
+	// On Linux the current fallback file can be newer than the system
+	// credential store, so it is read first. Legacy files are only migration
+	// sources and never replace a token the store already holds.
 	var token, sourcePath string
+	legacyPaths := filePaths
 	if credentialFileFallbackAllowed {
-		token, sourcePath = readFileCredential(filePaths)
+		token, sourcePath = readFileCredential(filePaths[:1])
+		legacyPaths = filePaths[1:]
 	}
 
 	if token == "" {
@@ -279,8 +284,8 @@ func readStoredCredential(account string, filePaths []string) string {
 		}
 	}
 
-	if token == "" && !credentialFileFallbackAllowed {
-		token, sourcePath = readFileCredential(filePaths)
+	if token == "" {
+		token, sourcePath = readFileCredential(legacyPaths)
 	}
 	if token == "" {
 		return ""

@@ -233,6 +233,75 @@ func TestReadStoredToken_LinuxFallbackReplacesStaleKeyringToken(t *testing.T) {
 	}
 }
 
+func TestReadStoredToken_LinuxFallbackReadsLegacyFileAfterKeyring(t *testing.T) {
+	tests := []struct {
+		name         string
+		keyringToken string
+		keyringErr   error
+		wantToken    string
+		wantKeyring  string
+		wantLegacy   bool
+		wantFallback bool
+	}{
+		{
+			name:         "keyring token wins over a differing legacy file",
+			keyringToken: "keyring-token",
+			wantToken:    "keyring-token",
+			wantKeyring:  "keyring-token",
+			wantLegacy:   true,
+		},
+		{
+			name:         "keyring token leaves a matching legacy file alone",
+			keyringToken: "legacy-token",
+			wantToken:    "legacy-token",
+			wantKeyring:  "legacy-token",
+			wantLegacy:   true,
+		},
+		{
+			name:        "legacy file migrates into an empty keyring",
+			wantToken:   "legacy-token",
+			wantKeyring: "legacy-token",
+		},
+		{
+			name:         "legacy file moves to the fallback file without a keyring",
+			keyringErr:   errors.New("keyring unavailable"),
+			wantToken:    "legacy-token",
+			wantFallback: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home, backend := setupTestHome(t)
+			credentialFileFallbackAllowed = true
+			backend.getErr = tt.keyringErr
+			backend.setErr = tt.keyringErr
+			if tt.keyringToken != "" {
+				backend.values[credentialKey(credentialKeyringService, seaTableCredentialAccount)] = tt.keyringToken
+			}
+			legacyPath := filepath.Join(home, ".crantinject", "credentials")
+			fallbackPath := filepath.Join(home, ".crantcli", "credentials")
+			writeEncodedToken(t, legacyPath, "legacy-token")
+
+			if got := ReadStoredToken(); got != tt.wantToken {
+				t.Fatalf("ReadStoredToken() = %q, want %q", got, tt.wantToken)
+			}
+			if got := backend.values[credentialKey(credentialKeyringService, seaTableCredentialAccount)]; got != tt.wantKeyring {
+				t.Fatalf("keyring token = %q, want %q", got, tt.wantKeyring)
+			}
+			if _, err := os.Stat(legacyPath); (err == nil) != tt.wantLegacy {
+				t.Fatalf("legacy credential file exists = %v, want %v", err == nil, tt.wantLegacy)
+			}
+			if tt.wantFallback {
+				if got, err := readEncodedTokenAtPath(fallbackPath); err != nil || got != tt.wantToken {
+					t.Fatalf("fallback file token = %q (error %v), want %q", got, err, tt.wantToken)
+				}
+			} else if _, err := os.Stat(fallbackPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("fallback file unexpectedly exists: %v", err)
+			}
+		})
+	}
+}
+
 func TestReadStoredToken_KeepsFileWhenKeyringRoundTripFails(t *testing.T) {
 	home, backend := setupTestHome(t)
 	backend.discardSet = true
