@@ -7,10 +7,16 @@
 - Load the state a Neuroglancer Share link points to, whether the link is in
   the clipboard or passed with `--state`. crantcli fetches it from the state
   server and carries on as with a URL that embeds the state, and the URL it
-  writes still embeds it. The CAVE token is sent only to `proofreading.zetta.ai`
-  and its subdomains, so Share links stored there load. Links stored on
-  `global.daf-apis.com` trust a different auth server and still fail, now with
-  an error that names it.
+  writes still embeds it. Each token goes only to the hosts of the auth server
+  that issued it: the CAVE token to `proofreading.zetta.ai`, and a new
+  optional global CAVE token to `global.daf-apis.com`, where Spelunker's Share
+  button stores states.
+- Store the global CAVE token with `crantcli setup`, or set
+  `CAVE_GLOBAL_TOKEN` or `CAVE_GLOBAL_TOKEN_FILE`. Without them, crantcli
+  reads the token caveclient saved in
+  `~/.cloudvolume/secrets/global.daf-apis.com-cave-secret.json`, and never
+  writes that file. When a token is missing, the error lists where crantcli
+  looked; when a server rejects one, it names where that token came from.
 
 ### Fixed
 

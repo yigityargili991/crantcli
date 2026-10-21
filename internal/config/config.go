@@ -2,8 +2,10 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,14 +35,27 @@ const (
 	// CAVEAuthServer issues the CAVE token: CAVEServer and the state server
 	// on this host name it as the realm of their 401 responses.
 	CAVEAuthServer = "https://proofreading.zetta.ai"
+	// CAVEGlobalAuthServer issues the global CAVE token. NglStateServer, where
+	// Spelunker's Share button stores states, names it as its realm.
+	CAVEGlobalAuthServer = "https://" + caveGlobalAuthHost
+	caveGlobalAuthHost   = "global.daf-apis.com"
 
 	appConfigDir        = ".crantcli"
 	legacyAppConfigDir  = ".crantinject"
 	legacyAppConfigDir2 = ".crant_type_look"
 
-	credentialKeyringService  = "crantcli"
-	seaTableCredentialAccount = "seatable-api-token"
-	caveCredentialAccount     = "cave-api-token"
+	credentialKeyringService    = "crantcli"
+	seaTableCredentialAccount   = "seatable-api-token"
+	caveCredentialAccount       = "cave-api-token"
+	caveGlobalCredentialAccount = "cave-global-api-token"
+
+	// storedCredentialSource names the credential crantcli setup stores
+	// when a message says where a token came from.
+	storedCredentialSource = "crantcli's credential store"
+
+	// maxCAVEClientTokenFileBytes bounds the read of a caveclient token
+	// file, which holds a small JSON object.
+	maxCAVEClientTokenFileBytes = 64 << 10
 )
 
 type credentialKeyring interface {
@@ -411,16 +426,151 @@ func StoreCAVEToken(token string) error {
 //  2. CAVE_TOKEN environment variable
 //  3. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
 func GetCAVEToken() string {
+	token, _ := LookupCAVEToken()
+	return token
+}
+
+// LookupCAVEToken is GetCAVEToken that also returns where the token came
+// from, named as in CAVETokenSources, so a message can say which token a
+// server rejected without showing it.
+func LookupCAVEToken() (token, source string) {
 	if token := ReadStoredCAVEToken(); token != "" {
-		return token
+		return token, storedCredentialSource
 	}
 	if token := os.Getenv("CAVE_TOKEN"); token != "" {
-		return token
+		return token, "CAVE_TOKEN"
 	}
 	if path := os.Getenv("CAVE_TOKEN_FILE"); path != "" {
-		return readTokenFile(path)
+		if token := readTokenFile(path); token != "" {
+			return token, "CAVE_TOKEN_FILE"
+		}
 	}
-	return ""
+	return "", ""
+}
+
+// CAVETokenSources names the places GetCAVEToken looks, in order.
+func CAVETokenSources() []string {
+	return []string{storedCredentialSource, "CAVE_TOKEN", "CAVE_TOKEN_FILE"}
+}
+
+func caveGlobalCredentialFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, appConfigDir, "cave_global_credentials")
+}
+
+// ReadStoredCAVEGlobalToken reads the global CAVE token from the system
+// credential store.
+func ReadStoredCAVEGlobalToken() string {
+	return readStoredCredential(caveGlobalCredentialAccount, []string{caveGlobalCredentialFilePath()})
+}
+
+// StoreCAVEGlobalToken stores a global CAVE token in the system credential
+// store.
+func StoreCAVEGlobalToken(token string) error {
+	return storeCredential(caveGlobalCredentialAccount, caveGlobalCredentialFilePath(), token, nil)
+}
+
+// LookupCAVEGlobalToken retrieves the token CAVEGlobalAuthServer issues,
+// which loads Share links stored on global.daf-apis.com, and where it came
+// from, named as in CAVEGlobalTokenSources. It checks, in order:
+//  1. System credential store (written by crantcli setup)
+//  2. CAVE_GLOBAL_TOKEN environment variable
+//  3. CAVE_GLOBAL_TOKEN_FILE environment variable (path to a file containing the token)
+//  4. caveclient's token file for the server,
+//     ~/.cloudvolume/secrets/global.daf-apis.com-cave-secret.json
+func LookupCAVEGlobalToken() (token, source string) {
+	if token := ReadStoredCAVEGlobalToken(); token != "" {
+		return token, storedCredentialSource
+	}
+	if token := os.Getenv("CAVE_GLOBAL_TOKEN"); token != "" {
+		return token, "CAVE_GLOBAL_TOKEN"
+	}
+	if path := os.Getenv("CAVE_GLOBAL_TOKEN_FILE"); path != "" {
+		if token := readTokenFile(path); token != "" {
+			return token, "CAVE_GLOBAL_TOKEN_FILE"
+		}
+	}
+	path := caveClientTokenPath(caveGlobalAuthHost)
+	if token := readCAVEClientToken(path); token != "" {
+		return token, caveClientTokenSource(path)
+	}
+	return "", ""
+}
+
+// CAVEGlobalTokenSources names the places LookupCAVEGlobalToken looks, in
+// order.
+func CAVEGlobalTokenSources() []string {
+	return []string{
+		storedCredentialSource,
+		"CAVE_GLOBAL_TOKEN",
+		"CAVE_GLOBAL_TOKEN_FILE",
+		caveClientTokenSource(caveClientTokenPath(caveGlobalAuthHost)),
+	}
+}
+
+// caveClientTokenPath is where caveclient saves its token for the auth
+// server on host.
+func caveClientTokenPath(host string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".cloudvolume", "secrets", host+"-cave-secret.json")
+}
+
+func caveClientTokenSource(path string) string {
+	return strings.TrimSpace("caveclient's token file " + path)
+}
+
+// readCAVEClientToken returns the "token" entry of a caveclient token file,
+// or "" when there is none. caveclient owns the file, so crantcli only reads
+// it: it is never migrated, rewritten, or re-permissioned, and it may be a
+// symbolic link. A file that exists but cannot be read draws a warning.
+func readCAVEClientToken(path string) string {
+	if path == "" {
+		return ""
+	}
+	token, err := readCAVEClientTokenFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not read caveclient token file %s: %v\n", path, err)
+		return ""
+	}
+	return token
+}
+
+func readCAVEClientTokenFile(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("not a regular file")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxCAVEClientTokenFileBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxCAVEClientTokenFileBytes {
+		return "", fmt.Errorf("larger than %d bytes", maxCAVEClientTokenFileBytes)
+	}
+	var secrets struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(data, &secrets); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(secrets.Token), nil
 }
 
 // RunSetupPrompt interactively prompts the user for their SeaTable token and stores it.
@@ -454,11 +604,37 @@ func RunSetupPrompt() error {
 
 // RunCAVESetupPrompt interactively prompts for the CAVE token (optional, can be skipped).
 func RunCAVESetupPrompt() error {
+	return runOptionalTokenPrompt(
+		"\nCAVE token (needed for check-cave). Press Enter to skip:",
+		"Skipped CAVE token setup.",
+		"CAVE token saved.",
+		StoreCAVEToken,
+	)
+}
+
+// RunCAVEGlobalSetupPrompt interactively prompts for the global CAVE token
+// (optional, can be skipped).
+func RunCAVEGlobalSetupPrompt() error {
+	return runOptionalTokenPrompt(
+		"\nGlobal CAVE token, for Share links stored on global.daf-apis.com (copy one\n"+
+			"from "+CAVEGlobalAuthServer+"/sticky_auth/settings/tokens). Without it, crantcli\n"+
+			"reads caveclient's ~/.cloudvolume/secrets/"+caveGlobalAuthHost+"-cave-secret.json.\n"+
+			"Press Enter to skip:",
+		"Skipped global CAVE token setup.",
+		"Global CAVE token saved.",
+		StoreCAVEGlobalToken,
+	)
+}
+
+// runOptionalTokenPrompt asks for a token that may be skipped and stores the
+// one entered. Without a terminal it does nothing, since the token is
+// optional.
+func runOptionalTokenPrompt(prompt, skipped, saved string, store func(string) error) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return nil
 	}
 
-	fmt.Println("\nCAVE token (needed for check-cave). Press Enter to skip:")
+	fmt.Println(prompt)
 	fmt.Print("> ")
 
 	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -469,14 +645,14 @@ func RunCAVESetupPrompt() error {
 	token := strings.TrimSpace(string(tokenBytes))
 
 	if token == "" {
-		fmt.Println("Skipped CAVE token setup.")
+		fmt.Println(skipped)
 		return nil
 	}
 
-	if err := StoreCAVEToken(token); err != nil {
+	if err := store(token); err != nil {
 		return err
 	}
 
-	fmt.Println("CAVE token saved.")
+	fmt.Println(saved)
 	return nil
 }

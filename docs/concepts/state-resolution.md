@@ -56,9 +56,12 @@ server.
 
 State servers require signing in, and crantcli attaches a token only for the
 hosts of the auth server that issued it: the CAVE token for
-`proofreading.zetta.ai` and its subdomains. States stored anywhere other than
-`https://`, such as `gs://`, are not fetched. A link that cannot be loaded is an
-error that names it, not a reason to fall back to a default state; see
+`proofreading.zetta.ai` and its subdomains, and the
+[global CAVE token](../getting-started/configure.md#which-token-does-each-workflow-need)
+for `global.daf-apis.com`, where Spelunker's **Share** button stores states.
+States stored anywhere other than `https://`, such as `gs://`, are not fetched.
+A link that cannot be loaded is an error that names it, not a reason to fall
+back to a default state; see
 [A Neuroglancer Share link does not load](../help/troubleshooting.md#a-neuroglancer-share-link-does-not-load).
 
 ## Default layer selection

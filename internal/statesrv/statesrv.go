@@ -38,10 +38,14 @@ type Credential struct {
 	// "https://proofreading.zetta.ai". The token goes to its host and that
 	// host's subdomains, which the same operator runs, and nowhere else.
 	AuthServer string
-	// Token returns the token, or "" when none is configured. It is called
-	// only to fetch a state from a matching host, so a credential store is
-	// not read for a state that does not need it.
-	Token func() string
+	// Token returns the token and the source that supplied it, such as
+	// "CAVE_TOKEN", or two empty strings when none is configured. It is
+	// called only to fetch a state from a matching host, so a credential
+	// store is not read for a state that does not need it.
+	Token func() (token, source string)
+	// Sources names every place Token looks, in order, for the error when
+	// it finds no token.
+	Sources []string
 	// Setup says how to configure the token, as in "run 'crantcli setup' or
 	// set CAVE_TOKEN".
 	Setup string
@@ -60,20 +64,46 @@ func (c *Credential) matches(host string) bool {
 	return host == authHost || strings.HasSuffix(host, "."+authHost)
 }
 
-// token returns the configured token, or an error that says how to
-// configure it.
-func (c *Credential) token() (string, error) {
-	var token string
+// token returns the configured token and its source, or an error that says
+// where Token looked and how to configure a token.
+func (c *Credential) token() (token, source string, err error) {
 	if c.Token != nil {
-		token = strings.TrimSpace(c.Token())
+		token, source = c.Token()
+		token = strings.TrimSpace(token)
 	}
 	if token == "" {
-		return "", fmt.Errorf("this state server needs the %s, which is not configured; %s", c.Name, c.Setup)
+		checked := ""
+		if len(c.Sources) > 0 {
+			checked = " (checked " + joinList(c.Sources) + ")"
+		}
+		return "", "", fmt.Errorf("this state server needs the %s, which is not configured%s; %s", c.Name, checked, c.Setup)
 	}
 	if strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
-		return "", fmt.Errorf("the %s contains embedded whitespace or control characters; %s, and paste only the token on one line", c.Name, c.Setup)
+		return "", "", fmt.Errorf("the %s contains embedded whitespace or control characters; %s, and paste only the token on one line", c.describe(source), c.Setup)
 	}
-	return token, nil
+	return token, source, nil
+}
+
+// describe names the token and, when known, where it came from, as in
+// "global CAVE token from CAVE_GLOBAL_TOKEN". It never includes the token.
+func (c *Credential) describe(source string) string {
+	if source == "" {
+		return c.Name
+	}
+	return c.Name + " from " + source
+}
+
+// joinList joins items as an English list: "a, b, and c".
+func joinList(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
 }
 
 // Resolver fetches states from state servers.
@@ -106,8 +136,10 @@ func (r *Resolver) Resolve(location string) ([]byte, error) {
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	cred := r.credentialFor(target.Hostname())
+	var source string
 	if cred != nil {
-		token, err := cred.token()
+		var token string
+		token, source, err = cred.token()
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +148,7 @@ func (r *Resolver) Resolve(location string) ([]byte, error) {
 
 	resp, err := httpx.Do(r.client(), req)
 	if err != nil {
-		return nil, describeFailure(err, cred)
+		return nil, describeFailure(err, cred, source)
 	}
 	defer resp.Body.Close()
 
@@ -187,10 +219,11 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-// describeFailure says why the state server did not return the state. The
-// server's words reach the user only through httpx.StatusError, which
-// neutralizes control characters, or quoted.
-func describeFailure(err error, cred *Credential) error {
+// describeFailure says why the state server did not return the state, and
+// for a rejected token, where that token came from. The server's words reach
+// the user only through httpx.StatusError, which neutralizes control
+// characters, or quoted.
+func describeFailure(err error, cred *Credential, source string) error {
 	var statusErr *httpx.StatusError
 	if !errors.As(err, &statusErr) {
 		return fmt.Errorf("fetching the state: %w", err)
@@ -198,7 +231,7 @@ func describeFailure(err error, cred *Credential) error {
 	code := statusErr.StatusCode
 	switch {
 	case (code == http.StatusUnauthorized || code == http.StatusForbidden) && cred != nil:
-		return fmt.Errorf("the state server rejected the %s (HTTP %d); %s to replace it", cred.Name, code, cred.Setup)
+		return fmt.Errorf("the state server rejected the %s (HTTP %d); %s to replace it", cred.describe(source), code, cred.Setup)
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		if realm := bearerRealm(statusErr.Header.Get("WWW-Authenticate")); realm != "" {
 			return fmt.Errorf("the state server requires signing in with %q, and crantcli has no token for it (HTTP %d)", realm, code)

@@ -205,16 +205,26 @@ crantcli fetches that state when the link is in the clipboard or passed with
 `--state`. A state server requires a token from the auth server it trusts, and
 crantcli sends each token only to the hosts of the auth server that issued it:
 
-- Links stored on `proofreading.zetta.ai` load with the CAVE token. Without
-  one, the error says `this state server needs the CAVE token, which is not
-  configured`; run `crantcli setup` or set `CAVE_TOKEN`.
 - Links stored on `global.daf-apis.com`, where Spelunker's **Share** button
-  stores them, need a token from that server's own auth server, which crantcli
-  does not have. They fail with `the state server requires signing in with
-  "https://global.daf-apis.com/sticky_auth/api/v1/authorize", and crantcli has
-  no token for it (HTTP 401)`.
+  stores them, need the global CAVE token. crantcli looks in its credential
+  store (`crantcli setup`), then `CAVE_GLOBAL_TOKEN`, then
+  `CAVE_GLOBAL_TOKEN_FILE`, and last in the file caveclient saves the token
+  to, `~/.cloudvolume/secrets/global.daf-apis.com-cave-secret.json`, which it
+  reads but never changes. Copy a token from
+  <https://global.daf-apis.com/sticky_auth/settings/tokens>.
+- Links stored on `proofreading.zetta.ai` need the CAVE token, from
+  `crantcli setup` or `CAVE_TOKEN`.
 - States stored anywhere other than `https://`, such as `gs://`, are not
   fetched.
+
+Without a token, the error lists every place crantcli looked:
+`this state server needs the global CAVE token, which is not configured
+(checked crantcli's credential store, CAVE_GLOBAL_TOKEN, ...)`. When the server
+refuses a token, the error names where that token came from, as in `the state
+server rejected the global CAVE token from CAVE_GLOBAL_TOKEN (HTTP 401)`, so
+you know which one to replace. The token stored by `crantcli setup` takes
+precedence over the environment variables and caveclient's file, so replace a
+rejected stored token by running `crantcli setup` again.
 
 To use the view anyway, copy the URL from the browser's address bar instead of
 using **Share**; that URL carries the state. To start from the default scene,

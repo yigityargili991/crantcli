@@ -61,21 +61,23 @@ func (s *stateServer) recorded() []recordedRequest {
 	return append([]recordedRequest(nil), s.requests...)
 }
 
-// resolver returns a Resolver that sends the token "secret-token" to
-// example.com and its subdomains, and counts how often it reads the token.
+// resolver returns a Resolver that sends the token "secret-token", found in
+// CAVE_TOKEN, to example.com and its subdomains, and counts how often it
+// reads the token.
 func (s *stateServer) resolver(tokenReads *int) *Resolver {
 	return &Resolver{
 		Client: s.client,
 		Credentials: []Credential{{
 			Name:       "CAVE token",
 			AuthServer: "https://example.com",
-			Token: func() string {
+			Token: func() (string, string) {
 				if tokenReads != nil {
 					*tokenReads++
 				}
-				return "secret-token"
+				return "secret-token", "CAVE_TOKEN"
 			},
-			Setup: "run 'crantcli setup' or set CAVE_TOKEN",
+			Sources: []string{"crantcli's credential store", "CAVE_TOKEN", "CAVE_TOKEN_FILE"},
+			Setup:   "run 'crantcli setup' or set CAVE_TOKEN",
 		}},
 	}
 }
@@ -136,6 +138,35 @@ func TestResolveSendsTokenOnlyToMatchingHost(t *testing.T) {
 	}
 }
 
+func TestResolveSendsEachTokenOnlyToItsAuthServer(t *testing.T) {
+	// Two auth servers, as crantcli has: each token must reach only its own
+	// issuer's host, however the credentials are ordered.
+	srv := newStateServer(t, serveJSON(testState))
+	resolver := &Resolver{
+		Client: srv.client,
+		Credentials: []Credential{
+			{Name: "first token", AuthServer: "https://example.com", Token: func() (string, string) { return "first-token", "FIRST" }},
+			{Name: "second token", AuthServer: "https://127.0.0.1", Token: func() (string, string) { return "second-token", "SECOND" }},
+		},
+	}
+
+	for _, location := range []string{
+		"middleauth+https://127.0.0.1/nglstate/api/v1/1",
+		"middleauth+https://example.com/nglstate/api/v1/2",
+	} {
+		if _, err := resolver.Resolve(location); err != nil {
+			t.Fatalf("Resolve(%q): %v", location, err)
+		}
+	}
+
+	want := map[string]string{"127.0.0.1": "Bearer second-token", "example.com": "Bearer first-token"}
+	for _, got := range srv.recorded() {
+		if got.authorization != want[got.host] {
+			t.Errorf("request to %s carried Authorization %q, want %q", got.host, got.authorization, want[got.host])
+		}
+	}
+}
+
 func TestCredentialMatches(t *testing.T) {
 	cred := Credential{AuthServer: "https://proofreading.zetta.ai"}
 	tests := []struct {
@@ -166,11 +197,12 @@ func TestCredentialMatches(t *testing.T) {
 func TestResolveWithoutConfiguredToken(t *testing.T) {
 	srv := newStateServer(t, serveJSON(testState))
 	resolver := srv.resolver(nil)
-	resolver.Credentials[0].Token = func() string { return " \n" }
+	resolver.Credentials[0].Token = func() (string, string) { return " \n", "" }
 
 	_, err := resolver.Resolve("middleauth+https://example.com/nglstate/api/v1/1")
-	if err == nil || !strings.Contains(err.Error(), "needs the CAVE token, which is not configured; run 'crantcli setup' or set CAVE_TOKEN") {
-		t.Fatalf("Resolve() error = %v, want a no-token error with the setup hint", err)
+	want := "this state server needs the CAVE token, which is not configured (checked crantcli's credential store, CAVE_TOKEN, and CAVE_TOKEN_FILE); run 'crantcli setup' or set CAVE_TOKEN"
+	if err == nil || err.Error() != want {
+		t.Fatalf("Resolve() error = %v, want %q", err, want)
 	}
 	if n := len(srv.recorded()); n != 0 {
 		t.Fatalf("server saw %d requests without a token to send", n)
@@ -180,11 +212,11 @@ func TestResolveWithoutConfiguredToken(t *testing.T) {
 func TestResolveRejectsMalformedToken(t *testing.T) {
 	srv := newStateServer(t, serveJSON(testState))
 	resolver := srv.resolver(nil)
-	resolver.Credentials[0].Token = func() string { return "secret\ntoken" }
+	resolver.Credentials[0].Token = func() (string, string) { return "secret\ntoken", "CAVE_TOKEN" }
 
 	_, err := resolver.Resolve("https://example.com/nglstate/api/v1/1")
-	if err == nil || !strings.Contains(err.Error(), "embedded whitespace or control characters") {
-		t.Fatalf("Resolve() error = %v, want a malformed-token error", err)
+	if err == nil || !strings.Contains(err.Error(), "the CAVE token from CAVE_TOKEN contains embedded whitespace or control characters") {
+		t.Fatalf("Resolve() error = %v, want a malformed-token error naming its source", err)
 	}
 	if strings.Contains(err.Error(), "secret") {
 		t.Fatalf("error leaks the token: %v", err)
@@ -201,8 +233,8 @@ func TestResolveUnauthorized(t *testing.T) {
 
 	t.Run("token rejected", func(t *testing.T) {
 		_, err := resolver.Resolve("middleauth+https://example.com/nglstate/api/v1/1")
-		if err == nil || !strings.Contains(err.Error(), "rejected the CAVE token (HTTP 401); run 'crantcli setup' or set CAVE_TOKEN to replace it") {
-			t.Fatalf("Resolve() error = %v, want a rejected-token error", err)
+		if err == nil || !strings.Contains(err.Error(), "rejected the CAVE token from CAVE_TOKEN (HTTP 401); run 'crantcli setup' or set CAVE_TOKEN to replace it") {
+			t.Fatalf("Resolve() error = %v, want a rejected-token error naming its source", err)
 		}
 		if strings.Contains(err.Error(), "secret-token") {
 			t.Fatalf("error leaks the token: %v", err)
@@ -343,6 +375,23 @@ func TestResolveRedirects(t *testing.T) {
 			t.Fatalf("Resolve() error = %v, want a refused-redirect error", err)
 		}
 	})
+}
+
+func TestJoinList(t *testing.T) {
+	tests := []struct {
+		items []string
+		want  string
+	}{
+		{nil, ""},
+		{[]string{"a"}, "a"},
+		{[]string{"a", "b"}, "a and b"},
+		{[]string{"a", "b", "c"}, "a, b, and c"},
+	}
+	for _, tt := range tests {
+		if got := joinList(tt.items); got != tt.want {
+			t.Errorf("joinList(%q) = %q, want %q", tt.items, got, tt.want)
+		}
+	}
 }
 
 func TestBearerRealm(t *testing.T) {

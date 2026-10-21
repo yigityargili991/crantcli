@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -50,7 +52,7 @@ func routeStateServers(t *testing.T) func(host string) string {
 	}
 	for i := range resolver.Credentials {
 		token := fmt.Sprintf("fake-token-%d", i)
-		resolver.Credentials[i].Token = func() string { return token }
+		resolver.Credentials[i].Token = func() (string, string) { return token, "the test" }
 	}
 	stateServerResolver = resolver
 	t.Cleanup(func() { stateServerResolver = previous })
@@ -77,13 +79,38 @@ func TestShareLinksLoadThroughStateServerResolver(t *testing.T) {
 		t.Fatalf("proofreading.zetta.ai received Authorization %q, want the CAVE token", got)
 	}
 
-	// global.daf-apis.com trusts another auth server, so the CAVE token, which
-	// proofreading.zetta.ai issued, must not go there.
+	// global.daf-apis.com trusts its own auth server, so it gets the global
+	// CAVE token and never the CAVE token proofreading.zetta.ai issued.
 	const globalLink = "https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/2"
 	if _, err := nglstate.LoadState(globalLink, false); err != nil {
 		t.Fatalf("LoadState(%q): %v", globalLink, err)
 	}
-	if got := authorizationFor("global.daf-apis.com"); got != "" {
-		t.Fatalf("global.daf-apis.com received Authorization %q, want none", got)
+	if got := authorizationFor("global.daf-apis.com"); got != "Bearer fake-token-1" {
+		t.Fatalf("global.daf-apis.com received Authorization %q, want the global CAVE token", got)
+	}
+	if got := authorizationFor("proofreading.zetta.ai"); got != "Bearer fake-token-0" {
+		t.Fatalf("proofreading.zetta.ai received Authorization %q after the global fetch, want the CAVE token", got)
+	}
+}
+
+func TestStateServerCredentialsCoverBothAuthServers(t *testing.T) {
+	// The resolver's credentials mirror the realms the state servers name:
+	// proofreading.zetta.ai for the CAVE token, global.daf-apis.com for the
+	// global one, each with the places its token is looked up.
+	want := map[string]string{
+		"https://proofreading.zetta.ai": "CAVE_TOKEN",
+		"https://global.daf-apis.com":   "CAVE_GLOBAL_TOKEN",
+	}
+	if len(stateServerResolver.Credentials) != len(want) {
+		t.Fatalf("resolver has %d credentials, want %d", len(stateServerResolver.Credentials), len(want))
+	}
+	for _, cred := range stateServerResolver.Credentials {
+		env, ok := want[cred.AuthServer]
+		if !ok {
+			t.Fatalf("unexpected auth server %q", cred.AuthServer)
+		}
+		if !slices.Contains(cred.Sources, env) || !strings.Contains(cred.Setup, env) {
+			t.Errorf("%s credential: sources %q and setup %q should name %s", cred.AuthServer, cred.Sources, cred.Setup, env)
+		}
 	}
 }

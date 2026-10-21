@@ -17,14 +17,25 @@ var Version = "dev"
 var getAPIToken = config.GetAPIToken
 
 // stateServerResolver fetches the states Neuroglancer Share links point to.
-// Each token goes only to the hosts of the auth server that issued it.
+// Each token goes only to the hosts of the auth server that issued it: the
+// CAVE token to proofreading.zetta.ai, the global one to global.daf-apis.com.
 var stateServerResolver = &statesrv.Resolver{
-	Credentials: []statesrv.Credential{{
-		Name:       "CAVE token",
-		AuthServer: config.CAVEAuthServer,
-		Token:      config.GetCAVEToken,
-		Setup:      "run 'crantcli setup' or set CAVE_TOKEN",
-	}},
+	Credentials: []statesrv.Credential{
+		{
+			Name:       "CAVE token",
+			AuthServer: config.CAVEAuthServer,
+			Token:      config.LookupCAVEToken,
+			Sources:    config.CAVETokenSources(),
+			Setup:      "run 'crantcli setup' or set CAVE_TOKEN",
+		},
+		{
+			Name:       "global CAVE token",
+			AuthServer: config.CAVEGlobalAuthServer,
+			Token:      config.LookupCAVEGlobalToken,
+			Sources:    config.CAVEGlobalTokenSources(),
+			Setup:      "run 'crantcli setup' or set CAVE_GLOBAL_TOKEN",
+		},
+	},
 }
 
 func init() {
