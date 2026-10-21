@@ -2,6 +2,7 @@ package nglstate
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"reflect"
 	"strings"
@@ -138,6 +139,27 @@ func TestDecodeURL(t *testing.T) {
 			}
 			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("DecodeURL() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeURLRemoteState(t *testing.T) {
+	// The viewer's Share button copies a link naming where the state is
+	// stored. It is not malformed JSON and must not be reported as such.
+	for _, location := range []string{
+		"middleauth+https://global.daf-apis.com/nglstate/api/v1/5195345298243584",
+		"https://example.org/state.json",
+		"gs://bucket/state.json",
+	} {
+		t.Run(location, func(t *testing.T) {
+			_, err := DecodeURL("https://spelunker.cave-explorer.org/#!" + location)
+			var remote *remoteStateError
+			if !errors.As(err, &remote) || remote.location != location {
+				t.Fatalf("DecodeURL() error = %v, want a remote state error for %q", err, location)
+			}
+			if strings.Contains(err.Error(), "invalid character") {
+				t.Fatalf("DecodeURL() error = %q reads as malformed JSON", err)
 			}
 		})
 	}

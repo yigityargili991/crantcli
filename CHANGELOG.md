@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Say that the clipboard holds a Neuroglancer Share link
+  (`#!middleauth+https://…`) when `add`, `inspect`, or `check-cave` reads its
+  state from there, and how to get a URL crantcli can load. These commands
+  failed with `invalid character 'm' looking for beginning of value` and kept
+  failing until something else was copied.
+
 ## v0.22.2 - 2026-10-21
 
 ### Security

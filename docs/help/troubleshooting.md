@@ -195,3 +195,21 @@ esac
 ## A piped command ignores the clipboard or `--generate`
 
 Non-empty piped JSON has the highest priority when `--state` is absent. Remove the pipe or provide `--state` explicitly.
+
+## The clipboard holds a Neuroglancer Share link
+
+Without `--state` or piped JSON, `add` and `inspect` start from a Neuroglancer
+URL in the clipboard. The viewer's **Share** button copies a short link such as
+`https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>`,
+which points to a state stored on a server rather than carrying it, and
+crantcli can only read a state embedded in the URL. Earlier versions report
+this as `decoding clipboard URL: decoding state JSON from URL fragment: invalid
+character 'm' looking for beginning of value`, and the error repeats until
+something else is copied.
+
+To keep the current view, copy the URL from the browser's address bar instead
+of using **Share**. To start from the default scene, ignore the clipboard:
+
+```bash
+crantcli add --cell-type vDelta --generate --open
+```

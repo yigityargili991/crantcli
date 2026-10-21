@@ -117,7 +117,9 @@ func loadState(stateArg string, generate, useDefault bool) (*LoadResult, error) 
 	// just the bare viewer link, so it also falls back with a warning. A
 	// fragment that will not decode is treated as intentional; malformed state
 	// is therefore an error rather than a quiet switch to an unrelated
-	// template.
+	// template. A Share link is intentional too, but its state is on a server
+	// crantcli does not fetch, so the error names the link and the way around
+	// it: the user may not know the clipboard is being read at all.
 	if !generate {
 		clip, clipErr := stateClipboardRead()
 		if clipErr != nil {
@@ -127,11 +129,14 @@ func loadState(stateArg string, generate, useDefault bool) (*LoadResult, error) 
 			fmt.Fprintf(stateWarningWriter, "Warning: clipboard input unavailable; using the default state: %v\n", clipErr)
 		} else if IsNeuroglancerURL(clip) {
 			state, err := DecodeURL(clip)
+			var remote *remoteStateError
 			if errors.Is(err, errNoFragment) {
 				if !useDefault {
 					return nil, fmt.Errorf("%w (the clipboard holds a Neuroglancer viewer URL without a state fragment)", errNoInputState)
 				}
 				fmt.Fprintln(stateWarningWriter, "Warning: clipboard holds a Neuroglancer viewer URL without a state fragment; using the default state")
+			} else if errors.As(err, &remote) {
+				return nil, fmt.Errorf("the clipboard holds a Neuroglancer Share link to %q, whose state crantcli cannot load; copy the URL from the viewer's address bar instead, or pass --state", remote.location)
 			} else if err != nil {
 				return nil, fmt.Errorf("decoding clipboard URL: %w", err)
 			} else {
