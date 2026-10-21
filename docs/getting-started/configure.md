@@ -41,7 +41,8 @@ export CAVE_TOKEN_FILE="/run/secrets/cave"
 CRANT, CAVE, and GitHub token variables are removed from unrelated subprocess
 environments, including browser and clipboard helpers. The `gh` publisher
 retains its GitHub-specific token variables but never receives CRANT or CAVE
-tokens.
+tokens. The installer that `crantcli update` runs retains only
+`CRANTCLI_GITHUB_TOKEN`, which it uses to download the release.
 
 ### Credential precedence
 
@@ -66,11 +67,17 @@ rejected. Base64 is not encryption; the owner-only filesystem permissions
 protect this fallback. The fallback remains authoritative until its value has
 been written to and read back from Secret Service successfully.
 
-Older credentials in `~/.crantcli/`, `~/.crantinject/`, or
-`~/.crant_type_look/` are moved into the platform credential manager and the
-old file is removed after a successful migration. On macOS and Windows,
-`crantcli` fails closed if the platform credential manager is unavailable; use
-the environment-variable or token-file method instead.
+Older credential files are moved into the platform credential manager, and the
+old files are removed after a successful migration:
+
+| Token | Older credential files |
+| --- | --- |
+| SeaTable | `~/.crantcli/credentials`, `~/.crantinject/credentials`, `~/.crant_type_look/credentials` |
+| CAVE | `~/.crantcli/cave_credentials`, `~/.crantinject/cave_credentials` |
+
+On macOS and Windows, `crantcli` fails closed if the platform credential
+manager is unavailable; use the environment-variable or token-file method
+instead.
 
 ## Update or replace a token
 

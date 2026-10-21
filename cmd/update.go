@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"crantcli/internal/httpx"
+	"crantcli/internal/procenv"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
@@ -104,8 +105,11 @@ func runUpdate(cmd *cobra.Command) error {
 	}
 
 	name, args := installerCommand(updateGOOS, scriptPath)
+	// The installer downloads with CRANTCLI_GITHUB_TOKEN and needs no other
+	// credential, so the CRANT, CAVE, and other GitHub tokens stay behind.
+	env := installerEnv(procenv.Sanitized("CRANTCLI_GITHUB_TOKEN"), installDir, latest, verifierPath)
 	fmt.Fprintf(out, "Updating crantcli %s -> %s\n", Version, latest)
-	if err := updateRun(name, args, installerEnv(os.Environ(), installDir, latest, verifierPath)); err != nil {
+	if err := updateRun(name, args, env); err != nil {
 		return fmt.Errorf("run installer: %w", err)
 	}
 	fmt.Fprintf(out, "Updated crantcli to %s\n", latest)
