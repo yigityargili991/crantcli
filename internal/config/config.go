@@ -387,28 +387,46 @@ func GetAPIToken() string {
 	return ""
 }
 
-func caveCredentialFilePath() string {
+func caveCredentialFilePathForDir(configDir string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, appConfigDir, "cave_credentials")
+	return filepath.Join(home, configDir, "cave_credentials")
+}
+
+func caveCredentialFilePath() string {
+	return caveCredentialFilePathForDir(appConfigDir)
+}
+
+// The CAVE token was added after the rename to crantinject, so
+// ~/.crant_type_look never held one.
+func legacyCAVECredentialFilePaths() []string {
+	return []string{caveCredentialFilePathForDir(legacyAppConfigDir)}
 }
 
 // ReadStoredCAVEToken reads the CAVE token from the system credential store.
 // Existing file credentials are migrated automatically.
 func ReadStoredCAVEToken() string {
-	return readStoredCredential(caveCredentialAccount, []string{caveCredentialFilePath()})
+	return readStoredCredential(
+		caveCredentialAccount,
+		append([]string{caveCredentialFilePath()}, legacyCAVECredentialFilePaths()...),
+	)
 }
 
 // StoreCAVEToken stores a CAVE token in the system credential store.
 func StoreCAVEToken(token string) error {
-	return storeCredential(caveCredentialAccount, caveCredentialFilePath(), token, nil)
+	return storeCredential(
+		caveCredentialAccount,
+		caveCredentialFilePath(),
+		token,
+		legacyCAVECredentialFilePaths(),
+	)
 }
 
 // GetCAVEToken retrieves the CAVE API token from one of several sources.
 // It checks sources in the following precedence order:
-//  1. System credential store (with migration from the older credential file)
+//  1. System credential store (with migration from older credential files)
 //  2. CAVE_TOKEN environment variable
 //  3. CAVE_TOKEN_FILE environment variable (path to a file containing the token)
 func GetCAVEToken() string {

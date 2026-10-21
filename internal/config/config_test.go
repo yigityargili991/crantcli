@@ -522,6 +522,99 @@ func TestCAVETokenSources(t *testing.T) {
 	}
 }
 
+func TestReadStoredCAVEToken(t *testing.T) {
+	t.Run("migrates legacy crantinject path", func(t *testing.T) {
+		home, backend := setupTestHome(t)
+
+		path := filepath.Join(home, ".crantinject", "cave_credentials")
+		writeEncodedToken(t, path, "legacy-cave-token")
+
+		if got := ReadStoredCAVEToken(); got != "legacy-cave-token" {
+			t.Fatalf("ReadStoredCAVEToken() = %q, want legacy-cave-token", got)
+		}
+		if got := backend.values[credentialKey(credentialKeyringService, caveCredentialAccount)]; got != "legacy-cave-token" {
+			t.Fatalf("CAVE keyring token = %q, want legacy-cave-token", got)
+		}
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("legacy CAVE credential file still exists after migration: %v", err)
+		}
+	})
+
+	t.Run("prefers new config path over legacy", func(t *testing.T) {
+		home, backend := setupTestHome(t)
+
+		newPath := filepath.Join(home, ".crantcli", "cave_credentials")
+		legacyPath := filepath.Join(home, ".crantinject", "cave_credentials")
+		writeEncodedToken(t, newPath, "new-cave-token")
+		writeEncodedToken(t, legacyPath, "legacy-cave-token")
+
+		if got := ReadStoredCAVEToken(); got != "new-cave-token" {
+			t.Fatalf("ReadStoredCAVEToken() = %q, want new-cave-token", got)
+		}
+		if got := backend.values[credentialKey(credentialKeyringService, caveCredentialAccount)]; got != "new-cave-token" {
+			t.Fatalf("CAVE keyring token = %q, want new-cave-token", got)
+		}
+		for _, path := range []string{newPath, legacyPath} {
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("CAVE credential file %s still exists after migration: %v", path, err)
+			}
+		}
+	})
+
+	t.Run("does not read SeaTable credential files", func(t *testing.T) {
+		home, backend := setupTestHome(t)
+
+		var paths []string
+		for _, dir := range []string{".crantcli", ".crantinject", ".crant_type_look"} {
+			path := filepath.Join(home, dir, "credentials")
+			writeEncodedToken(t, path, "seatable-token")
+			paths = append(paths, path)
+		}
+
+		if got := ReadStoredCAVEToken(); got != "" {
+			t.Fatalf("ReadStoredCAVEToken() = %q, want no CAVE token", got)
+		}
+		if _, ok := backend.values[credentialKey(credentialKeyringService, caveCredentialAccount)]; ok {
+			t.Fatal("SeaTable credential was stored as the CAVE token")
+		}
+		for _, path := range paths {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("SeaTable credential file %s was removed: %v", path, err)
+			}
+		}
+	})
+}
+
+func TestReadStoredCAVEToken_RemovesLegacyFileWhenKeyringAlreadyHasToken(t *testing.T) {
+	home, backend := setupTestHome(t)
+	path := filepath.Join(home, ".crantinject", "cave_credentials")
+	writeEncodedToken(t, path, "keyring-cave-token")
+	backend.values[credentialKey(credentialKeyringService, caveCredentialAccount)] = "keyring-cave-token"
+
+	if got := ReadStoredCAVEToken(); got != "keyring-cave-token" {
+		t.Fatalf("ReadStoredCAVEToken() = %q, want keyring-cave-token", got)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("obsolete legacy CAVE credential file still exists: %v", err)
+	}
+}
+
+func TestStoreCAVEToken_RemovesLegacyFile(t *testing.T) {
+	home, backend := setupTestHome(t)
+	path := filepath.Join(home, ".crantinject", "cave_credentials")
+	writeEncodedToken(t, path, "old-cave-token")
+
+	if err := StoreCAVEToken("new-cave-token"); err != nil {
+		t.Fatalf("StoreCAVEToken: %v", err)
+	}
+	if got := backend.values[credentialKey(credentialKeyringService, caveCredentialAccount)]; got != "new-cave-token" {
+		t.Fatalf("CAVE keyring token = %q, want new-cave-token", got)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy CAVE credential file still exists after StoreCAVEToken: %v", err)
+	}
+}
+
 func TestStoreEncodedTokenRejectsEmptyPath(t *testing.T) {
 	if err := storeEncodedToken("", "token"); err == nil {
 		t.Fatal("storeEncodedToken() error = nil, want home-directory error")
