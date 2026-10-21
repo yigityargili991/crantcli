@@ -93,6 +93,27 @@ func TestShareLinksLoadThroughStateServerResolver(t *testing.T) {
 	}
 }
 
+func TestShareLinkTokensGoOnlyToTheirStateServers(t *testing.T) {
+	// Each token goes only to the host whose state server accepts it, on the
+	// default https port. data.proofreading.zetta.ai serves CAVE, not states,
+	// and other subdomains and ports can be other services.
+	authorizationFor := routeStateServers(t)
+	for _, host := range []string{
+		"data.proofreading.zetta.ai",
+		"proofreading.zetta.ai:8443",
+		"metrics.global.daf-apis.com",
+		"global.daf-apis.com:8443",
+	} {
+		link := "https://spelunker.cave-explorer.org/#!middleauth+https://" + host + "/nglstate/api/v1/1"
+		if _, err := nglstate.LoadState(link, false); err != nil {
+			t.Fatalf("LoadState(%q): %v", link, err)
+		}
+		if got := authorizationFor(host); got != "" {
+			t.Errorf("%s received Authorization %q, want no token", host, got)
+		}
+	}
+}
+
 func TestStateServerCredentialsCoverBothAuthServers(t *testing.T) {
 	// The resolver's credentials mirror the realms the state servers name:
 	// proofreading.zetta.ai for the CAVE token, global.daf-apis.com for the

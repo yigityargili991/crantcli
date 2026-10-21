@@ -28,7 +28,8 @@ The CAVE token comes from `proofreading.zetta.ai`, which hosts CRANT. The
 global CAVE token comes from `global.daf-apis.com`, the auth server of the state
 server that Spelunker's **Share** button uses; copy one from
 <https://global.daf-apis.com/sticky_auth/settings/tokens>. crantcli sends each
-token only to the hosts of the server that issued it.
+token only to the host of the server that issued it, not to that host's
+subdomains or other ports.
 
 ## Non-interactive configuration
 

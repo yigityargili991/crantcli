@@ -6,7 +6,7 @@
 //
 // A middle_auth state server wants a bearer token from the auth server it
 // trusts. Each token is sent only to the host of the auth server that issued
-// it and that host's subdomains, so a link cannot send it anywhere else.
+// it, on the default https port, so a link cannot send it anywhere else.
 package statesrv
 
 import (
@@ -35,8 +35,10 @@ type Credential struct {
 	// Name says what the token is called, as in "CAVE token".
 	Name string
 	// AuthServer is the URL of the issuing server, such as
-	// "https://proofreading.zetta.ai". The token goes to its host and that
-	// host's subdomains, which the same operator runs, and nowhere else.
+	// "https://proofreading.zetta.ai", whose host also serves the state
+	// server that accepts the token. The token goes to that host on the
+	// default https port and nowhere else: not to its subdomains or other
+	// ports, which can be other services.
 	AuthServer string
 	// Token returns the token and the source that supplied it, such as
 	// "CAVE_TOKEN", or two empty strings when none is configured. It is
@@ -51,25 +53,32 @@ type Credential struct {
 	Setup string
 }
 
-// matches reports whether host is the auth server's host or a subdomain of
-// it. An auth server that is not https matches nothing, so a token never
-// travels unencrypted. A host that is not ASCII matches nothing either:
-// net/http contacts it under its IDNA form, not the name lowercasing gives.
-func (c *Credential) matches(host string) bool {
+// matches reports whether target is an https URL on the auth server's host
+// and the default https port: subdomains and other ports can be other
+// services. An auth server that is not https on the default port matches
+// nothing, so a token never travels unencrypted or to another port. A host
+// that is not ASCII matches nothing either: net/http contacts it under its
+// IDNA form, not the name lowercasing gives.
+func (c *Credential) matches(target *url.URL) bool {
 	auth, err := url.Parse(c.AuthServer)
-	if err != nil || auth.Scheme != "https" || auth.Hostname() == "" {
+	if err != nil || auth.Scheme != "https" || auth.Hostname() == "" || !onDefaultPort(auth) {
 		return false
 	}
 	// strings.ToLower folds "global.daf-apİs.com" (U+0130) onto
 	// global.daf-apis.com, but net/http dials and verifies that host as
 	// global.xn--daf-apis-u0e.com, a domain anyone can register. An ASCII host
 	// is contacted under the name it is matched by.
+	host := target.Hostname()
 	if !isASCII(host) || !isASCII(auth.Hostname()) {
 		return false
 	}
-	authHost := strings.ToLower(auth.Hostname())
-	host = strings.ToLower(host)
-	return host == authHost || strings.HasSuffix(host, "."+authHost)
+	return target.Scheme == "https" && onDefaultPort(target) &&
+		strings.ToLower(host) == strings.ToLower(auth.Hostname())
+}
+
+// onDefaultPort reports whether an https URL names no port or 443.
+func onDefaultPort(u *url.URL) bool {
+	return u.Port() == "" || u.Port() == "443"
 }
 
 // token returns the configured token and its source, or an error that says
@@ -119,7 +128,7 @@ type Resolver struct {
 	// Client sends the requests; nil means httpx.DefaultClient. Either way
 	// Resolve applies its own redirect policy.
 	Client *http.Client
-	// Credentials are the tokens Resolve may attach, each only for the hosts
+	// Credentials are the tokens Resolve may attach, each only for the host
 	// of the auth server that issued it.
 	Credentials []Credential
 }
@@ -143,7 +152,7 @@ func (r *Resolver) Resolve(location string) ([]byte, error) {
 	// it answers 401 and names the auth server it trusts.
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
-	cred := r.credentialFor(target.Hostname())
+	cred := r.credentialFor(target)
 	var source string
 	if cred != nil {
 		var token string
@@ -202,9 +211,9 @@ func isASCII(s string) bool {
 	return !strings.ContainsFunc(s, func(r rune) bool { return r > unicode.MaxASCII })
 }
 
-func (r *Resolver) credentialFor(host string) *Credential {
+func (r *Resolver) credentialFor(target *url.URL) *Credential {
 	for i := range r.Credentials {
-		if r.Credentials[i].matches(host) {
+		if r.Credentials[i].matches(target) {
 			return &r.Credentials[i]
 		}
 	}

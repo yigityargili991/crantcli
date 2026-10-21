@@ -55,10 +55,11 @@ Output written as a URL embeds the state; nothing is uploaded to a state
 server.
 
 State servers require signing in, and crantcli attaches a token only for the
-hosts of the auth server that issued it: the CAVE token for
-`proofreading.zetta.ai` and its subdomains, and the
+host of the auth server that issued it, on the default https port: the CAVE
+token for `proofreading.zetta.ai`, and the
 [global CAVE token](../getting-started/configure.md#which-token-does-each-workflow-need)
 for `global.daf-apis.com`, where Spelunker's **Share** button stores states.
+Subdomains and other ports get no token.
 States stored anywhere other than `https://`, such as `gs://`, are not fetched,
 nor are states on a host whose name contains non-ASCII characters, which can
 imitate another host's name.

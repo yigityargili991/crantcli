@@ -185,3 +185,29 @@ func TestResolveSendsNoTokenToUnicodeLookalike(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSendsTokenOnlyToItsExactHost(t *testing.T) {
+	// A subdomain or another port of the auth host can be another service,
+	// such as one a stale DNS record still points to, so it gets no token.
+	tests := []struct {
+		host, wantAuthorization string
+	}{
+		{"global.daf-apis.com:443", "Bearer global-token"},
+		{"metrics.global.daf-apis.com", ""},
+		{"global.daf-apis.com:8443", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			srv := newNamedServer(t, serveJSON(testState))
+			resolver := &Resolver{Client: srv.client, Credentials: []Credential{globalCredential()}}
+
+			if _, err := resolver.Resolve("middleauth+https://" + tt.host + "/nglstate/api/v1/1"); err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			dialed, requests := srv.recorded()
+			if len(requests) != 1 || requests[0].authorization != tt.wantAuthorization {
+				t.Fatalf("dialed %q and received %+v; want one request with Authorization %q", dialed, requests, tt.wantAuthorization)
+			}
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -62,8 +63,7 @@ func (s *stateServer) recorded() []recordedRequest {
 }
 
 // resolver returns a Resolver that sends the token "secret-token", found in
-// CAVE_TOKEN, to example.com and its subdomains, and counts how often it
-// reads the token.
+// CAVE_TOKEN, to example.com, and counts how often it reads the token.
 func (s *stateServer) resolver(tokenReads *int) *Resolver {
 	return &Resolver{
 		Client: s.client,
@@ -174,8 +174,11 @@ func TestCredentialMatches(t *testing.T) {
 		want bool
 	}{
 		{"proofreading.zetta.ai", true},
-		{"data.proofreading.zetta.ai", true},
-		{"Data.Proofreading.Zetta.AI", true},
+		{"Proofreading.Zetta.AI", true},
+		{"proofreading.zetta.ai:443", true},
+		// Subdomains and other ports can be other services.
+		{"data.proofreading.zetta.ai", false},
+		{"proofreading.zetta.ai:8443", false},
 		{"zetta.ai", false},
 		{"global.daf-apis.com", false},
 		{"evilproofreading.zetta.ai", false},
@@ -188,14 +191,22 @@ func TestCredentialMatches(t *testing.T) {
 		{"data.proofreadİng.zetta.ai", false},
 	}
 	for _, tt := range tests {
-		if got := cred.matches(tt.host); got != tt.want {
-			t.Errorf("matches(%q) = %v, want %v", tt.host, got, tt.want)
+		target := &url.URL{Scheme: "https", Host: tt.host, Path: "/nglstate/api/v1/1"}
+		if got := cred.matches(target); got != tt.want {
+			t.Errorf("matches(%q) = %v, want %v", target, got, tt.want)
 		}
 	}
 
 	insecure := Credential{AuthServer: "http://proofreading.zetta.ai"}
-	if insecure.matches("proofreading.zetta.ai") {
+	if insecure.matches(&url.URL{Scheme: "https", Host: "proofreading.zetta.ai"}) {
 		t.Error("an http auth server matched; its token would travel unencrypted")
+	}
+	if cred.matches(&url.URL{Scheme: "http", Host: "proofreading.zetta.ai"}) {
+		t.Error("an http URL matched; the token would travel unencrypted")
+	}
+	otherPort := Credential{AuthServer: "https://proofreading.zetta.ai:8443"}
+	if otherPort.matches(&url.URL{Scheme: "https", Host: "proofreading.zetta.ai"}) {
+		t.Error("an auth server on another port matched the default port")
 	}
 }
 

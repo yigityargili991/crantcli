@@ -203,7 +203,8 @@ The viewer's **Share** button copies a short link such as
 which points to a state stored on a state server instead of carrying it.
 crantcli fetches that state when the link is in the clipboard or passed with
 `--state`. A state server requires a token from the auth server it trusts, and
-crantcli sends each token only to the hosts of the auth server that issued it:
+crantcli sends each token only to the host of the auth server that issued it,
+on the default https port:
 
 - Links stored on `global.daf-apis.com`, where Spelunker's **Share** button
   stores them, need the global CAVE token. crantcli looks in its credential

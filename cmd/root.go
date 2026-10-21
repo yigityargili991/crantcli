@@ -17,8 +17,11 @@ var Version = "dev"
 var getAPIToken = config.GetAPIToken
 
 // stateServerResolver fetches the states Neuroglancer Share links point to.
-// Each token goes only to the hosts of the auth server that issued it: the
-// CAVE token to proofreading.zetta.ai, the global one to global.daf-apis.com.
+// Each token goes only to the host of the auth server that issued it, whose
+// state server accepts it, on the default https port: the CAVE token to
+// proofreading.zetta.ai, the global one to global.daf-apis.com. The CAVE
+// server, data.proofreading.zetta.ai, has no state server, so this resolver
+// sends it no token.
 var stateServerResolver = &statesrv.Resolver{
 	Credentials: []statesrv.Credential{
 		{
