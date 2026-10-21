@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.22.2 - 2026-10-21
+
+### Security
+
+- Build releases with Go 1.26.10, which fixes CVE-2026-111943. Its certificate
+  verifier rejects TLS chains through the compromised eMudhra intermediate CAs
+  on Linux, macOS, and Windows, even where the system trust store still
+  contains the emSign roots. Release binaries built with Go 1.26.9 accepted
+  those chains.
+
 ## v0.22.1 - 2026-10-17
 
 ### Changed
