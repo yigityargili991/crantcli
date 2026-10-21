@@ -482,6 +482,8 @@ func captureStderr(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("create stderr capture: %v", err)
 	}
+	// Windows cannot delete an open file, so TempDir's cleanup would fail.
+	defer capture.Close()
 	original := os.Stderr
 	os.Stderr = capture
 	defer func() { os.Stderr = original }()
