@@ -196,20 +196,35 @@ esac
 
 Non-empty piped JSON has the highest priority when `--state` is absent. Remove the pipe or provide `--state` explicitly.
 
-## The clipboard holds a Neuroglancer Share link
+## A Neuroglancer Share link does not load
 
-Without `--state` or piped JSON, `add` and `inspect` start from a Neuroglancer
-URL in the clipboard. The viewer's **Share** button copies a short link such as
+The viewer's **Share** button copies a short link such as
 `https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>`,
-which points to a state stored on a server rather than carrying it, and
-crantcli can only read a state embedded in the URL. Earlier versions report
-this as `decoding clipboard URL: decoding state JSON from URL fragment: invalid
-character 'm' looking for beginning of value`, and the error repeats until
-something else is copied.
+which points to a state stored on a state server instead of carrying it.
+crantcli fetches that state when the link is in the clipboard or passed with
+`--state`. A state server requires a token from the auth server it trusts, and
+crantcli sends each token only to the hosts of the auth server that issued it:
 
-To keep the current view, copy the URL from the browser's address bar instead
-of using **Share**. To start from the default scene, ignore the clipboard:
+- Links stored on `proofreading.zetta.ai` load with the CAVE token. Without
+  one, the error says `this state server needs the CAVE token, which is not
+  configured`; run `crantcli setup` or set `CAVE_TOKEN`.
+- Links stored on `global.daf-apis.com`, where Spelunker's **Share** button
+  stores them, need a token from that server's own auth server, which crantcli
+  does not have. They fail with `the state server requires signing in with
+  "https://global.daf-apis.com/sticky_auth/api/v1/authorize", and crantcli has
+  no token for it (HTTP 401)`.
+- States stored anywhere other than `https://`, such as `gs://`, are not
+  fetched.
+
+To use the view anyway, copy the URL from the browser's address bar instead of
+using **Share**; that URL carries the state. To start from the default scene,
+ignore the clipboard:
 
 ```bash
 crantcli add --cell-type vDelta --generate --open
 ```
+
+Earlier versions could not load any Share link: `add`, `inspect`, and
+`check-cave` failed with `decoding clipboard URL: decoding state JSON from URL
+fragment: invalid character 'm' looking for beginning of value` until something
+else was copied.

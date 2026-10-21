@@ -30,6 +30,10 @@ const (
 	CAVETable          = "kronauer_ant_x1"
 	SupervoxelIDColumn = "supervoxel_id"
 
+	// CAVEAuthServer issues the CAVE token: CAVEServer and the state server
+	// on this host name it as the realm of their 401 responses.
+	CAVEAuthServer = "https://proofreading.zetta.ai"
+
 	appConfigDir        = ".crantcli"
 	legacyAppConfigDir  = ".crantinject"
 	legacyAppConfigDir2 = ".crant_type_look"

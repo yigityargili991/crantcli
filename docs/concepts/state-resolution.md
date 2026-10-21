@@ -7,7 +7,8 @@ Commands that edit or inspect a Neuroglancer state resolve the input state in th
 When `--state` is present:
 
 1. an existing path is read as a JSON file;
-2. otherwise a recognizable Neuroglancer URL is decoded;
+2. otherwise a recognizable Neuroglancer URL is decoded, or for a
+   [Share link](#share-links), the state it points to is fetched;
 3. any other value produces a concrete file-read or JSON error.
 
 ```bash
@@ -20,7 +21,7 @@ crantcli inspect --state "https://spelunker.cave-explorer.org/#!..."
 Without `--state`, resolution proceeds in this order:
 
 1. non-empty JSON from piped standard input;
-2. a Neuroglancer URL on the clipboard;
+2. a Neuroglancer URL or [Share link](#share-links) on the clipboard;
 3. the default state configured with `change-def-state`;
 4. the built-in CRANT scene.
 
@@ -41,6 +42,24 @@ silently ignored.
 
 !!! note
     `check-cave --refresh-state` updates a state you supply, so it stops at the clipboard step: without `--state`, piped JSON, or a clipboard URL it reports an error instead of using a default.
+
+## Share links
+
+The viewer's **Share** button copies a link that names where a state is stored
+instead of carrying it, such as
+`https://spelunker.cave-explorer.org/#!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>`.
+crantcli fetches that state and uses it as it would a state decoded from a URL,
+reporting for example
+`State loaded from clipboard (resolved Share link "middleauth+https://…")`.
+Output written as a URL embeds the state; nothing is uploaded to a state
+server.
+
+State servers require signing in, and crantcli attaches a token only for the
+hosts of the auth server that issued it: the CAVE token for
+`proofreading.zetta.ai` and its subdomains. States stored anywhere other than
+`https://`, such as `gs://`, are not fetched. A link that cannot be loaded is an
+error that names it, not a reason to fall back to a default state; see
+[A Neuroglancer Share link does not load](../help/troubleshooting.md#a-neuroglancer-share-link-does-not-load).
 
 ## Default layer selection
 

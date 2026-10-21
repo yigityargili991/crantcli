@@ -20,6 +20,7 @@ Setup then offers to download raider, the small model we fine-tuned for the expe
 | Check whether root IDs are current | ✓ | ✓ |
 | Show CAVE edit history | | ✓ |
 | Show combined `root-info` | ✓ | ✓ |
+| Load a [Share link](../concepts/state-resolution.md#share-links) stored on `proofreading.zetta.ai` | | ✓ |
 | Download the `ask` model and look up table values | ✓ | |
 
 ## Non-interactive configuration

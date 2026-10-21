@@ -57,6 +57,7 @@ func TestDo_NilClientUsesDefault(t *testing.T) {
 
 func TestDo_StatusError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = io.WriteString(w, "upstream failure")
 	}))
@@ -82,6 +83,9 @@ func TestDo_StatusError(t *testing.T) {
 	}
 	if string(se.Body) != "upstream failure" {
 		t.Errorf("Body = %q, want %q", se.Body, "upstream failure")
+	}
+	if got := se.Header.Get("Retry-After"); got != "7" {
+		t.Errorf("Header Retry-After = %q, want %q", got, "7")
 	}
 }
 

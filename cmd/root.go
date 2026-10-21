@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"crantcli/internal/config"
+	"crantcli/internal/nglstate"
+	"crantcli/internal/statesrv"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +15,25 @@ import (
 var Version = "dev"
 
 var getAPIToken = config.GetAPIToken
+
+// stateServerResolver fetches the states Neuroglancer Share links point to.
+// Each token goes only to the hosts of the auth server that issued it.
+var stateServerResolver = &statesrv.Resolver{
+	Credentials: []statesrv.Credential{{
+		Name:       "CAVE token",
+		AuthServer: config.CAVEAuthServer,
+		Token:      config.GetCAVEToken,
+		Setup:      "run 'crantcli setup' or set CAVE_TOKEN",
+	}},
+}
+
+func init() {
+	// Installed once, so every command that loads a state can read a Share
+	// link: from the clipboard (add, inspect), --state, and check-cave.
+	nglstate.SetRemoteStateResolver(func(remote nglstate.RemoteState) ([]byte, error) {
+		return stateServerResolver.Resolve(remote.Location)
+	})
+}
 
 var rootCmd = &cobra.Command{
 	Use:           "crantcli",

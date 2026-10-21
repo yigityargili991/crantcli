@@ -2,13 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- Load the state a Neuroglancer Share link points to, whether the link is in
+  the clipboard or passed with `--state`. crantcli fetches it from the state
+  server and carries on as with a URL that embeds the state, and the URL it
+  writes still embeds it. The CAVE token is sent only to `proofreading.zetta.ai`
+  and its subdomains, so Share links stored there load. Links stored on
+  `global.daf-apis.com` trust a different auth server and still fail, now with
+  an error that names it.
+
 ### Fixed
 
-- Say that the clipboard holds a Neuroglancer Share link
-  (`#!middleauth+https://…`) when `add`, `inspect`, or `check-cave` reads its
-  state from there, and how to get a URL crantcli can load. These commands
-  failed with `invalid character 'm' looking for beginning of value` and kept
-  failing until something else was copied.
+- Name the Neuroglancer Share link (`#!middleauth+https://…`) in the clipboard
+  when `add`, `inspect`, or `check-cave` cannot load its state, and say how to
+  get a URL that carries the state. These commands failed with
+  `invalid character 'm' looking for beginning of value` and kept failing until
+  something else was copied.
 
 ## v0.22.2 - 2026-10-21
 

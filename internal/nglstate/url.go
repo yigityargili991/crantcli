@@ -20,15 +20,15 @@ var errNoFragment = errors.New("URL has no fragment (expected #!{...} or #!url)"
 // this form: #!middleauth+https://global.daf-apis.com/nglstate/api/v1/<id>.
 var remoteStateFragment = regexp.MustCompile(`^[a-z][a-z0-9+.-]*://`)
 
-// remoteStateError reports a URL whose state lives on a server. crantcli does
-// not fetch those, and parsing the location as JSON fails with a message that
-// does not say why.
+// remoteStateError reports a URL whose state lives on a server. DecodeURL
+// does not fetch those (loadState does, through the installed resolver), and
+// parsing the location as JSON fails with a message that does not say why.
 type remoteStateError struct {
 	location string
 }
 
 func (e *remoteStateError) Error() string {
-	return fmt.Sprintf("the state is stored at %q (a Neuroglancer Share link), not in the URL; crantcli can only read a state embedded in the URL", e.location)
+	return fmt.Sprintf("the state is stored at %q (a Neuroglancer Share link), not in the URL, and crantcli cannot load it from there", e.location)
 }
 
 // splitFragment separates a URL into the part before the first '#' and the

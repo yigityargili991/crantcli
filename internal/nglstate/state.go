@@ -35,10 +35,23 @@ const (
 type LoadResult struct {
 	State  map[string]interface{}
 	Source StateSource
-	// OriginalURL is set when the state was decoded from a URL.
+	// OriginalURL is set when the state was read from a URL: decoded from
+	// its fragment or, for a Share link, fetched from where it is stored.
 	OriginalURL string
+	// Remote is set when OriginalURL is a Share link whose state was fetched.
+	Remote *RemoteState
 	// OutputURL is set when state output is written as a Neuroglancer URL.
 	OutputURL string
+}
+
+// SourceDescription says where the state came from, as in "State loaded
+// from clipboard". For a Share link it also names the stored state, since
+// the link the user copied does not contain it.
+func (r *LoadResult) SourceDescription() string {
+	if r.Remote == nil {
+		return string(r.Source)
+	}
+	return fmt.Sprintf("%s (resolved Share link %q)", r.Source, r.Remote.Location)
 }
 
 // errNoInputState reports that neither --state, stdin, nor the clipboard
@@ -47,9 +60,9 @@ var errNoInputState = errors.New("no state given: pass --state, pipe state JSON 
 
 // LoadState loads a Neuroglancer state using smart resolution:
 // 1. If stateArg is an existing file path, read it
-// 2. If stateArg is a Neuroglancer URL, decode it
+// 2. If stateArg is a Neuroglancer URL, decode it (fetching a Share link's state)
 // 3. If stateArg is empty, try stdin (if not a terminal)
-// 4. If stdin is empty, try clipboard for a Neuroglancer URL
+// 4. If stdin is empty, try clipboard for a Neuroglancer URL or Share link
 // 5. If generate is true or nothing found, use default template
 func LoadState(stateArg string, generate bool) (*LoadResult, error) {
 	return loadState(stateArg, generate, true)
@@ -81,11 +94,11 @@ func loadState(stateArg string, generate, useDefault bool) (*LoadResult, error) 
 		// ENAMETOOLONG), so os.Stat also fails and they still decode as URLs.
 		if IsNeuroglancerURL(stateArg) {
 			if _, statErr := os.Stat(stateArg); statErr != nil && !os.IsPermission(statErr) {
-				state, err := DecodeURL(stateArg)
+				state, remote, err := decodeStateURL(stateArg)
 				if err != nil {
 					return nil, fmt.Errorf("decoding URL: %w", err)
 				}
-				return &LoadResult{State: state, Source: SourceURL, OriginalURL: stateArg}, nil
+				return &LoadResult{State: state, Source: SourceURL, OriginalURL: stateArg, Remote: remote}, nil
 			}
 		}
 
@@ -117,9 +130,10 @@ func loadState(stateArg string, generate, useDefault bool) (*LoadResult, error) 
 	// just the bare viewer link, so it also falls back with a warning. A
 	// fragment that will not decode is treated as intentional; malformed state
 	// is therefore an error rather than a quiet switch to an unrelated
-	// template. A Share link is intentional too, but its state is on a server
-	// crantcli does not fetch, so the error names the link and the way around
-	// it: the user may not know the clipboard is being read at all.
+	// template. A Share link is intentional too: its state is fetched from
+	// where the link says it is stored, and when that is not possible the
+	// error names the link and the way around it, since the user may not know
+	// the clipboard is being read at all.
 	if !generate {
 		clip, clipErr := stateClipboardRead()
 		if clipErr != nil {
@@ -128,19 +142,22 @@ func loadState(stateArg string, generate, useDefault bool) (*LoadResult, error) 
 			}
 			fmt.Fprintf(stateWarningWriter, "Warning: clipboard input unavailable; using the default state: %v\n", clipErr)
 		} else if IsNeuroglancerURL(clip) {
-			state, err := DecodeURL(clip)
-			var remote *remoteStateError
+			state, remote, err := decodeStateURL(clip)
+			var stored *remoteStateError
+			var fetchErr *remoteFetchError
 			if errors.Is(err, errNoFragment) {
 				if !useDefault {
 					return nil, fmt.Errorf("%w (the clipboard holds a Neuroglancer viewer URL without a state fragment)", errNoInputState)
 				}
 				fmt.Fprintln(stateWarningWriter, "Warning: clipboard holds a Neuroglancer viewer URL without a state fragment; using the default state")
-			} else if errors.As(err, &remote) {
-				return nil, fmt.Errorf("the clipboard holds a Neuroglancer Share link to %q, whose state crantcli cannot load; copy the URL from the viewer's address bar instead, or pass --state", remote.location)
+			} else if errors.As(err, &stored) {
+				return nil, fmt.Errorf("the clipboard holds a Neuroglancer Share link to %q, whose state crantcli cannot load; copy the URL from the viewer's address bar instead, or pass --state", stored.location)
+			} else if errors.As(err, &fetchErr) {
+				return nil, fmt.Errorf("the clipboard holds a Neuroglancer Share link, but %w; to load the view without fetching it, copy the URL from the viewer's address bar instead", err)
 			} else if err != nil {
 				return nil, fmt.Errorf("decoding clipboard URL: %w", err)
 			} else {
-				return &LoadResult{State: state, Source: SourceClipboard, OriginalURL: clip}, nil
+				return &LoadResult{State: state, Source: SourceClipboard, OriginalURL: clip, Remote: remote}, nil
 			}
 		}
 	}
