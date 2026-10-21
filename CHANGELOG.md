@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Stop passing CRANT, CAVE, and GitHub tokens to the installer that
+  `crantcli update` runs. It now keeps only `CRANTCLI_GITHUB_TOKEN`, which it
+  downloads with, as the docs promise for every program crantcli starts.
+
 ## v0.22.2 - 2026-10-21
 
 ### Security

@@ -88,6 +88,49 @@ func envValue(env []string, key string) (string, bool) {
 	return "", false
 }
 
+// updateCredentialEnv holds fake values for the token variables crantcli
+// removes from subprocess environments.
+var updateCredentialEnv = map[string]string{
+	"CRANTTABLE_TOKEN":        "fake-cranttable-token",
+	"CRANTTABLE_TOKEN_FILE":   "/nonexistent/cranttable-token",
+	"CAVE_TOKEN":              "fake-cave-token",
+	"CAVE_TOKEN_FILE":         "/nonexistent/cave-token",
+	"GH_TOKEN":                "fake-gh-token",
+	"GITHUB_TOKEN":            "fake-github-token",
+	"GH_ENTERPRISE_TOKEN":     "fake-gh-enterprise-token",
+	"GITHUB_ENTERPRISE_TOKEN": "fake-github-enterprise-token",
+}
+
+// setUpdateCredentialEnv exports the fake tokens, the installer's own
+// download token, and an ordinary variable for the duration of the test.
+func setUpdateCredentialEnv(t *testing.T) {
+	t.Helper()
+	for key, value := range updateCredentialEnv {
+		t.Setenv(key, value)
+	}
+	t.Setenv("CRANTCLI_GITHUB_TOKEN", "fake-installer-token")
+	t.Setenv("CRANTCLI_TEST_VISIBLE", "visible")
+}
+
+// assertInstallerCredentialEnv fails if env holds any token besides the
+// installer's download token, or lost the ordinary variable. It names keys
+// only, so a failure never prints a value.
+func assertInstallerCredentialEnv(t *testing.T, env []string) {
+	t.Helper()
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, credential := updateCredentialEnv[strings.ToUpper(key)]; credential {
+			t.Errorf("installer environment includes %s", key)
+		}
+	}
+	if token, ok := envValue(env, "CRANTCLI_GITHUB_TOKEN"); !ok || token != "fake-installer-token" {
+		t.Errorf("installer environment lost CRANTCLI_GITHUB_TOKEN (present %v), which the installer downloads with", ok)
+	}
+	if value, ok := envValue(env, "CRANTCLI_TEST_VISIBLE"); !ok || value != "visible" {
+		t.Errorf("CRANTCLI_TEST_VISIBLE = %q (present %v), want ordinary variables kept", value, ok)
+	}
+}
+
 func readyReleaseJSON(tag string) []byte {
 	scriptName := installerScriptName(updateGOOS)
 	return []byte(fmt.Sprintf(
@@ -479,6 +522,66 @@ func TestUpdateRespectsExportedInstallDir(t *testing.T) {
 	if !ok || dir != "/custom/dir" {
 		t.Fatalf("CRANTCLI_INSTALL_DIR = %q (present %v), want /custom/dir", dir, ok)
 	}
+}
+
+// The installer uses no token besides CRANTCLI_GITHUB_TOKEN, so the CRANT,
+// CAVE, and other GitHub tokens must not reach it, as the configuration docs
+// promise.
+func TestUpdateRemovesCredentialsFromInstallerEnv(t *testing.T) {
+	cases := []struct {
+		goos, executable, launcher string
+	}{
+		{"linux", "/nonexistent/bin/crantcli", "sh"},
+		{"windows", "/nonexistent/bin/crantcli.exe", "powershell"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.goos, func(t *testing.T) {
+			setUpdateCredentialEnv(t)
+			calls := stubUpdateSeams(t, "v0.16.1", tc.goos, tc.executable, func(url string) ([]byte, error) {
+				if url == updateLatestURL {
+					return readyReleaseJSON("v0.16.2"), nil
+				}
+				return []byte("fixture"), nil
+			})
+
+			if _, _, err := executeRootForTest(t, "update"); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+			if len(*calls) != 1 {
+				t.Fatalf("start calls = %+v, want exactly one", *calls)
+			}
+			if name := (*calls)[0].name; name != tc.launcher {
+				t.Fatalf("started %q, want %s", name, tc.launcher)
+			}
+			assertInstallerCredentialEnv(t, (*calls)[0].env)
+		})
+	}
+}
+
+// The same holds for the process the real launcher starts.
+func TestUpdateInstallerProcessDoesNotInheritCredentials(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake installer is a POSIX shell script")
+	}
+	setUpdateCredentialEnv(t)
+	dump := filepath.Join(t.TempDir(), "installer.env")
+	t.Setenv("CRANTCLI_TEST_ENV_DUMP", dump)
+	stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
+		if url == updateLatestURL {
+			return readyReleaseJSON("v0.16.2"), nil
+		}
+		return []byte("#!/bin/sh\nenv > \"$CRANTCLI_TEST_ENV_DUMP\"\n"), nil
+	})
+	updateRun = runProcess
+
+	if _, _, err := executeRootForTest(t, "update"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	env, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatalf("read installer environment: %v", err)
+	}
+	assertInstallerCredentialEnv(t, strings.Split(string(env), "\n"))
 }
 
 func TestIsUpToDate(t *testing.T) {

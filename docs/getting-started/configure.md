@@ -41,7 +41,8 @@ export CAVE_TOKEN_FILE="/run/secrets/cave"
 CRANT, CAVE, and GitHub token variables are removed from unrelated subprocess
 environments, including browser and clipboard helpers. The `gh` publisher
 retains its GitHub-specific token variables but never receives CRANT or CAVE
-tokens.
+tokens. The installer that `crantcli update` runs retains only
+`CRANTCLI_GITHUB_TOKEN`, which it uses to download the release.
 
 ### Credential precedence
 
