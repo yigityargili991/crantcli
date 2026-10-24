@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -91,7 +92,13 @@ list when --replace is given.`,
 
   # Label the root IDs copied to the clipboard, over a specific base state
   crantcli add --clipboard-ids -s base.json --labels`,
-	Annotations: map[string]string{"requiresToken": "true"},
+}
+
+// addNeedsSeaTableToken reports whether an add run queries SeaTable. It always
+// does, except for a --clipboard-ids run that publishes no labels: that path
+// only injects the copied root IDs, so it works without a configured token.
+func addNeedsSeaTableToken(clipboardIDs, labels bool) bool {
+	return !clipboardIDs || labels
 }
 
 var (
@@ -185,6 +192,9 @@ func init() {
 	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if err := validateAddClipboardOptions(); err != nil {
 			return err
+		}
+		if addNeedsSeaTableToken(addClipboardIDs, addLabels) && getAPIToken() == "" {
+			return errors.New("no SeaTable token configured; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")
 		}
 		if err := validateAddClassifiers(addCellClasses, addCellTypes, addCellSubtypes); err != nil {
 			return err

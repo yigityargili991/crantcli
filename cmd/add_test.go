@@ -106,6 +106,7 @@ func isolateAddCommandRun(t *testing.T) {
 	previousClipboardIDs := addClipboardIDs
 	previousClipboardRead := addClipboardRead
 	previousQueryRootIDs := addQueryNeuronsByRootIDs
+	previousGetAPIToken := getAPIToken
 	t.Cleanup(func() {
 		addSuperClass = previousOptions.superClass
 		addCellClasses = previousOptions.cellClasses
@@ -139,6 +140,7 @@ func isolateAddCommandRun(t *testing.T) {
 		addClipboardIDs = previousClipboardIDs
 		addClipboardRead = previousClipboardRead
 		addQueryNeuronsByRootIDs = previousQueryRootIDs
+		getAPIToken = previousGetAPIToken
 		addCmd.SetOut(nil)
 		addCmd.SetErr(nil)
 	})
@@ -178,6 +180,49 @@ func isolateAddCommandRun(t *testing.T) {
 	addQueryNeuronsByRootIDs = func(*seatable.Client, []string) ([]seatable.NeuronRow, error) {
 		t.Error("add queried root IDs without --clipboard-ids --labels")
 		return nil, errors.New("unexpected root ID query")
+	}
+	getAPIToken = func() string { return "test-token" }
+}
+
+// TestAddCommandTokenRequirement covers the conditional SeaTable token check:
+// add only asks for a token when it will actually query the table.
+func TestAddCommandTokenRequirement(t *testing.T) {
+	t.Run("--clipboard-ids without labels needs no token", func(t *testing.T) {
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		getAPIToken = func() string { return "" }
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatalf("tokenless --clipboard-ids run failed: %v", err)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+	})
+
+	t.Run("--clipboard-ids with labels needs a token", func(t *testing.T) {
+		isolateAddClipboardRun(t)
+		addLabels = true
+		getAPIToken = func() string { return "" }
+
+		err := addCmd.RunE(addCmd, nil)
+		if err == nil || !strings.Contains(err.Error(), "no SeaTable token configured") {
+			t.Fatalf("error = %v, want a missing-token error", err)
+		}
+	})
+
+	t.Run("query mode needs a token", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		getAPIToken = func() string { return "" }
+
+		err := addCmd.RunE(addCmd, nil)
+		if err == nil || !strings.Contains(err.Error(), "no SeaTable token configured") {
+			t.Fatalf("error = %v, want a missing-token error", err)
+		}
+	})
+
+	if addCmd.Annotations["requiresToken"] == "true" {
+		t.Error("add must not use the static requiresToken annotation; its requirement depends on the flags")
 	}
 }
 
