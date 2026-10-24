@@ -30,7 +30,17 @@ Smart input resolution (when no --state is given):
   3. Fall back to the configured or built-in CRANT scene template
 
 With no --output, the resulting Neuroglancer URL is written back to the
-clipboard, overwriting its current contents.`,
+clipboard, overwriting its current contents.
+
+With --clipboard-ids, add skips the SeaTable query and injects the root IDs
+copied to the clipboard instead (separated by whitespace, newlines, or commas).
+The clipboard holds IDs rather than a state, so the base state comes from
+--state or the default template, never from the clipboard's contents. The
+classification filters, --intersect, --color-by, and --root-ids-only only make
+sense against a SeaTable query and cannot be combined with it; --labels looks
+up CRANT metadata for the copied IDs. Unlike the deprecated state-transfer,
+add appends these segments to the layer and only replaces its existing segment
+list when --replace is given.`,
 	Example: `  # Smart: checks clipboard for a Neuroglancer URL, injects, and copies back
   crantcli add --cell-type ER
 
@@ -74,7 +84,13 @@ clipboard, overwriting its current contents.`,
   crantcli add --super-class sensory --color-by cell_type,cell_subtype
 
   # Give each query group a hue and each subtype inside it a tone
-  crantcli add --cell-class LNO --cell-type PEN --color-by group,cell_subtype`,
+  crantcli add --cell-class LNO --cell-type PEN --color-by group,cell_subtype
+
+  # Copy root IDs to the clipboard, then inject them without querying SeaTable
+  crantcli add --clipboard-ids
+
+  # Label the root IDs copied to the clipboard, over a specific base state
+  crantcli add --clipboard-ids -s base.json --labels`,
 	Annotations: map[string]string{"requiresToken": "true"},
 }
 
@@ -89,6 +105,7 @@ var (
 	addBundles      []string
 	addTract        string
 	addProofread    string
+	addClipboardIDs bool
 	addState        string
 	addGenerate     bool
 	addOutput       string
@@ -106,9 +123,11 @@ var (
 
 	addNewClient             = seatable.NewClient
 	addQueryNeurons          = seatable.QueryNeurons
+	addQueryNeuronsByRootIDs = seatable.QueryNeuronsByRootIDs
 	addLoadState             = nglstate.LoadState
 	addFindSegmentationLayer = nglstate.FindSegmentationLayer
 	addDeliverState          = nglstate.DeliverState
+	addClipboardRead         = clipboard.Read
 	addClipboardWrite        = clipboard.WriteText
 )
 
@@ -123,6 +142,7 @@ func init() {
 	addCmd.Flags().StringArrayVar(&addBundles, "bundle", nil, "Filter by bundle region annotation (repeatable alias of --region, e.g. LX)")
 	addCmd.Flags().StringVar(&addTract, "tract", "", "Filter by tract")
 	addCmd.Flags().StringVar(&addProofread, "proofread", "", "Filter by proofread status")
+	addCmd.Flags().BoolVar(&addClipboardIDs, "clipboard-ids", false, "Inject root IDs copied to the clipboard instead of querying SeaTable")
 	addCmd.Flags().StringVarP(&addState, "state", "s", "", "Neuroglancer state (URL or file path)")
 	addCmd.Flags().BoolVarP(&addGenerate, "generate", "g", false, "Use the configured or built-in default state instead of the clipboard")
 	addCmd.Flags().StringVarP(&addOutput, "output", "o", "", "Output file path (default: clipboard or stdout)")
@@ -135,6 +155,9 @@ func init() {
 	registerLabelFlags(addCmd, &addLabels, &addLabelsTTL, &addLabelsHook, &addLabelBy, &addLabelTags)
 	addCmd.Args = func(cmd *cobra.Command, args []string) error {
 		if err := cobra.NoArgs(cmd, args); err != nil {
+			return err
+		}
+		if err := validateAddClipboardOptions(); err != nil {
 			return err
 		}
 		if err := validateAddOptions(addRegions, addBundles, addColor, addColorBy); err != nil {
@@ -160,6 +183,9 @@ func init() {
 	mustRegisterFlagCompletion(addCmd, "layer", noFileCompletion)
 
 	addCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if err := validateAddClipboardOptions(); err != nil {
+			return err
+		}
 		if err := validateAddClassifiers(addCellClasses, addCellTypes, addCellSubtypes); err != nil {
 			return err
 		}
@@ -202,102 +228,121 @@ func init() {
 		}
 
 		hasGroupFlags := len(addCellClasses) > 0 || len(addCellTypes) > 0 || len(addCellSubtypes) > 0
-		if err := validateAddInputs(baseFilters, hasGroupFlags); err != nil {
-			return err
-		}
-		if addIntersect && groupDimensionCount(addCellClasses, addCellTypes, addCellSubtypes) < 2 {
-			fmt.Fprintln(os.Stderr, "Warning: --intersect has no effect unless you combine two or more of --cell-class/--cell-type/--cell-subtype")
-		}
 
-		// Query SeaTable
-		client, err := addNewClient()
-		if err != nil {
-			return err
-		}
+		var (
+			groups       [][]string
+			allRootIDs   []string
+			allRows      []seatable.NeuronRow
+			nestedGroups [][][]string
+			gradient     *gradientColorBy
+		)
 
-		// Union (each value its own group) is the default; --intersect opts into
-		// the cross-product (AND). buildQuerySpecs takes a union flag.
-		specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes, addCellSubtypes, !addIntersect)
-		if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField && len(specs) == 1 {
-			fmt.Fprintln(os.Stderr, "Warning: --color-by group found a single query group; repeat --cell-class/--cell-type/--cell-subtype to form groups worth separating")
-		}
-
-		var groups [][]string
-		var allRootIDs []string
-		var allRows []seatable.NeuronRow
-
-		for _, s := range specs {
-			rows, err := addQueryNeurons(client, &s.filters)
+		if addClipboardIDs {
+			ids, err := readAddClipboardRootIDs()
 			if err != nil {
 				return err
 			}
-			ids := extractRootIDs(rows)
-			groups = append(groups, ids)
-			allRows = append(allRows, rows...)
-			if s.label != "" {
-				fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
+			allRootIDs = ids
+			// One group: --color paints every copied ID the same.
+			groups = [][]string{ids}
+		} else {
+			if err := validateAddInputs(baseFilters, hasGroupFlags); err != nil {
+				return err
+			}
+			if addIntersect && groupDimensionCount(addCellClasses, addCellTypes, addCellSubtypes) < 2 {
+				fmt.Fprintln(os.Stderr, "Warning: --intersect has no effect unless you combine two or more of --cell-class/--cell-type/--cell-subtype")
+			}
+
+			// Query SeaTable
+			client, err := addNewClient()
+			if err != nil {
+				return err
+			}
+
+			// Union (each value its own group) is the default; --intersect opts into
+			// the cross-product (AND). buildQuerySpecs takes a union flag.
+			specs := buildQuerySpecs(baseFilters, addCellClasses, addCellTypes, addCellSubtypes, !addIntersect)
+			if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField && len(specs) == 1 {
+				fmt.Fprintln(os.Stderr, "Warning: --color-by group found a single query group; repeat --cell-class/--cell-type/--cell-subtype to form groups worth separating")
+			}
+
+			for _, s := range specs {
+				rows, err := addQueryNeurons(client, &s.filters)
+				if err != nil {
+					return err
+				}
+				ids := extractRootIDs(rows)
+				groups = append(groups, ids)
+				allRows = append(allRows, rows...)
+				if s.label != "" {
+					fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
+				}
+			}
+
+			// Union groups (the default) can overlap when one predicate includes
+			// another (a cell_class and one of its own cell types, say), so the same
+			// neuron may appear in several groups. Collapse to a unique set by root
+			// ID before counting, coloring, output, and injection -- --replace in
+			// particular bypasses AddSegments' append-mode dedupe.
+			groups, allRootIDs, allRows = dedupeUnionResults(groups, allRows)
+			totalRows := len(allRows)
+
+			// --color-by rebinds groups to its own partition, so keep the query
+			// groups and their labels for --color-by group to build from.
+			queryGroups := groups
+			queryLabels := querySpecLabels(specs)
+
+			switch {
+			case len(colorByFields) == 1 && continuousAddColorByFields[colorByFields[0]]:
+				// A continuous field has one value per neuron, so report its span
+				// rather than a line for every distinct value.
+				built := buildGradientColorByValues(allRows, colorByFields[0])
+				gradient = &built
+				if len(built.values) == 0 {
+					fmt.Fprintf(os.Stderr, "  %s: no neuron carries a position; all take the unset color\n", colorByFields[0])
+				} else {
+					fmt.Fprintf(os.Stderr, "  %s: %d with root IDs, %g to %g\n", colorByFields[0], len(built.values), built.low, built.high)
+				}
+				if len(built.unset) > 0 {
+					fmt.Fprintf(os.Stderr, "  %s=(unset): %d without a position\n", colorByFields[0], len(built.unset))
+				}
+			case len(colorByFields) == 1:
+				var labels []string
+				groups, labels = colorByGroupsFromPartitions(
+					colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels))
+				reportColorByGroups(os.Stderr, colorByFields, groups, labels)
+			case len(colorByFields) == maxAddColorByFields:
+				var labels [][]string
+				nestedGroups, labels = nestColorByPartitions(
+					colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels), colorByFields[1])
+				reportNestedColorByGroups(os.Stderr, colorByFields, nestedGroups, labels)
+			}
+			// After the groups that were colored, so the two read together.
+			if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField {
+				reportUncoloredQueryGroups(os.Stderr, queryGroups, queryLabels)
+			}
+
+			fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
+
+			if len(allRootIDs) == 0 {
+				fmt.Fprintln(os.Stderr, "No neurons found matching filters")
+				return nil
+			}
+
+			// Root IDs only mode
+			if addRootIDsOnly {
+				return deliverRootIDs(allRootIDs, cmd.OutOrStdout(), cmd.ErrOrStderr(), addClipboardWrite)
 			}
 		}
 
-		// Union groups (the default) can overlap when one predicate includes
-		// another (a cell_class and one of its own cell types, say), so the same
-		// neuron may appear in several groups. Collapse to a unique set by root
-		// ID before counting, coloring, output, and injection -- --replace in
-		// particular bypasses AddSegments' append-mode dedupe.
-		groups, allRootIDs, allRows = dedupeUnionResults(groups, allRows)
-		totalRows := len(allRows)
-
-		// --color-by rebinds groups to its own partition, so keep the query
-		// groups and their labels for --color-by group to build from.
-		queryGroups := groups
-		queryLabels := querySpecLabels(specs)
-
-		var nestedGroups [][][]string
-		var gradient *gradientColorBy
-		switch {
-		case len(colorByFields) == 1 && continuousAddColorByFields[colorByFields[0]]:
-			// A continuous field has one value per neuron, so report its span
-			// rather than a line for every distinct value.
-			built := buildGradientColorByValues(allRows, colorByFields[0])
-			gradient = &built
-			if len(built.values) == 0 {
-				fmt.Fprintf(os.Stderr, "  %s: no neuron carries a position; all take the unset color\n", colorByFields[0])
-			} else {
-				fmt.Fprintf(os.Stderr, "  %s: %d with root IDs, %g to %g\n", colorByFields[0], len(built.values), built.low, built.high)
-			}
-			if len(built.unset) > 0 {
-				fmt.Fprintf(os.Stderr, "  %s=(unset): %d without a position\n", colorByFields[0], len(built.unset))
-			}
-		case len(colorByFields) == 1:
-			var labels []string
-			groups, labels = colorByGroupsFromPartitions(
-				colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels))
-			reportColorByGroups(os.Stderr, colorByFields, groups, labels)
-		case len(colorByFields) == maxAddColorByFields:
-			var labels [][]string
-			nestedGroups, labels = nestColorByPartitions(
-				colorByOuterPartitions(allRows, colorByFields[0], queryGroups, queryLabels), colorByFields[1])
-			reportNestedColorByGroups(os.Stderr, colorByFields, nestedGroups, labels)
+		// Load state. With --clipboard-ids the clipboard holds root IDs, not a
+		// Neuroglancer URL, so generate the default state rather than decoding
+		// the clipboard's contents as the base state.
+		generate := addGenerate
+		if addClipboardIDs {
+			generate = true
 		}
-		// After the groups that were colored, so the two read together.
-		if len(colorByFields) > 0 && colorByFields[0] == queryGroupColorByField {
-			reportUncoloredQueryGroups(os.Stderr, queryGroups, queryLabels)
-		}
-
-		fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
-
-		if len(allRootIDs) == 0 {
-			fmt.Fprintln(os.Stderr, "No neurons found matching filters")
-			return nil
-		}
-
-		// Root IDs only mode
-		if addRootIDsOnly {
-			return deliverRootIDs(allRootIDs, cmd.OutOrStdout(), cmd.ErrOrStderr(), addClipboardWrite)
-		}
-
-		// Load state
-		result, err := addLoadState(addState, addGenerate)
+		result, err := addLoadState(addState, generate)
 		if err != nil {
 			return err
 		}
@@ -322,7 +367,15 @@ func init() {
 		})
 
 		if addLabels {
-			if err := attachCellTypeLabels(layer, allRows, labelOptions, addLabelsTTL, resolveLabelsHook(addLabelsHook)); err != nil {
+			labelRows := allRows
+			if addClipboardIDs {
+				rows, err := queryAddClipboardLabelRows(allRootIDs)
+				if err != nil {
+					return err
+				}
+				labelRows = rows
+			}
+			if err := attachCellTypeLabels(layer, labelRows, labelOptions, addLabelsTTL, resolveLabelsHook(addLabelsHook)); err != nil {
 				return err
 			}
 		}
@@ -360,6 +413,44 @@ func extractRootIDs(rows []seatable.NeuronRow) []string {
 		}
 	}
 	return ids
+}
+
+// readAddClipboardRootIDs reads and parses the root IDs copied to the
+// clipboard for --clipboard-ids.
+func readAddClipboardRootIDs() ([]string, error) {
+	text, err := addClipboardRead()
+	if err != nil {
+		return nil, fmt.Errorf("reading clipboard: %w", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("clipboard is empty — copy some root IDs first")
+	}
+	ids := parseIDs(text)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("no valid IDs found in clipboard")
+	}
+	fmt.Fprintf(os.Stderr, "Read %d IDs from clipboard\n", len(ids))
+	return ids, nil
+}
+
+// queryAddClipboardLabelRows looks up CRANT metadata for root IDs copied to the
+// clipboard, which have no classifier query behind them.
+func queryAddClipboardLabelRows(ids []string) ([]seatable.NeuronRow, error) {
+	client, err := addNewClient()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := addQueryNeuronsByRootIDs(client, ids)
+	if err != nil {
+		return nil, fmt.Errorf("querying labels for clipboard root IDs: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("no CRANT metadata found for clipboard root IDs")
+	}
+	if len(rows) < len(ids) {
+		fmt.Fprintf(os.Stderr, "Warning: found CRANT metadata for %d of %d clipboard root IDs\n", len(rows), len(ids))
+	}
+	return rows, nil
 }
 
 // dedupeUnionResults collapses overlapping query groups into a unique set by
@@ -552,6 +643,37 @@ func validateAddInputs(baseFilters *seatable.Filters, hasGroupFlags bool) error 
 		return fmt.Errorf("at least one filter flag is required (e.g. --cell-class, --super-class, --cell-type)")
 	}
 	return nil
+}
+
+// validateAddClipboardOptions rejects the flags that only shape a SeaTable
+// classifier query: --clipboard-ids supplies the root IDs itself.
+func validateAddClipboardOptions() error {
+	if !addClipboardIDs {
+		return nil
+	}
+
+	var conflicts []string
+	conflict := func(set bool, flag string) {
+		if set {
+			conflicts = append(conflicts, flag)
+		}
+	}
+	conflict(strings.TrimSpace(addSuperClass) != "", "--super-class")
+	conflict(len(compactAddValues(addCellClasses)) > 0, "--cell-class")
+	conflict(len(compactAddValues(addCellTypes)) > 0, "--cell-type")
+	conflict(len(compactAddValues(addCellSubtypes)) > 0, "--cell-subtype")
+	conflict(strings.TrimSpace(addSide) != "", "--side")
+	conflict(len(compactAddValues(addRegions)) > 0, "--region")
+	conflict(len(compactAddValues(addBundles)) > 0, "--bundle")
+	conflict(strings.TrimSpace(addTract) != "", "--tract")
+	conflict(strings.TrimSpace(addProofread) != "", "--proofread")
+	conflict(addIntersect, "--intersect")
+	conflict(strings.TrimSpace(addColorBy) != "", "--color-by")
+	conflict(addRootIDsOnly, "--root-ids-only")
+	if len(conflicts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("--clipboard-ids cannot be combined with %s; it injects the root IDs copied to the clipboard instead of querying SeaTable", strings.Join(conflicts, ", "))
 }
 
 // Empty classifier values would create query groups with no WHERE condition.

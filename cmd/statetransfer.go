@@ -45,6 +45,8 @@ as the label and --label-tags the fields published as filterable chips.`,
 
   # Write to file instead of clipboard
   crantcli state-transfer -o output.json`,
+	Hidden:     true,
+	Deprecated: "use 'add --clipboard-ids' instead; state-transfer will be removed in v0.24.0",
 }
 
 // Seams for tests, mirroring add's. Everything here reaches the clipboard,
