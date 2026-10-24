@@ -51,6 +51,7 @@ type rootInfoOptions struct {
 	JSON         bool
 	HistoryLimit int
 	Filtered     bool
+	Pos          string // --pos x,y,z; mutually exclusive with a root_id argument
 }
 
 type rootInfoResult struct {
@@ -110,11 +111,26 @@ type rootInfoHistory struct {
 }
 
 var rootInfoCmd = &cobra.Command{
-	Use:         "root-info <root_id>",
+	Use:         "root-info [root_id]",
 	Short:       "Show CRANT, CAVE, and nearest-column info for a root ID",
-	Long:        `Show CRANT metadata, CAVE current-root status, edit history, and nearest EPG/PEG column context for a root ID.`,
+	Long:        `Show CRANT metadata, CAVE current-root status, edit history, and nearest EPG/PEG column context for a root ID. With --pos, print only the nearest EPG/PEG column for an x,y,z position.`,
 	Annotations: map[string]string{"requiresToken": "true"},
-	Args:        cobra.ExactArgs(1),
+	Args:        rootInfoArgs,
+}
+
+// rootInfoArgs accepts a root ID argument or --pos, and exactly one of them.
+func rootInfoArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("accepts at most 1 arg(s), received %d", len(args))
+	}
+	hasPos := cmd.Flags().Changed("pos")
+	if hasPos && len(args) > 0 {
+		return fmt.Errorf("cannot combine root_id argument with --pos flag")
+	}
+	if !hasPos && len(args) == 0 {
+		return fmt.Errorf("provide a root_id argument or use --pos x,y,z")
+	}
+	return nil
 }
 
 func init() {
@@ -122,12 +138,15 @@ func init() {
 		asJSON       bool
 		historyLimit int
 		unfiltered   bool
+		position     string
 	)
 
 	rootInfoCmd.Flags().BoolVar(&asJSON, "json", false, "Print JSON output")
 	rootInfoCmd.Flags().IntVar(&historyLimit, "history-limit", 5, "Number of recent CAVE history entries to print")
 	rootInfoCmd.Flags().BoolVar(&unfiltered, "unfiltered", false, "Include unfiltered split/merge history")
+	rootInfoCmd.Flags().StringVar(&position, "pos", "", "Position as x,y,z (e.g. 100.5,200.3,300.1)")
 	rootInfoCmd.ValidArgsFunction = noFileCompletion
+	mustRegisterFlagCompletion(rootInfoCmd, "pos", noFileCompletion)
 
 	rootInfoCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if historyLimit < 0 {
@@ -138,22 +157,36 @@ func init() {
 		if err != nil {
 			return err
 		}
+
+		opts := rootInfoOptions{
+			JSON:         asJSON,
+			HistoryLimit: historyLimit,
+			Filtered:     !unfiltered,
+		}
+		if cmd.Flags().Changed("pos") {
+			opts.Pos = position
+			return runRootInfo(cmd.OutOrStdout(), seatableRootInfoSource{client: stClient}, nil, "", opts)
+		}
+
 		caveClient, err := cave.NewClient()
 		if err != nil {
 			return err
 		}
-
-		return runRootInfo(cmd.OutOrStdout(), seatableRootInfoSource{client: stClient}, caveClient, args[0], rootInfoOptions{
-			JSON:         asJSON,
-			HistoryLimit: historyLimit,
-			Filtered:     !unfiltered,
-		})
+		return runRootInfo(cmd.OutOrStdout(), seatableRootInfoSource{client: stClient}, caveClient, args[0], opts)
 	}
 
 	rootCmd.AddCommand(rootInfoCmd)
 }
 
+// rootInfoPositionResult is the --pos output: only the nearest column.
+type rootInfoPositionResult struct {
+	NearestColumn *rootInfoNearestColumn `json:"nearest_column"`
+}
+
 func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCaveClient, rawRootID string, opts rootInfoOptions) error {
+	if opts.Pos != "" {
+		return runRootInfoPosition(out, data, opts)
+	}
 	result, err := fetchRootInfo(data, caveClient, rawRootID, opts)
 	if err != nil {
 		return err
@@ -164,6 +197,29 @@ func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCave
 		return enc.Encode(result)
 	}
 	return writeRootInfoText(out, result)
+}
+
+// runRootInfoPosition renders only the nearest_column section for --pos.
+func runRootInfoPosition(out io.Writer, data rootInfoDataSource, opts rootInfoOptions) error {
+	x, y, z, err := parsePos(opts.Pos)
+	if err != nil {
+		return err
+	}
+	nearest, nearestErr, err := fetchNearestColumnAt(data, x, y, z, "")
+	if err != nil {
+		return err
+	}
+	if nearestErr != "" {
+		return fmt.Errorf("%s", nearestErr)
+	}
+	nearest.SideRelation = ""
+
+	if opts.JSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rootInfoPositionResult{NearestColumn: nearest})
+	}
+	return writeRootInfoPositionText(out, nearest)
 }
 
 func fetchRootInfo(data rootInfoDataSource, caveClient rootInfoCaveClient, rawRootID string, opts rootInfoOptions) (*rootInfoResult, error) {
@@ -275,6 +331,13 @@ func buildRootInfoCAVEStatus(client rootInfoCaveClient, row *seatable.NeuronInfo
 }
 
 func fetchNearestColumn(data rootInfoDataSource, row *seatable.NeuronInfoRow) (*rootInfoNearestColumn, string, error) {
+	return fetchNearestColumnAt(data, row.X, row.Y, row.Z, row.Side)
+}
+
+// fetchNearestColumnAt finds the nearest EPG/PEG neuron to x,y,z. targetSide
+// is the side of the neuron being looked up; it is empty for a --pos lookup,
+// which has no side relation.
+func fetchNearestColumnAt(data rootInfoDataSource, x, y, z float64, targetSide string) (*rootInfoNearestColumn, string, error) {
 	regionOpts, err := data.RegionOptions()
 	if err != nil {
 		return nil, "", err
@@ -295,7 +358,7 @@ func fetchNearestColumn(data rootInfoDataSource, row *seatable.NeuronInfoRow) (*
 		if !candidate.HasPosition() {
 			continue
 		}
-		d := euclideanDistance(row.X, row.Y, row.Z, candidate.X, candidate.Y, candidate.Z)
+		d := euclideanDistance(x, y, z, candidate.X, candidate.Y, candidate.Z)
 		if d < closestDist {
 			closestDist = d
 			closest = candidate
@@ -310,7 +373,7 @@ func fetchNearestColumn(data rootInfoDataSource, row *seatable.NeuronInfoRow) (*
 		RootID:       closest.RootID,
 		Side:         closest.Side,
 		Distance:     closestDist,
-		SideRelation: nearestSideRelation(row.Side, closest.Side),
+		SideRelation: nearestSideRelation(targetSide, closest.Side),
 	}, "", nil
 }
 
@@ -461,6 +524,28 @@ func writeRootInfoPositionSection(write rootInfoTextWriter, result *rootInfoResu
 	}
 
 	return nil
+}
+
+// writeRootInfoPositionText prints the nearest_column section on its own,
+// without the side relation a root ID would have.
+func writeRootInfoPositionText(w io.Writer, nearest *rootInfoNearestColumn) error {
+	write := func(format string, args ...interface{}) error {
+		_, err := fmt.Fprintf(w, format, args...)
+		return err
+	}
+	if err := write("nearest_column\n"); err != nil {
+		return err
+	}
+	if err := write("  region: %s\n", displayValue(nearest.Region)); err != nil {
+		return err
+	}
+	if err := write("  root_id: %s\n", displayValue(nearest.RootID)); err != nil {
+		return err
+	}
+	if err := write("  side: %s\n", displayValue(nearest.Side)); err != nil {
+		return err
+	}
+	return write("  distance: %.3f\n", nearest.Distance)
 }
 
 func writeRootInfoNearestColumnSection(write rootInfoTextWriter, result *rootInfoResult) error {
