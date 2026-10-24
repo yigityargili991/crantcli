@@ -60,7 +60,7 @@ func TestGatedArgs(t *testing.T) {
 		{"required many ids, none given", CmdSpec{Path: "cave-history", ArgsUse: "[root_id...]", ArgsMin: 1}, without, argRule{}, false},
 		{"required id", CmdSpec{Path: "root-info", ArgsUse: "<root_id>"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1, max: 1}, true},
 		{"required id missing", CmdSpec{Path: "root-info", ArgsUse: "<root_id>"}, without, argRule{}, false},
-		{"optional id", CmdSpec{Path: "lookup-column", ArgsUse: "[root_id]"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, max: 1}, true},
+		{"optional id", CmdSpec{Path: "root-info", ArgsUse: "[root_id]"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, max: 1}, true},
 		{"file", CmdSpec{Path: "change-def-state", ArgsUse: "[file]"}, withID, argRule{vals: []string{"a.json"}, max: 1}, true},
 		{"no args", CmdSpec{Path: "generate"}, withID, argRule{}, true},
 	}

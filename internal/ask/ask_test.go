@@ -33,14 +33,19 @@ func testSpec() []*CmdSpec {
 	list := &cobra.Command{Use: "list <field>", Run: run}
 	list.Flags().Bool("count", false, "")
 	list.Flags().String("cell-type", "", "")
-	lookup := &cobra.Command{Use: "lookup-column [root_id]", Run: run}
+	rootInfo := &cobra.Command{Use: "root-info [root_id]", Args: cobra.MaximumNArgs(1), Run: run}
+	rootInfo.Flags().String("pos", "", "")
+	rootInfo.Flags().Bool("json", false, "")
+	// lookup-column was retired in favor of root-info and is hidden, so the
+	// spec must not offer it.
+	lookup := &cobra.Command{Use: "lookup-column [root_id]", Run: run, Hidden: true}
 	labels := &cobra.Command{Use: "labels"}
 	clean := &cobra.Command{Use: "clean", Run: run}
 	clean.Flags().Bool("all", false, "")
 	labels.AddCommand(clean)
 	hidden := &cobra.Command{Use: "secret", Run: run, Hidden: true}
 	askCmd := &cobra.Command{Use: "ask <request>", Run: run}
-	root.AddCommand(add, history, list, lookup, labels, hidden, askCmd)
+	root.AddCommand(add, history, list, rootInfo, lookup, labels, hidden, askCmd)
 	return BuildSpec(root, "ask")
 }
 
@@ -59,9 +64,12 @@ func TestBuildSpec(t *testing.T) {
 	for _, c := range spec {
 		paths = append(paths, c.Path)
 	}
-	want := []string{"add", "cave-history", "labels clean", "list", "lookup-column"}
+	want := []string{"add", "cave-history", "labels clean", "list", "root-info"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	if c := findCmd(spec, "lookup-column"); c != nil {
+		t.Errorf("spec includes the retired lookup-column command: %+v", c)
 	}
 	if c := findCmd(spec, "cave-history"); c.ArgsUse != "<root_id>" {
 		t.Errorf("cave-history ArgsUse = %q", c.ArgsUse)
@@ -156,7 +164,7 @@ func TestGrammarGates(t *testing.T) {
 		{"unfiltered needs a word for it", "edit history of 576460752669867599", nil, []string{`" --unfiltered"`}},
 		{"only retrieved values", "show PEN neurons", []string{`"PEN"`}, []string{`"EPG"`}},
 		{"root id commands need an id", "show PEN neurons", nil, []string{`"cave-history"`}},
-		{"column requests", "which column is 576460752669867599 in", []string{`"lookup-column"`}, []string{`"add"`, `"list"`}},
+		{"column requests", "which column is 576460752669867599 in", []string{`"root-info"`}, []string{`"lookup-column"`, `"add"`, `"list"`}},
 		{"single color-by field", "show PEN colored by cell_type", []string{`"cell_type"`}, []string{`"cell_type,cell_subtype"`}},
 		{"two color-by fields", "show PEN colored by group and side", []string{`"group,side"`}, []string{`"group,cell_type"`}},
 		{"unquoted layer", "show PEN on the seg v2 layer", []string{`"'seg v2'"`}, nil},

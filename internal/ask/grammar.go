@@ -41,7 +41,7 @@ func grammar(spec []*CmdSpec, v *Vocab, q string) string {
 			continue
 		}
 		// "nearest column" / "which column" requests only fit the column commands.
-		if e.column && c.Path != "lookup-column" && c.Path != "side-check" {
+		if e.column && c.Path != "root-info" && c.Path != "side-check" {
 			continue
 		}
 		body := gLit(c.Path)
