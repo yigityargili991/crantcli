@@ -27,6 +27,7 @@ func testSpec() []*CmdSpec {
 	add.Flags().Bool("open", false, "")
 	add.Flags().Bool("intersect", false, "")
 	add.Flags().Bool("labels", false, "")
+	add.Flags().Bool("clipboard-ids", false, "")
 	history := &cobra.Command{Use: "cave-history <root_id>", Run: run}
 	history.Flags().Bool("open", false, "")
 	history.Flags().Bool("unfiltered", false, "")
@@ -39,8 +40,10 @@ func testSpec() []*CmdSpec {
 	// lookup-column was retired in favor of root-info and is hidden, so the
 	// spec must not offer it.
 	lookup := &cobra.Command{Use: "lookup-column [root_id]", Run: run, Hidden: true}
-	labels := &cobra.Command{Use: "labels"}
-	clean := &cobra.Command{Use: "clean", Run: run}
+	labels := &cobra.Command{Use: "labels", Run: run}
+	labels.Flags().Bool("clean", false, "")
+	// labels clean is hidden after its replacement by labels --clean.
+	clean := &cobra.Command{Use: "clean", Run: run, Hidden: true}
 	clean.Flags().Bool("all", false, "")
 	labels.AddCommand(clean)
 	hidden := &cobra.Command{Use: "secret", Run: run, Hidden: true}
@@ -64,7 +67,7 @@ func TestBuildSpec(t *testing.T) {
 	for _, c := range spec {
 		paths = append(paths, c.Path)
 	}
-	want := []string{"add", "cave-history", "labels clean", "list", "root-info"}
+	want := []string{"add", "cave-history", "labels", "list", "root-info"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("paths = %v, want %v", paths, want)
 	}
@@ -165,6 +168,9 @@ func TestGrammarGates(t *testing.T) {
 		{"only retrieved values", "show PEN neurons", []string{`"PEN"`}, []string{`"EPG"`}},
 		{"root id commands need an id", "show PEN neurons", nil, []string{`"cave-history"`}},
 		{"column requests", "which column is 576460752669867599 in", []string{`"root-info"`}, []string{`"lookup-column"`, `"add"`, `"list"`}},
+		{"clean needs a word for it", "show the label sources", nil, []string{`" --clean"`}},
+		{"clean when asked", "clean up old label sources", []string{`" --clean"`}, nil},
+		{"clipboard ids are never suggested", "show PEN neurons", nil, []string{`" --clipboard-ids"`}},
 		{"single color-by field", "show PEN colored by cell_type", []string{`"cell_type"`}, []string{`"cell_type,cell_subtype"`}},
 		{"two color-by fields", "show PEN colored by group and side", []string{`"group,side"`}, []string{`"group,cell_type"`}},
 		{"unquoted layer", "show PEN on the seg v2 layer", []string{`"'seg v2'"`}, nil},

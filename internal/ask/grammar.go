@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// Flags the grammar never offers: label hosting internals and --bundle,
-// which aliases --region.
-var skipFlags = map[string]bool{"labels-hook": true, "labels-ttl": true, "bundle": true}
+// Flags the grammar never offers: label hosting internals, --bundle (which
+// aliases --region), and --clipboard-ids (which changes where add reads its
+// arguments from, rather than a filter the request can evidence).
+var skipFlags = map[string]bool{"labels-hook": true, "labels-ttl": true, "bundle": true, "clipboard-ids": true}
 
 // gbnf collects named GBNF rules, reusing a rule when its body repeats.
 type gbnf struct {

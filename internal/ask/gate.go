@@ -38,6 +38,7 @@ var (
 		"count":      regexp.MustCompile(`(?i)\bcount|how many|number of|tally|per (?:value|type)`),
 		"unfiltered": regexp.MustCompile(`(?i)unfilter|filter|every edit|all edits|\braw\b`),
 		"intersect":  regexp.MustCompile(`(?i)\bboth\b|at once|intersect|match(?:es|ing)? (?:all|every)|all (?:of )?(?:the )?(?:given |these )?(?:classifiers|filters|criteria|conditions)|that are .* and `),
+		"clean":      regexp.MustCompile(`(?i)\bclean|delete|remove|prune`),
 	}
 	reColumn = regexp.MustCompile(`(?i)\b(?:nearest|closest|which|what)\b(?:\W+\w+){0,4}?\W+columns?\b`)
 	// "layer named seg v2", "layer called merge" ...

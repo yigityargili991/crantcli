@@ -20,7 +20,7 @@ type FlagSpec struct {
 
 // CmdSpec describes one runnable command.
 type CmdSpec struct {
-	Path    string // "add", "labels clean"
+	Path    string // "add", "completion bash"
 	ArgsUse string
 	ArgsMin int // 1 when the command's Args validator rejects zero arguments
 	Flags   []FlagSpec
@@ -86,7 +86,7 @@ func minArgs(c *cobra.Command) int {
 	return 0
 }
 
-// commandPath is the command's path below the root ("labels clean").
+// commandPath is the command's path below the root ("completion bash").
 func commandPath(c *cobra.Command) string {
 	var names []string
 	for ; c != nil && c.HasParent(); c = c.Parent() {
