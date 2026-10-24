@@ -17,28 +17,43 @@ var changeDefStateCmd = &cobra.Command{
 	Long: `Set or update the default Neuroglancer JSON state used when no other state
 source is available (no --state, piped JSON, or clipboard URL).
 
-Pass the full JSON state as an argument, or pass a path to a JSON file.`,
-	Example: `  crantcli change-def-state "$(crantcli generate)"
+Pass the full JSON state as an argument, or pass a path to a JSON file. Use
+--builtin to print the built-in template without reading or writing any state.`,
+	Example: `  crantcli change-def-state "$(crantcli change-def-state --builtin)"
   crantcli change-def-state /path/to/state.json
   crantcli change-def-state --show
-  crantcli change-def-state --reset`,
+  crantcli change-def-state --reset
+  crantcli change-def-state --builtin`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runChangeDefState,
 }
 
 var (
-	changeDefStateShow  bool
-	changeDefStateReset bool
+	changeDefStateBuiltin bool
+	changeDefStateShow    bool
+	changeDefStateReset   bool
 )
 
 func init() {
+	changeDefStateCmd.Flags().BoolVar(&changeDefStateBuiltin, "builtin", false, "Print the built-in default state template")
 	changeDefStateCmd.Flags().BoolVar(&changeDefStateShow, "show", false, "Show the current default state")
 	changeDefStateCmd.Flags().BoolVar(&changeDefStateReset, "reset", false, "Reset to built-in default")
-	changeDefStateCmd.MarkFlagsMutuallyExclusive("show", "reset")
+	changeDefStateCmd.MarkFlagsMutuallyExclusive("builtin", "show", "reset")
 	rootCmd.AddCommand(changeDefStateCmd)
 }
 
 func runChangeDefState(cmd *cobra.Command, args []string) error {
+	if changeDefStateBuiltin {
+		if changeDefStateShow || changeDefStateReset {
+			return fmt.Errorf("cannot combine --builtin with --show or --reset")
+		}
+		if len(args) > 0 {
+			return fmt.Errorf("cannot combine --builtin with a JSON or file argument")
+		}
+		_, err := fmt.Fprint(cmd.OutOrStdout(), string(nglstate.DefaultScene))
+		return err
+	}
+
 	if (changeDefStateShow || changeDefStateReset) && len(args) > 0 {
 		return fmt.Errorf("cannot combine --show or --reset with a JSON argument")
 	}

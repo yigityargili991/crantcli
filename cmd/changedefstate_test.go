@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"crantcli/internal/nglstate"
 )
 
 func TestRunChangeDefStateStoresJSONArgument(t *testing.T) {
@@ -135,14 +138,82 @@ func TestRunChangeDefStateAcceptsEmptyObject(t *testing.T) {
 	}
 }
 
+func TestRunChangeDefStateBuiltinPrintsTemplate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	resetChangeDefStateFlags(t)
+
+	var out bytes.Buffer
+	changeDefStateCmd.SetOut(&out)
+	t.Cleanup(func() { changeDefStateCmd.SetOut(nil) })
+
+	changeDefStateBuiltin = true
+	if err := runChangeDefState(changeDefStateCmd, nil); err != nil {
+		t.Fatalf("runChangeDefState --builtin: %v", err)
+	}
+
+	if got := out.String(); got != string(nglstate.DefaultScene) {
+		t.Fatalf("--builtin output = %q, want the embedded default scene", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".crantcli", "default_state.json")); !os.IsNotExist(err) {
+		t.Fatalf("--builtin touched the default state file: %v", err)
+	}
+}
+
+func TestRunChangeDefStateBuiltinRejectsCombinations(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	resetChangeDefStateFlags(t)
+
+	changeDefStateBuiltin = true
+
+	changeDefStateShow = true
+	if err := runChangeDefState(changeDefStateCmd, nil); err == nil {
+		t.Fatal("--builtin with --show error = nil")
+	}
+	changeDefStateShow = false
+
+	changeDefStateReset = true
+	if err := runChangeDefState(changeDefStateCmd, nil); err == nil {
+		t.Fatal("--builtin with --reset error = nil")
+	}
+	changeDefStateReset = false
+
+	if err := runChangeDefState(changeDefStateCmd, []string{`{"layers":[]}`}); err == nil {
+		t.Fatal("--builtin with JSON argument error = nil")
+	}
+	if err := runChangeDefState(changeDefStateCmd, []string{filepath.Join(t.TempDir(), "state.json")}); err == nil {
+		t.Fatal("--builtin with file argument error = nil")
+	}
+}
+
+func TestGenerateDeprecatedAndHidden(t *testing.T) {
+	if !generateCmd.Hidden {
+		t.Error("generate must be hidden from --help")
+	}
+	if generateCmd.Deprecated == "" {
+		t.Fatal("generate must be deprecated")
+	}
+	for _, want := range []string{"change-def-state --builtin", "v0.24.0"} {
+		if !strings.Contains(generateCmd.Deprecated, want) {
+			t.Errorf("generate deprecation warning %q lacks %q", generateCmd.Deprecated, want)
+		}
+	}
+}
+
 func resetChangeDefStateFlags(t *testing.T) {
 	t.Helper()
 
+	previousBuiltin := changeDefStateBuiltin
 	previousShow := changeDefStateShow
 	previousReset := changeDefStateReset
+	changeDefStateBuiltin = false
 	changeDefStateShow = false
 	changeDefStateReset = false
 	t.Cleanup(func() {
+		changeDefStateBuiltin = previousBuiltin
 		changeDefStateShow = previousShow
 		changeDefStateReset = previousReset
 	})
