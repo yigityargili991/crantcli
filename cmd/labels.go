@@ -15,17 +15,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// labelsClean deletes tracked label sources. Tests replace it so they never
+// touch a real gist or hook.
+var labelsClean = labelhost.Clean
+
 var labelsCmd = &cobra.Command{
 	Use:   "labels",
 	Short: "Manage label sources created by commands using --labels",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clean, err := cmd.Flags().GetBool("clean")
+		if err != nil {
+			return err
+		}
+		if !clean {
+			if err := rejectCleanFlagsWithoutClean(cmd); err != nil {
+				return err
+			}
+			return cmd.Help()
+		}
+		return runLabelsClean(cmd)
+	},
 }
 
 func init() {
-	var (
-		cleanAll       bool
-		cleanOlderThan time.Duration
-		cleanHook      string
-	)
+	labelsCmd.Flags().Bool("clean", false, "Delete label sources tracked by crantcli")
+	registerCleanFlags(labelsCmd)
 
 	cleanCmd := &cobra.Command{
 		Use:   "clean",
@@ -39,25 +54,65 @@ the same --labels-hook command used to create them.
 
 Note: deleting a source removes its labels from any saved/shared state that still
 references it.`,
-		Args: cobra.NoArgs,
+		Args:       cobra.NoArgs,
+		Hidden:     true,
+		Deprecated: "use 'labels --clean' instead; the clean subcommand will be removed in v0.24.0",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLabelsClean(cmd)
+		},
 	}
-	cleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every tracked label source regardless of age")
-	cleanCmd.Flags().DurationVar(&cleanOlderThan, "older-than", 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
-	cleanCmd.Flags().StringVar(&cleanHook, "labels-hook", "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
-	mustRegisterFlagCompletion(cleanCmd, "older-than", noFileCompletion)
-	mustRegisterFlagCompletion(cleanCmd, "labels-hook", noFileCompletion)
-
-	cleanCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		deleted, kept, err := labelhost.Clean(cleanAll, cleanOlderThan, resolveLabelsHook(cleanHook))
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stderr, "Deleted %d label source(s); %d still tracked\n", deleted, kept)
-		return nil
-	}
+	registerCleanFlags(cleanCmd)
 
 	labelsCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(labelsCmd)
+}
+
+// registerCleanFlags declares the flags shared by 'labels --clean' and the
+// deprecated 'labels clean' subcommand, keeping their names and help identical.
+func registerCleanFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool("all", false, "Delete every tracked label source regardless of age")
+	cmd.Flags().Duration("older-than", 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
+	cmd.Flags().String("labels-hook", "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
+	mustRegisterFlagCompletion(cmd, "older-than", noFileCompletion)
+	mustRegisterFlagCompletion(cmd, "labels-hook", noFileCompletion)
+}
+
+// runLabelsClean deletes tracked label sources and reports how many remain.
+func runLabelsClean(cmd *cobra.Command) error {
+	all, err := cmd.Flags().GetBool("all")
+	if err != nil {
+		return err
+	}
+	olderThan, err := cmd.Flags().GetDuration("older-than")
+	if err != nil {
+		return err
+	}
+	hook, err := cmd.Flags().GetString("labels-hook")
+	if err != nil {
+		return err
+	}
+
+	deleted, kept, err := labelsClean(all, olderThan, resolveLabelsHook(hook))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Deleted %d label source(s); %d still tracked\n", deleted, kept)
+	return nil
+}
+
+// rejectCleanFlagsWithoutClean names clean-only flags passed without --clean,
+// which would otherwise be dropped while the bare command prints its help.
+func rejectCleanFlagsWithoutClean(cmd *cobra.Command) error {
+	var set []string
+	for _, name := range []string{"all", "older-than", "labels-hook"} {
+		if cmd.Flags().Changed(name) {
+			set = append(set, "--"+name)
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s can only be used with --clean", strings.Join(set, " and "))
 }
 
 func resolveLabelsHook(flagValue string) string {

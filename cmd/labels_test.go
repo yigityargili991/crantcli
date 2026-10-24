@@ -10,6 +10,7 @@ import (
 	"crantcli/internal/segprops"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func TestResolveLabelsHook(t *testing.T) {
@@ -237,4 +238,189 @@ func setFlagForTest(t *testing.T, cmd *cobra.Command, name, value string) {
 		mustSetFlag(t, cmd, name, previousValue)
 		flag.Changed = previouslyChanged
 	})
+}
+
+// labelsCleanCall records one invocation of the package-level cleaner seam.
+type labelsCleanCall struct {
+	all       bool
+	olderThan time.Duration
+	hook      string
+}
+
+// stubLabelsClean replaces the package-level cleaner for a test, recording each
+// call and returning a fixed result. The original seam is restored afterwards.
+func stubLabelsClean(t *testing.T, deleted, kept int) *[]labelsCleanCall {
+	t.Helper()
+	calls := &[]labelsCleanCall{}
+	original := labelsClean
+	t.Cleanup(func() { labelsClean = original })
+	labelsClean = func(all bool, olderThan time.Duration, hook string) (int, int, error) {
+		*calls = append(*calls, labelsCleanCall{all: all, olderThan: olderThan, hook: hook})
+		return deleted, kept, nil
+	}
+	return calls
+}
+
+// labelsCleanSubcommand finds the deprecated 'labels clean' child command.
+func labelsCleanSubcommand(t *testing.T) *cobra.Command {
+	t.Helper()
+	for _, cmd := range labelsCmd.Commands() {
+		if cmd.Name() == "clean" {
+			return cmd
+		}
+	}
+	t.Fatal("labels has no clean subcommand")
+	return nil
+}
+
+// resetCommandFlags restores every flag on cmd to its declared default, undoing
+// values and changed markers a test run left behind.
+func resetCommandFlags(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	})
+}
+
+// runLabelsCommandForTest runs the labels command tree and restores its flags,
+// so one run cannot shape the tests that follow it.
+func runLabelsCommandForTest(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	cleanCmd := labelsCleanSubcommand(t)
+	t.Cleanup(func() {
+		resetCommandFlags(labelsCmd)
+		resetCommandFlags(cleanCmd)
+	})
+	return executeRootForTest(t, append([]string{"labels"}, args...)...)
+}
+
+func TestLabelsCommandIsRunnableWithCleanFlags(t *testing.T) {
+	if labelsCmd.RunE == nil {
+		t.Fatal("labels must be runnable")
+	}
+	for _, name := range []string{"clean", "all", "older-than", "labels-hook"} {
+		if labelsCmd.Flags().Lookup(name) == nil {
+			t.Errorf("labels is missing --%s", name)
+		}
+	}
+	for name, want := range map[string]string{
+		"clean":       "false",
+		"all":         "false",
+		"older-than":  "168h0m0s",
+		"labels-hook": "",
+	} {
+		if got := labelsCmd.Flags().Lookup(name).DefValue; got != want {
+			t.Errorf("labels --%s default = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestLabelsBareCommandPrintsHelp(t *testing.T) {
+	stdout, _, err := runLabelsCommandForTest(t)
+	if err != nil {
+		t.Fatalf("bare labels returned error: %v", err)
+	}
+	for _, want := range []string{"Usage:", "--clean", "--all", "--older-than", "--labels-hook"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("bare labels help lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestLabelsCleanFlagsWithoutCleanError(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"all", []string{"--all"}},
+		{"older-than", []string{"--older-than", "24h"}},
+		{"labels-hook", []string{"--labels-hook", "hook-cmd"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := runLabelsCommandForTest(t, tt.args...)
+			if err == nil {
+				t.Fatalf("labels %s without --clean should error", strings.Join(tt.args, " "))
+			}
+			for _, want := range []string{"--" + tt.name, "--clean"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should name %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestLabelsCleanDeletesAndReports(t *testing.T) {
+	calls := stubLabelsClean(t, 2, 1)
+
+	stdout, stderr, err := runLabelsCommandForTest(t, "--clean", "--all", "--older-than", "48h", "--labels-hook", "hook-cmd")
+	if err != nil {
+		t.Fatalf("labels --clean returned error: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("cleaner called %d times, want 1", len(*calls))
+	}
+	wantCall := labelsCleanCall{all: true, olderThan: 48 * time.Hour, hook: "hook-cmd"}
+	if (*calls)[0] != wantCall {
+		t.Errorf("cleaner called with %+v, want %+v", (*calls)[0], wantCall)
+	}
+	if stdout != "" {
+		t.Errorf("labels --clean stdout = %q, want none", stdout)
+	}
+	if want := "Deleted 2 label source(s); 1 still tracked\n"; stderr != want {
+		t.Errorf("labels --clean stderr = %q, want %q", stderr, want)
+	}
+}
+
+func TestLabelsCleanDefaultsToEnvironmentHook(t *testing.T) {
+	t.Setenv("CRANT_LABELS_HOOK", "env-hook")
+	calls := stubLabelsClean(t, 0, 0)
+
+	if _, _, err := runLabelsCommandForTest(t, "--clean"); err != nil {
+		t.Fatalf("labels --clean returned error: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("cleaner called %d times, want 1", len(*calls))
+	}
+	wantCall := labelsCleanCall{olderThan: 168 * time.Hour, hook: "env-hook"}
+	if (*calls)[0] != wantCall {
+		t.Errorf("cleaner called with %+v, want %+v", (*calls)[0], wantCall)
+	}
+}
+
+func TestLabelsCleanSubcommandDeprecatedAndHidden(t *testing.T) {
+	cleanCmd := labelsCleanSubcommand(t)
+	if !cleanCmd.Hidden {
+		t.Error("labels clean must be hidden from --help")
+	}
+	for _, want := range []string{"labels --clean", "v0.24.0"} {
+		if !strings.Contains(cleanCmd.Deprecated, want) {
+			t.Errorf("labels clean deprecation warning %q lacks %q", cleanCmd.Deprecated, want)
+		}
+	}
+
+	// The hidden subcommand still deletes through the same seam and message.
+	calls := stubLabelsClean(t, 3, 0)
+	stdout, stderr, err := runLabelsCommandForTest(t, "clean", "--all")
+	if err != nil {
+		t.Fatalf("labels clean returned error: %v", err)
+	}
+	if len(*calls) != 1 || !(*calls)[0].all {
+		t.Fatalf("cleaner calls = %+v, want one --all call", *calls)
+	}
+	if !strings.Contains(stdout, "deprecated") || !strings.Contains(stdout, "labels --clean") {
+		t.Errorf("labels clean deprecation warning = %q, want it to name labels --clean", stdout)
+	}
+	if want := "Deleted 3 label source(s); 0 still tracked\n"; stderr != want {
+		t.Errorf("labels clean stderr = %q, want %q", stderr, want)
+	}
+
+	help, _, err := runLabelsCommandForTest(t, "--help")
+	if err != nil {
+		t.Fatalf("labels --help returned error: %v", err)
+	}
+	if strings.Contains(help, "Available Commands:") {
+		t.Errorf("labels --help lists the hidden clean subcommand:\n%s", help)
+	}
 }
