@@ -20,7 +20,7 @@ crantcli add --cell-type ER --labels
 Or attach labels to known clipboard IDs:
 
 ```bash
-crantcli state-transfer --labels
+crantcli add --clipboard-ids --labels
 ```
 
 Clipboard IDs without CRANT metadata remain unlabeled.
@@ -78,10 +78,10 @@ Tag values carry a short field prefix (`subtype_`, `side_`, `region_`), so value
 crantcli add --cell-type ER --labels --label-tags none
 ```
 
-Both flags accept the CRANTb_meta classification fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and `proofread`. They work the same way on `state-transfer`:
+Both flags accept the CRANTb_meta classification fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and `proofread`. They work the same way with clipboard root IDs:
 
 ```bash
-crantcli state-transfer --labels --label-by cell_instance,cell_type --label-tags cell_type,side
+crantcli add --clipboard-ids --labels --label-by cell_instance,cell_type --label-tags cell_type,side
 ```
 
 !!! note "Shaping flags need `--labels`"
@@ -99,13 +99,13 @@ Clean tracked sources explicitly:
 
 ```bash
 # Sources older than seven days
-crantcli labels clean
+crantcli labels --clean
 
 # Choose another age
-crantcli labels clean --older-than 24h
+crantcli labels --clean --older-than 24h
 
 # Delete every tracked source
-crantcli labels clean --all
+crantcli labels --clean --all
 ```
 
 !!! danger "Cleanup changes saved scenes"

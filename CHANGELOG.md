@@ -8,12 +8,29 @@
   `crantcli root-info --pos x,y,z`. It prints only the `nearest_column`
   section, in text or with `--json`, and `root-info` now takes exactly one of
   a root ID or `--pos`.
+- Read root IDs from the clipboard and inject them with
+  `crantcli add --clipboard-ids`, which replaces `state-transfer`. It appends
+  to the layer by default; pass `--replace` for the old replace behavior, and
+  it needs no SeaTable token unless `--labels` looks metadata up.
+- Print the embedded default scene with `crantcli change-def-state --builtin`,
+  which replaces `generate`.
+- Delete tracked label sources with `crantcli labels --clean`, which replaces
+  `labels clean`.
+- Run `crantcli doctor` to report the configured token sources, the
+  default-state source, and the ask model, and with `--online` to check
+  SeaTable and CAVE reachability. It prints no token values.
 
 ### Changed
 
 - Deprecate `crantcli lookup-column`; use `crantcli root-info` with a root ID
   or `--pos x,y,z` instead. `lookup-column` still runs but is hidden from
   `--help`, and it will be removed in v0.24.0.
+- Deprecate `crantcli generate`, `crantcli state-transfer`, and
+  `crantcli labels clean`; use `crantcli change-def-state --builtin`,
+  `crantcli add --clipboard-ids`, and `crantcli labels --clean` instead. They
+  still run but are hidden from `--help`, and they will be removed in v0.24.0.
+  Deprecated `state-transfer` keeps its old behavior: it always replaces the
+  layer's segments and writes a URL to the clipboard without `--output`.
 
 ## v0.22.3 - 2026-10-22
 

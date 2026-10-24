@@ -16,6 +16,16 @@ Smart input resolution (when no --state is given):
 With no --output, the resulting Neuroglancer URL is written back to the
 clipboard, overwriting its current contents.
 
+With --clipboard-ids, add skips the SeaTable query and injects the root IDs
+copied to the clipboard instead (separated by whitespace, newlines, or commas).
+The clipboard holds IDs rather than a state, so the base state comes from
+--state or the default template, never from the clipboard's contents. The
+classification filters, --intersect, --color-by, and --root-ids-only only make
+sense against a SeaTable query and cannot be combined with it; --labels looks
+up CRANT metadata for the copied IDs. Unlike the deprecated state-transfer,
+add appends these segments to the layer and only replaces its existing segment
+list when --replace is given.
+
 ```
 crantcli add [flags]
 ```
@@ -67,6 +77,12 @@ crantcli add [flags]
 
   # Give each query group a hue and each subtype inside it a tone
   crantcli add --cell-class LNO --cell-type PEN --color-by group,cell_subtype
+
+  # Copy root IDs to the clipboard, then inject them without querying SeaTable
+  crantcli add --clipboard-ids
+
+  # Label the root IDs copied to the clipboard, over a specific base state
+  crantcli add --clipboard-ids -s base.json --labels
 ```
 
 ## Options
@@ -76,6 +92,7 @@ crantcli add [flags]
       --cell-class stringArray     Filter by cell_class (repeatable for multiple classes)
       --cell-subtype stringArray   Filter by cell_subtype (repeatable for multiple subtypes)
       --cell-type stringArray      Filter by cell_type (repeatable for multiple types)
+      --clipboard-ids              Inject root IDs copied to the clipboard instead of querying SeaTable
       --color string               Segment color: named (blue, red, green, turquoise, orange, purple, yellow, pink, brown, indigo, teal, lime) with auto-toning, 'colored' for per-group palette cycling, or hex (#ff0000)
       --color-by string            Color matched rows by field: super_class, cell_class, cell_type, cell_subtype, cell_instance, column, side, region, tract, nerve, hemilineage, proofread, pos_x, pos_y, pos_z, root_id, group. Two comma-separated fields nest, the first choosing the hue and the second the tone within it (needs --color colored)
   -g, --generate                   Use the configured or built-in default state instead of the clipboard
