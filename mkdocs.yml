@@ -109,7 +109,6 @@ nav:
       - labels: reference/commands/crantcli_labels.md
       - labels clean: reference/commands/crantcli_labels_clean.md
       - list: reference/commands/crantcli_list.md
-      - lookup-column: reference/commands/crantcli_lookup-column.md
       - root-info: reference/commands/crantcli_root-info.md
       - setup: reference/commands/crantcli_setup.md
       - side-check: reference/commands/crantcli_side-check.md

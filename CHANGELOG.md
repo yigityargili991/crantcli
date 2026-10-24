@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Look up the nearest EPG/PEG column for a position with
+  `crantcli root-info --pos x,y,z`. It prints only the `nearest_column`
+  section, in text or with `--json`, and `root-info` now takes exactly one of
+  a root ID or `--pos`.
+
+### Changed
+
+- Deprecate `crantcli lookup-column`; use `crantcli root-info` with a root ID
+  or `--pos x,y,z` instead. `lookup-column` still runs but is hidden from
+  `--help`, and it will be removed in v0.24.0.
+
 ## v0.22.3 - 2026-10-22
 
 ### Added

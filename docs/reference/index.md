@@ -19,8 +19,7 @@ The pages in this section are generated directly from the Cobra command tree. Co
 | --- | --- |
 | [`check-cave`](commands/crantcli_check-cave.md) | Compare stored and current root IDs |
 | [`cave-history`](commands/crantcli_cave-history.md) | Show CAVE merge and split history |
-| [`root-info`](commands/crantcli_root-info.md) | Combine CRANT, CAVE, and column context |
-| [`lookup-column`](commands/crantcli_lookup-column.md) | Find the nearest EPG/PEG column |
+| [`root-info`](commands/crantcli_root-info.md) | Combine CRANT, CAVE, and column context, or find the nearest column from `--pos` |
 | [`side-check`](commands/crantcli_side-check.md) | Check side annotations against a nearest reference |
 
 ## Configuration and utilities
