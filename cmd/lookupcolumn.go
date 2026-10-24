@@ -16,6 +16,8 @@ var lookupColumnCmd = &cobra.Command{
 	Long:        `Find the closest EPG/PEG neuron to the given root ID (or position) by 3D Euclidean distance and print its resolved region value plus the nearest EPG/PEG root ID.`,
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.MaximumNArgs(1),
+	Hidden:      true,
+	Deprecated:  "use 'root-info' with a root ID or --pos x,y,z instead; lookup-column will be removed in v0.24.0",
 }
 
 func init() {
