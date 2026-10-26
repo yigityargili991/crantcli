@@ -3,7 +3,7 @@ module crantcli
 go 1.26.10
 
 require (
-	github.com/goccy/go-llama v0.5.1
+	github.com/goccy/go-llama v0.6.0
 	github.com/godbus/dbus/v5 v5.2.3
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/spf13/cobra v1.10.2
@@ -46,7 +46,7 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.29.2 // indirect
 	github.com/go-openapi/validate v1.0.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/goccy/llamawasm2go v0.4.1 // indirect
+	github.com/goccy/llamawasm2go v0.5.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.3 // indirect
 	github.com/google/go-containerregistry v0.22.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
