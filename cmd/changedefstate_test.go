@@ -73,16 +73,67 @@ func TestRunChangeDefStateValidatesInput(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	resetChangeDefStateFlags(t)
 
-	if err := runChangeDefState(changeDefStateCmd, nil); err == nil {
+	// Args normally rejects the bare command first; RunE keeps the guard for an
+	// explicit --builtin=false (or --show=false / --reset=false), which Args
+	// counts as a mode flag while the parsed value stays false.
+	err := runChangeDefState(changeDefStateCmd, nil)
+	if err == nil {
 		t.Fatal("missing input error = nil")
+	}
+	for _, want := range []string{"--builtin", "--show", "--reset"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing input error %q lacks %q", err, want)
+		}
 	}
 	if err := runChangeDefState(changeDefStateCmd, []string{"{invalid"}); err == nil {
 		t.Fatal("invalid JSON error = nil")
 	}
+}
 
-	changeDefStateShow = true
-	if err := runChangeDefState(changeDefStateCmd, []string{`{"layers":[]}`}); err == nil {
-		t.Fatal("--show with JSON error = nil")
+func TestChangeDefStateArgsRequiresStateOrMode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	resetCommandFlags(changeDefStateCmd)
+	t.Cleanup(func() { resetCommandFlags(changeDefStateCmd) })
+
+	// The no-argument requirement lives in Args so ask's probe can see the mode
+	// flags as alternatives to the JSON-state argument.
+	err := changeDefStateCmd.Args(changeDefStateCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "provide a JSON state, or use --builtin / --show / --reset") {
+		t.Fatalf("bare change-def-state Args error = %v", err)
+	}
+	if err := changeDefStateCmd.Args(changeDefStateCmd, []string{`{"zoom":4}`}); err != nil {
+		t.Fatalf("JSON argument rejected by Args: %v", err)
+	}
+	if err := changeDefStateCmd.Args(changeDefStateCmd, []string{"/tmp/a.json", "extra"}); err == nil {
+		t.Fatal("Args accepted two arguments")
+	}
+	for _, mode := range changeDefStateModes {
+		if err := changeDefStateCmd.Flags().Set(mode, "true"); err != nil {
+			t.Fatalf("set --%s: %v", mode, err)
+		}
+		if err := changeDefStateCmd.Args(changeDefStateCmd, nil); err != nil {
+			t.Errorf("--%s with no argument should pass Args: %v", mode, err)
+		}
+		resetCommandFlags(changeDefStateCmd)
+	}
+
+	// At the CLI level the bare command fails without touching any state.
+	if _, _, err := runChangeDefStateForTest(t); err == nil || !strings.Contains(err.Error(), "provide a JSON state") {
+		t.Errorf("bare change-def-state CLI error = %v", err)
+	}
+	// An explicit =false mode flag passes Args (it is set) but still fails like
+	// before: RunE's guard keeps that path identical to the old behavior.
+	if _, _, err := runChangeDefStateForTest(t, "--builtin=false"); err == nil || !strings.Contains(err.Error(), "provide a JSON state") {
+		t.Errorf("change-def-state --builtin=false CLI error = %v", err)
+	}
+	// A real mode flag still satisfies the requirement end to end.
+	if out, _, err := runChangeDefStateForTest(t, "--builtin"); err != nil || out == "" {
+		t.Errorf("change-def-state --builtin: out = %q, err = %v", out, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, ".crantcli", "default_state.json")); !os.IsNotExist(statErr) {
+		t.Errorf("failing change-def-state runs touched the default state: %v", statErr)
 	}
 }
 
@@ -161,31 +212,101 @@ func TestRunChangeDefStateBuiltinPrintsTemplate(t *testing.T) {
 	}
 }
 
-func TestRunChangeDefStateBuiltinRejectsCombinations(t *testing.T) {
+// runChangeDefStateForTest runs the registered change-def-state command with
+// clean flags, so one CLI run cannot shape the tests that follow it.
+func runChangeDefStateForTest(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	resetCommandFlags(changeDefStateCmd)
+	t.Cleanup(func() { resetCommandFlags(changeDefStateCmd) })
+	return executeRootForTest(t, append([]string{"change-def-state"}, args...)...)
+}
+
+func TestChangeDefStateRejectsInvalidCombinations(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	filePath := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(filePath, []byte(`{"layers":[]}`), 0o600); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		// MarkFlagsMutuallyExclusive rejects these before RunE runs.
+		{name: "builtin and show", args: []string{"--builtin", "--show"}, wantErr: "none of the others can be"},
+		{name: "builtin and reset", args: []string{"--builtin", "--reset"}, wantErr: "none of the others can be"},
+		{name: "show and reset", args: []string{"--show", "--reset"}, wantErr: "none of the others can be"},
+		// These pair a mode flag with a positional argument, which only RunE rejects.
+		{name: "builtin and JSON argument", args: []string{"--builtin", `{"layers":[]}`}, wantErr: "cannot combine --builtin with a JSON or file argument"},
+		{name: "builtin and file argument", args: []string{"--builtin", filePath}, wantErr: "cannot combine --builtin with a JSON or file argument"},
+		{name: "show and JSON argument", args: []string{"--show", `{"layers":[]}`}, wantErr: "cannot combine --show or --reset with a JSON argument"},
+		{name: "reset and JSON argument", args: []string{"--reset", `{"layers":[]}`}, wantErr: "cannot combine --show or --reset with a JSON argument"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, _, err := runChangeDefStateForTest(t, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("change-def-state %v error = %v, want %q", tt.args, err, tt.wantErr)
+			}
+			if out != "" {
+				t.Fatalf("change-def-state %v wrote %q on error, want no output", tt.args, out)
+			}
+			if _, statErr := os.Stat(filepath.Join(home, ".crantcli", "default_state.json")); !os.IsNotExist(statErr) {
+				t.Fatalf("change-def-state %v touched the default state: %v", tt.args, statErr)
+			}
+		})
+	}
+}
+
+func TestRunChangeDefStateWritesStatusToCommandOut(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	resetChangeDefStateFlags(t)
 
-	changeDefStateBuiltin = true
+	var out bytes.Buffer
+	changeDefStateCmd.SetOut(&out)
+	t.Cleanup(func() { changeDefStateCmd.SetOut(nil) })
 
 	changeDefStateShow = true
-	if err := runChangeDefState(changeDefStateCmd, nil); err == nil {
-		t.Fatal("--builtin with --show error = nil")
+	if err := runChangeDefState(changeDefStateCmd, nil); err != nil {
+		t.Fatalf("--show without custom state: %v", err)
 	}
+	if got, want := out.String(), "No custom default state set (using built-in template)\n"; got != want {
+		t.Fatalf("--show output = %q, want %q", got, want)
+	}
+	out.Reset()
+
+	changeDefStateShow = false
+	if err := runChangeDefState(changeDefStateCmd, []string{`{"zoom":4}`}); err != nil {
+		t.Fatalf("store state: %v", err)
+	}
+	if got, want := out.String(), "Default state updated\n"; got != want {
+		t.Fatalf("store output = %q, want %q", got, want)
+	}
+	out.Reset()
+
+	changeDefStateShow = true
+	if err := runChangeDefState(changeDefStateCmd, nil); err != nil {
+		t.Fatalf("--show with custom state: %v", err)
+	}
+	if got, want := out.String(), "{\n  \"zoom\": 4\n}\n"; got != want {
+		t.Fatalf("--show output = %q, want %q", got, want)
+	}
+	out.Reset()
 	changeDefStateShow = false
 
 	changeDefStateReset = true
-	if err := runChangeDefState(changeDefStateCmd, nil); err == nil {
-		t.Fatal("--builtin with --reset error = nil")
+	if err := runChangeDefState(changeDefStateCmd, nil); err != nil {
+		t.Fatalf("--reset: %v", err)
 	}
-	changeDefStateReset = false
-
-	if err := runChangeDefState(changeDefStateCmd, []string{`{"layers":[]}`}); err == nil {
-		t.Fatal("--builtin with JSON argument error = nil")
-	}
-	if err := runChangeDefState(changeDefStateCmd, []string{filepath.Join(t.TempDir(), "state.json")}); err == nil {
-		t.Fatal("--builtin with file argument error = nil")
+	if got, want := out.String(), "Reset to built-in default state\n"; got != want {
+		t.Fatalf("--reset output = %q, want %q", got, want)
 	}
 }
 
@@ -196,7 +317,7 @@ func TestGenerateDeprecatedAndHidden(t *testing.T) {
 	if generateCmd.Deprecated == "" {
 		t.Fatal("generate must be deprecated")
 	}
-	for _, want := range []string{"change-def-state --builtin", "v0.24.0"} {
+	for _, want := range []string{"change-def-state --builtin", "v0.25.0"} {
 		if !strings.Contains(generateCmd.Deprecated, want) {
 			t.Errorf("generate deprecation warning %q lacks %q", generateCmd.Deprecated, want)
 		}

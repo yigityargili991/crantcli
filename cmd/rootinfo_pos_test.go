@@ -123,14 +123,14 @@ func TestRunRootInfoPositionJSON(t *testing.T) {
 	}
 }
 
-// Position rows store side as a SeaTable select-option ID; the standalone --pos
-// output omits it because the retired lookup-column printed only region and
-// root_id, and --pos has no side relation.
-func TestRunRootInfoPositionOmitsRawSideID(t *testing.T) {
+// The full root-ID report annotates its nearest column with side and
+// side_relation; a --pos lookup has no side relation, so the standalone output
+// keeps printing only region, root_id, and distance.
+func TestRunRootInfoPositionOmitsSide(t *testing.T) {
 	data := &fakeRootInfoDataSource{
 		regionOpts: map[string]string{"CX": "1"},
 		positions: []seatable.NeuronPositionRow{
-			{RootID: "222", Region: "CX", Side: "553927", X: 1, Y: 2, Z: 3, PositionSet: true},
+			{RootID: "222", Region: "CX", Side: "left", X: 1, Y: 2, Z: 3, PositionSet: true},
 		},
 	}
 
@@ -150,11 +150,11 @@ func TestRunRootInfoPositionOmitsRawSideID(t *testing.T) {
 	if err := runRootInfoPosition(&jsonOut, data, 1, 2, 3, rootInfoOptions{JSON: true}); err != nil {
 		t.Fatalf("runRootInfoPosition --json error = %v", err)
 	}
-	if strings.Contains(jsonOut.String(), "553927") {
-		t.Fatalf("--pos JSON leaks the raw side ID: %s", jsonOut.String())
-	}
-	if strings.Contains(jsonOut.String(), `"side"`) {
+	if strings.Contains(jsonOut.String(), `"side"`) || strings.Contains(jsonOut.String(), "side_relation") {
 		t.Fatalf("--pos JSON has a side field: %s", jsonOut.String())
+	}
+	if strings.Contains(jsonOut.String(), `"left"`) {
+		t.Fatalf("--pos JSON prints the nearest column's side: %s", jsonOut.String())
 	}
 }
 

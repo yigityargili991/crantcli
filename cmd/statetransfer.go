@@ -46,7 +46,7 @@ as the label and --label-tags the fields published as filterable chips.`,
   # Write to file instead of clipboard
   crantcli state-transfer -o output.json`,
 	Hidden:     true,
-	Deprecated: "use 'add --clipboard-ids' instead; state-transfer will be removed in v0.24.0",
+	Deprecated: "use 'add --clipboard-ids' instead; state-transfer will be removed in v0.25.0",
 }
 
 // Seams for tests, mirroring add's. Everything here reaches the clipboard,
@@ -86,10 +86,7 @@ func init() {
 		if _, err := resolveLabelOptions(stLabelBy, stLabelTags); err != nil {
 			return err
 		}
-		if !stLabels || getAPIToken() != "" {
-			return nil
-		}
-		return fmt.Errorf("--labels needs a SeaTable token; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")
+		return requireSeaTableToken(stLabels)
 	}
 
 	stateTransferCmd.RunE = func(cmd *cobra.Command, args []string) error {

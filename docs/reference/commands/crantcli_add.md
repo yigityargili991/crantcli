@@ -13,18 +13,21 @@ Smart input resolution (when no --state is given):
   2. Check clipboard for a Neuroglancer URL (read implicitly)
   3. Fall back to the configured or built-in CRANT scene template
 
-With no --output, the resulting Neuroglancer URL is written back to the
-clipboard, overwriting its current contents.
+With no --output, the destination follows the input: a Neuroglancer URL
+(read from the clipboard or given as a URL with --state) and the built-in
+template write the resulting URL back to the clipboard, overwriting its current
+contents; a state file or piped JSON prints the formatted state to stdout. If
+the clipboard cannot be written, the URL is printed to stdout instead.
 
 With --clipboard-ids, add skips the SeaTable query and injects the root IDs
 copied to the clipboard instead (separated by whitespace, newlines, or commas).
 The clipboard holds IDs rather than a state, so the base state comes from
---state or the default template, never from the clipboard's contents. The
-classification filters, --intersect, --color-by, and --root-ids-only only make
-sense against a SeaTable query and cannot be combined with it; --labels looks
-up CRANT metadata for the copied IDs. Unlike the deprecated state-transfer,
-add appends these segments to the layer and only replaces its existing segment
-list when --replace is given.
+--state, piped JSON, or the default template, never from the clipboard's
+contents. The classification filters, --intersect, --color-by, and
+--root-ids-only only make sense against a SeaTable query and cannot be combined
+with it; --labels looks up CRANT metadata for the copied IDs. Unlike the
+deprecated state-transfer, add appends these segments to the layer and only
+replaces its existing segment list when --replace is given.
 
 ```
 crantcli add [flags]

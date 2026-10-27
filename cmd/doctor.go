@@ -96,8 +96,8 @@ error.
 
 By default doctor only inspects local configuration. With --online it also
 checks that the configured SeaTable token exchanges for a session and that
-CAVE answers a root lookup, which requires network access. Without a CAVE
-token the CAVE online check reports an info line instead of failing.
+CAVE answers a root lookup, which requires network access. An online check
+whose token is not configured reports an info line instead of an error.
 
 The exit status is nonzero when a required check fails, such as a missing
 SeaTable token. Missing optional credentials and the ask model only produce
@@ -119,7 +119,7 @@ template.`,
 var doctorOnline bool
 
 func init() {
-	doctorCmd.Flags().BoolVar(&doctorOnline, "online", false, "Also test SeaTable and CAVE connectivity")
+	doctorCmd.Flags().BoolVar(&doctorOnline, "online", false, "Also test SeaTable and CAVE connectivity; checks without a token are skipped")
 	doctorCmd.ValidArgsFunction = noFileCompletion
 	rootCmd.AddCommand(doctorCmd)
 }
@@ -230,6 +230,12 @@ func doctorAskModelCheck() (status, subject, detail string) {
 func doctorSeaTableOnlineCheck() (status, subject, detail string) {
 	const name = "SeaTable connection"
 
+	// The local SeaTable token check already reports a missing token as an
+	// error, so the online check reports the skip instead of a second error
+	// and creates no client without a token.
+	if token, _ := doctorLookupSeaTableToken(); token == "" {
+		return doctorStatusInfo, name, "skipped; no SeaTable token configured"
+	}
 	if _, err := doctorNewSeaTableClient(); err != nil {
 		return doctorStatusError, name, "token exchange failed: " + err.Error()
 	}

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestGatedValues(t *testing.T) {
@@ -60,10 +62,17 @@ func TestGatedArgs(t *testing.T) {
 		{"many ids, none given", CmdSpec{Path: "check-cave", ArgsUse: "[root_id...]"}, without, argRule{}, true},
 		{"required many ids", CmdSpec{Path: "cave-history", ArgsUse: "[root_id...]", ArgsMin: 1}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1}, true},
 		{"required many ids, none given", CmdSpec{Path: "cave-history", ArgsUse: "[root_id...]", ArgsMin: 1}, without, argRule{}, false},
-		{"required id", CmdSpec{Path: "root-info", ArgsUse: "<root_id>"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1, max: 1}, true},
-		{"required id missing", CmdSpec{Path: "root-info", ArgsUse: "<root_id>"}, without, argRule{}, false},
+		{"required id", CmdSpec{Path: "root-info", ArgsUse: "<root_id>", ArgsMin: 1}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1, max: 1}, true},
+		{"required id missing", CmdSpec{Path: "root-info", ArgsUse: "<root_id>", ArgsMin: 1}, without, argRule{}, false},
 		{"optional id", CmdSpec{Path: "root-info", ArgsUse: "[root_id]"}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, max: 1}, true},
-		{"file", CmdSpec{Path: "change-def-state", ArgsUse: "[file]"}, withID, argRule{vals: []string{"a.json"}, max: 1}, true},
+		// ArgsMin is honored everywhere, but a flag that stands in for the
+		// argument keeps the command possible (root-info --pos).
+		{"required id via ArgsMin", CmdSpec{Path: "root-info", ArgsUse: "[root_id]", ArgsMin: 1}, withID, argRule{vals: []string{"576460752669867599", "720575940610453042"}, min: 1, max: 1}, true},
+		{"required id via ArgsMin missing", CmdSpec{Path: "root-info", ArgsUse: "[root_id]", ArgsMin: 1}, without, argRule{}, false},
+		{"required argument with a flag alternative", CmdSpec{Path: "root-info", ArgsUse: "[root_id]", ArgsMin: 1, ArgOrFlag: []string{"pos"}}, without, argRule{}, true},
+		{"required argument no source", CmdSpec{Path: "mystery", ArgsMin: 1}, withID, argRule{}, false},
+		{"required file missing", CmdSpec{Path: "state-transfer", ArgsUse: "<file>", ArgsMin: 1}, without, argRule{}, false},
+		{"file", CmdSpec{Path: "change-def-state", ArgsUse: "[json-state]"}, withID, argRule{vals: []string{"a.json"}, max: 1}, true},
 		{"no args", CmdSpec{Path: "generate"}, withID, argRule{}, true},
 	}
 	for _, tt := range tests {
@@ -143,12 +152,27 @@ func TestGrammarLabelsNeedsClean(t *testing.T) {
 		q              string
 		accept, reject []string
 	}{
+		// Cleaning words need --clean; --all additionally needs "all".
 		{"delete label sources older than 24h",
+			[]string{" labels --clean", " labels --clean --older-than 24h"},
+			[]string{" labels", " labels --all", " labels --older-than 24h", " labels --all --clean", " labels --all --clean --older-than 24h"}},
+		{"delete all label sources older than 24h",
 			[]string{" labels --clean", " labels --all --clean", " labels --clean --older-than 24h", " labels --all --clean --older-than 24h"},
 			[]string{" labels", " labels --all", " labels --older-than 24h", " labels --all --older-than 24h"}},
+		{"erase every tracked label source regardless of age",
+			[]string{" labels --all --clean"},
+			[]string{" labels", " labels --all", " labels --clean --older-than 24h"}},
+		// "wipe" counts as a cleaning word too, but not as evidence of "all".
 		{"wipe label sources older than 24h",
+			[]string{" labels --clean", " labels --clean --older-than 24h"},
+			[]string{" labels", " labels --all --clean", " labels --older-than 24h"}},
+		// A negated cleaning word is not a request to clean.
+		{"don't clean the label sources",
 			[]string{" labels"},
-			[]string{" labels --clean", " labels --all", " labels --older-than 24h"}},
+			[]string{" labels --clean", " labels --all --clean"}},
+		{"show the label sources without cleaning them",
+			[]string{" labels"},
+			[]string{" labels --clean"}},
 	}
 	for _, tt := range tests {
 		re := grammarRegexp(grammar(spec, v, tt.q))
@@ -162,6 +186,143 @@ func TestGrammarLabelsNeedsClean(t *testing.T) {
 				t.Errorf("grammar for %q accepts %q", tt.q, line)
 			}
 		}
+	}
+}
+
+func TestCleanEvidence(t *testing.T) {
+	tests := []struct {
+		q          string
+		clean, all bool
+	}{
+		{"clean up old label sources", true, false},
+		{"delete label sources older than 24h", true, false},
+		{"wipe the old label sources", true, false},
+		{"erase every label source", true, true},
+		{"prune all label sources regardless of age", true, true},
+		{"remove label sources at any age", true, true},
+		{"don't clean the label sources", false, false},
+		{"do not delete label sources", false, false},
+		{"print the label sources without cleaning them", false, false},
+		{"delete the old label sources but don't wipe everything", true, false},
+	}
+	for _, tt := range tests {
+		e := gatherEvidence(testVocab(), tt.q)
+		if e.boolOK["clean"] != tt.clean || e.cleanAll != tt.all {
+			t.Errorf("evidence(%q) clean=%v cleanAll=%v, want %v %v",
+				tt.q, e.boolOK["clean"], e.cleanAll, tt.clean, tt.all)
+		}
+	}
+}
+
+func TestGrammarRootInfoArgumentAlternatives(t *testing.T) {
+	spec, v := testSpec(), testVocab()
+	tests := []struct {
+		name, q        string
+		accept, reject []string
+	}{
+		{"root id form",
+			"show the info for 576460752669867599",
+			[]string{" root-info 576460752669867599", " root-info 576460752669867599 --json"},
+			[]string{" root-info", " root-info --json", " root-info 576460752669867599 --pos 1,2,3"}},
+		{"position form",
+			"which column is 1,2,3 in",
+			[]string{" root-info --pos 1,2,3"},
+			[]string{" root-info", " root-info --json", " root-info 576460752669867599 --pos 1,2,3", " root-info --json --pos 1,2,3", " root-info --pos 1,2,3 --json"}},
+		{"both evidenced",
+			"which column is 576460752669867599 at 1,2,3",
+			[]string{" root-info --pos 1,2,3", " root-info 576460752669867599"},
+			[]string{" root-info", " root-info 576460752669867599 --pos 1,2,3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := grammarRegexp(grammar(spec, v, tt.q))
+			for _, line := range tt.accept {
+				if !re.MatchString(line) {
+					t.Errorf("grammar for %q rejects %q", tt.q, line)
+				}
+			}
+			for _, line := range tt.reject {
+				if re.MatchString(line) {
+					t.Errorf("grammar for %q accepts %q", tt.q, line)
+				}
+			}
+		})
+	}
+}
+
+func TestGrammarMutuallyExclusiveFlagGroup(t *testing.T) {
+	root := &cobra.Command{Use: "crantcli"}
+	state := &cobra.Command{Use: "state", Run: func(*cobra.Command, []string) {},
+		Annotations: map[string]string{"mutuallyExclusive": "builtin,show,reset"}}
+	state.Flags().Bool("builtin", false, "")
+	state.Flags().Bool("json", false, "")
+	state.Flags().Bool("show", false, "")
+	state.Flags().Bool("reset", false, "")
+	root.AddCommand(state)
+	spec := BuildSpec(root)
+	if got := spec[0].ExclusiveFlags; !reflect.DeepEqual(got, []string{"builtin", "show", "reset"}) {
+		t.Fatalf("ExclusiveFlags = %q", got)
+	}
+	re := grammarRegexp(grammar(spec, testVocab(), "print the default state"))
+	for _, line := range []string{
+		" state", " state --json", " state --builtin", " state --show", " state --reset",
+		" state --builtin --json", " state --json --show",
+	} {
+		if !re.MatchString(line) {
+			t.Errorf("grammar rejects %q", line)
+		}
+	}
+	for _, line := range []string{
+		" state --builtin --show", " state --show --reset", " state --builtin --reset",
+		" state --builtin --json --show", " state --builtin --show --reset",
+	} {
+		if re.MatchString(line) {
+			t.Errorf("grammar accepts %q", line)
+		}
+	}
+}
+
+// TestGrammarRequiredArgumentFlagAlternatives covers a command that needs its
+// argument or one of several mode flags (change-def-state): the grammar must
+// offer each valid form and never the bare command the CLI rejects.
+func TestGrammarRequiredArgumentFlagAlternatives(t *testing.T) {
+	spec := []*CmdSpec{{
+		Path: "change-def-state", ArgsUse: "[json-state]", ArgsMin: 1,
+		ArgOrFlag: []string{"builtin", "reset", "show"},
+		Flags: []FlagSpec{
+			{Name: "builtin", Type: "bool", Default: "false"},
+			{Name: "reset", Type: "bool", Default: "false"},
+			{Name: "show", Type: "bool", Default: "false"},
+		},
+	}}
+	v := testVocab()
+	tests := []struct {
+		name, q        string
+		accept, reject []string
+	}{
+		{"no json in request",
+			"print the default state",
+			[]string{" change-def-state --builtin", " change-def-state --show", " change-def-state --reset"},
+			[]string{" change-def-state", " change-def-state --builtin --show"}},
+		{"json file in request",
+			"set the default state from saved.json",
+			[]string{" change-def-state saved.json"},
+			[]string{" change-def-state", " change-def-state saved.json --builtin", " change-def-state saved.json --show"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := grammarRegexp(grammar(spec, v, tt.q))
+			for _, line := range tt.accept {
+				if !re.MatchString(line) {
+					t.Errorf("grammar for %q rejects %q", tt.q, line)
+				}
+			}
+			for _, line := range tt.reject {
+				if re.MatchString(line) {
+					t.Errorf("grammar for %q accepts %q", tt.q, line)
+				}
+			}
+		})
 	}
 }
 

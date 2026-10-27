@@ -11,8 +11,6 @@ import (
 
 	"crantcli/internal/ask"
 	"crantcli/internal/seatable"
-
-	"github.com/spf13/pflag"
 )
 
 // fakeDoctorCAVE is a doctorCAVEClient whose answer is fixed by the test.
@@ -107,19 +105,6 @@ func (s *doctorTestState) install(t *testing.T) {
 		return nil, s.statErr
 	}
 	doctorCurrentModel = func() ask.Model { return s.model }
-}
-
-// resetDoctorFlags restores the doctor command's flags after a command test.
-func resetDoctorFlags(t *testing.T) {
-	t.Helper()
-	reset := func() {
-		doctorCmd.Flags().VisitAll(func(f *pflag.Flag) {
-			_ = f.Value.Set(f.DefValue)
-			f.Changed = false
-		})
-	}
-	reset()
-	t.Cleanup(reset)
 }
 
 // assertDoctorHidesSecrets fails when report contains any of the token values.
@@ -370,7 +355,7 @@ func TestDoctorOnlineSuccess(t *testing.T) {
 	report := out.String()
 	for _, want := range []string{
 		"ok    SeaTable connection: token exchange succeeded",
-		"ok    CAVE connection: reachable (supervoxel 73466068970462772 resolves to root 720575940610453042)",
+		fmt.Sprintf("ok    CAVE connection: reachable (supervoxel %d resolves to root 720575940610453042)", doctorSmokeSupervoxelID),
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("report missing %q:\n%s", want, report)
@@ -450,6 +435,40 @@ func TestDoctorOnlineWithoutCAVETokenSkipsCheck(t *testing.T) {
 	}
 }
 
+func TestDoctorOnlineWithoutSeaTableTokenSkipsCheck(t *testing.T) {
+	state := newDoctorTestState(t)
+	state.seaTableToken = ""
+	state.seaTableSource = ""
+	state.install(t)
+	doctorNewSeaTableClient = func() (*seatable.Client, error) {
+		t.Error("SeaTable client must not be created without a SeaTable token")
+		return nil, errors.New("unexpected SeaTable client")
+	}
+
+	var out bytes.Buffer
+	err := runDoctor(&out, true)
+	if err == nil {
+		t.Fatalf("a missing required SeaTable token must still fail doctor\nreport:\n%s", out.String())
+	}
+	report := out.String()
+	for _, want := range []string{
+		"error SeaTable token: not configured",
+		"info  SeaTable connection: skipped; no SeaTable token configured",
+		"ok    CAVE connection: reachable",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "token exchange failed") {
+		t.Errorf("online check duplicates the missing-token error:\n%s", report)
+	}
+	if !strings.Contains(err.Error(), "1 configuration error") {
+		t.Errorf("error = %q, want exactly one configuration error", err.Error())
+	}
+	assertDoctorHidesSecrets(t, report, state.seaTableToken, state.caveToken, state.globalToken)
+}
+
 func TestDoctorNeverPrintsTokenValues(t *testing.T) {
 	state := newDoctorTestState(t)
 	state.seaTableToken = "SECRET-SEATABLE-TOKEN"
@@ -472,7 +491,8 @@ func TestDoctorNeverPrintsTokenValues(t *testing.T) {
 func TestDoctorCommandWritesReportToCommandOutput(t *testing.T) {
 	state := newDoctorTestState(t)
 	state.install(t)
-	resetDoctorFlags(t)
+	resetCommandFlags(doctorCmd)
+	t.Cleanup(func() { resetCommandFlags(doctorCmd) })
 
 	if doctorCmd.Hidden {
 		t.Fatal("doctor must be a visible command")
@@ -495,7 +515,8 @@ func TestDoctorCommandWritesReportToCommandOutput(t *testing.T) {
 func TestDoctorOnlineFlagViaCommand(t *testing.T) {
 	state := newDoctorTestState(t)
 	state.install(t)
-	resetDoctorFlags(t)
+	resetCommandFlags(doctorCmd)
+	t.Cleanup(func() { resetCommandFlags(doctorCmd) })
 
 	out, errOut, err := executeRootForTest(t, "doctor", "--online")
 	if err != nil {

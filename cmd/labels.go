@@ -30,6 +30,9 @@ every tracked source regardless of age. Hook-published sources are cleaned via
 the same --labels-hook command used to create them. --all, --older-than and
 --labels-hook apply only with --clean.
 
+The deprecated 'state-transfer --labels' path still creates these sources the
+same way until v0.25.0.
+
 Note: deleting a source removes its labels from any saved/shared state that still
 references it.`,
 	Args: cobra.NoArgs,
@@ -57,7 +60,7 @@ func init() {
 		Short:      "Delete label sources (gists or hook-published) tracked by crantcli",
 		Args:       cobra.NoArgs,
 		Hidden:     true,
-		Deprecated: "use 'labels --clean' instead; the clean subcommand will be removed in v0.24.0",
+		Deprecated: "use 'labels --clean' instead; the clean subcommand will be removed in v0.25.0",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLabelsClean(cmd)
 		},
@@ -68,14 +71,26 @@ func init() {
 	rootCmd.AddCommand(labelsCmd)
 }
 
+// Clean-only flags: registerCleanFlags declares them and
+// rejectCleanFlagsWithoutClean reports them, so the two lists cannot drift.
+const (
+	cleanFlagAll        = "all"
+	cleanFlagOlderThan  = "older-than"
+	cleanFlagLabelsHook = "labels-hook"
+)
+
+// cleanFlagNames lists the clean-only flags in the order the rejection message
+// names them.
+var cleanFlagNames = []string{cleanFlagAll, cleanFlagOlderThan, cleanFlagLabelsHook}
+
 // registerCleanFlags declares the flags shared by 'labels --clean' and the
 // deprecated 'labels clean' subcommand, keeping their names and help identical.
 func registerCleanFlags(cmd *cobra.Command) {
-	cmd.Flags().Bool("all", false, "Delete every tracked label source regardless of age")
-	cmd.Flags().Duration("older-than", 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
-	cmd.Flags().String("labels-hook", "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
-	mustRegisterFlagCompletion(cmd, "older-than", noFileCompletion)
-	mustRegisterFlagCompletion(cmd, "labels-hook", noFileCompletion)
+	cmd.Flags().Bool(cleanFlagAll, false, "Delete every tracked label source regardless of age")
+	cmd.Flags().Duration(cleanFlagOlderThan, 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
+	cmd.Flags().String(cleanFlagLabelsHook, "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
+	mustRegisterFlagCompletion(cmd, cleanFlagOlderThan, noFileCompletion)
+	mustRegisterFlagCompletion(cmd, cleanFlagLabelsHook, noFileCompletion)
 }
 
 // runLabelsClean deletes tracked label sources and reports how many remain.
@@ -105,7 +120,7 @@ func runLabelsClean(cmd *cobra.Command) error {
 // which would otherwise be dropped while the bare command prints its help.
 func rejectCleanFlagsWithoutClean(cmd *cobra.Command) error {
 	var set []string
-	for _, name := range []string{"all", "older-than", "labels-hook"} {
+	for _, name := range cleanFlagNames {
 		if cmd.Flags().Changed(name) {
 			set = append(set, "--"+name)
 		}

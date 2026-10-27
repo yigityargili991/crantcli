@@ -320,13 +320,39 @@ func TestLabelsBareCommandPrintsHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bare labels returned error: %v", err)
 	}
-	for _, want := range []string{"Usage:", "--clean", "--all", "--older-than", "--labels-hook", "removes its labels from any saved/shared state"} {
+	for _, want := range []string{"Usage:", "--clean", "--all", "--older-than", "--labels-hook", "removes its labels from any saved/shared state", "state-transfer --labels", "v0.25.0"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("bare labels help lacks %q:\n%s", want, stdout)
 		}
 	}
 }
 
+// cleanFlagNames is the single source for registration and for the
+// without---clean error; every command that declares the clean flags must
+// declare exactly these.
+func TestCleanFlagNamesMatchRegisteredFlags(t *testing.T) {
+	for _, cmd := range []*cobra.Command{labelsCmd, labelsCleanSubcommand(t)} {
+		count := 0
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			// "clean" belongs to the parent command only, and cobra adds its
+			// own --help once a command has run.
+			if flag.Name != "clean" && flag.Name != "help" {
+				count++
+			}
+		})
+		if count != len(cleanFlagNames) {
+			t.Fatalf("%s declares %d clean-only flags, want %d (%v)", cmd.Name(), count, len(cleanFlagNames), cleanFlagNames)
+		}
+		for _, name := range cleanFlagNames {
+			if cmd.Flags().Lookup(name) == nil {
+				t.Errorf("%s is missing --%s", cmd.Name(), name)
+			}
+		}
+	}
+}
+
+// TestLabelsCleanFlagsWithoutCleanError also pins the order cleanFlagNames
+// gives the rejection message.
 func TestLabelsCleanFlagsWithoutCleanError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -349,6 +375,16 @@ func TestLabelsCleanFlagsWithoutCleanError(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("multiple flags keep message order", func(t *testing.T) {
+		_, _, err := runLabelsCommandForTest(t, "--all", "--labels-hook", "hook-cmd")
+		if err == nil {
+			t.Fatal("labels with two clean-only flags should error")
+		}
+		if want := "--all and --labels-hook can only be used with --clean"; err.Error() != want {
+			t.Errorf("error = %q, want %q", err, want)
+		}
+	})
 }
 
 func TestLabelsCleanDeletesAndReports(t *testing.T) {
@@ -394,7 +430,7 @@ func TestLabelsCleanSubcommandDeprecatedAndHidden(t *testing.T) {
 	if !cleanCmd.Hidden {
 		t.Error("labels clean must be hidden from --help")
 	}
-	for _, want := range []string{"labels --clean", "v0.24.0"} {
+	for _, want := range []string{"labels --clean", "v0.25.0"} {
 		if !strings.Contains(cleanCmd.Deprecated, want) {
 			t.Errorf("labels clean deprecation warning %q lacks %q", cleanCmd.Deprecated, want)
 		}

@@ -396,6 +396,10 @@ func TestStateTransferPreRunNeedsTokenForLabels(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("error = %v, want it to contain %q", err, tt.wantError)
 			}
+			// The deprecated command shares the canonical missing-token error.
+			if !errors.Is(err, errNoSeaTableToken) {
+				t.Fatalf("error = %v, want the canonical missing-token error", err)
+			}
 		})
 	}
 }
@@ -436,9 +440,9 @@ func TestStateTransferLabelsFlagsMatchAdd(t *testing.T) {
 	}
 }
 
-// TestStateTransferDeprecatedAndHidden completes the retirement of
-// state-transfer: --clipboard-ids on add replaces it, and the old command says
-// so while it keeps working until v0.24.0.
+// TestStateTransferDeprecatedAndHidden covers the deprecation of
+// state-transfer: --clipboard-ids on add supersedes it, and the old command says
+// so while it keeps working until v0.25.0.
 func TestStateTransferDeprecatedAndHidden(t *testing.T) {
 	if !stateTransferCmd.Hidden {
 		t.Error("state-transfer must be hidden from --help")
@@ -446,7 +450,7 @@ func TestStateTransferDeprecatedAndHidden(t *testing.T) {
 	if stateTransferCmd.Deprecated == "" {
 		t.Fatal("state-transfer must be deprecated")
 	}
-	for _, want := range []string{"add --clipboard-ids", "v0.24.0"} {
+	for _, want := range []string{"add --clipboard-ids", "v0.25.0"} {
 		if !strings.Contains(stateTransferCmd.Deprecated, want) {
 			t.Errorf("state-transfer deprecation warning %q lacks %q", stateTransferCmd.Deprecated, want)
 		}

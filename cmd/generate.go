@@ -14,7 +14,7 @@ var generateCmd = &cobra.Command{
 	Short:      "Output the default CRANT scene template",
 	Long:       "Output the default CRANT Neuroglancer scene template to stdout.",
 	Hidden:     true,
-	Deprecated: "use 'change-def-state --builtin' instead; generate will be removed in v0.24.0",
+	Deprecated: "use 'change-def-state --builtin' instead; generate will be removed in v0.25.0",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprint(os.Stdout, string(nglstate.DefaultScene))
 		return err

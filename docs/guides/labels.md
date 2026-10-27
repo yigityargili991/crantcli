@@ -23,7 +23,11 @@ Or attach labels to known clipboard IDs:
 crantcli add --clipboard-ids --labels
 ```
 
-Clipboard IDs without CRANT metadata remain unlabeled.
+`--labels` looks the copied IDs up in SeaTable, so this form needs a SeaTable
+token. If none of the IDs have CRANT metadata, the run fails with
+`no CRANT metadata found for clipboard root IDs`. If only some do, crantcli
+warns how many it found and labels those rows; the remaining IDs are still
+injected, without labels.
 
 For edit history, publish the editor and UTC time beside historical root IDs:
 

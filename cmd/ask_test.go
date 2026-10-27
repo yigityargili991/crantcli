@@ -153,6 +153,95 @@ func TestAskGrammarNeedsRootIDForCaveHistory(t *testing.T) {
 	}
 }
 
+// findAskSpec returns the ask spec entry for path, building the real tree.
+func findAskSpec(t *testing.T, path string) *ask.CmdSpec {
+	t.Helper()
+	for _, c := range ask.BuildSpec(rootCmd, "ask") {
+		if c.Path == path {
+			return c
+		}
+	}
+	t.Fatalf("ask spec lacks %q", path)
+	return nil
+}
+
+func TestAskSpecReadsArgumentAlternatives(t *testing.T) {
+	// root-info's Args validator takes exactly one of a root ID or --pos; ask
+	// probes it because Cobra does not export the validator.
+	rootInfo := findAskSpec(t, "root-info")
+	if rootInfo.ArgsMin != 1 || !reflect.DeepEqual(rootInfo.ArgOrFlag, []string{"pos"}) {
+		t.Errorf("root-info spec = %+v, want ArgsMin 1 and ArgOrFlag [pos]", rootInfo)
+	}
+	// change-def-state needs a JSON state or one of its mode flags; the
+	// requirement lives in its Args validator so the probe can find the flags.
+	state := findAskSpec(t, "change-def-state")
+	if want := []string{"builtin", "reset", "show"}; state.ArgsMin != 1 || !reflect.DeepEqual(state.ArgOrFlag, want) {
+		t.Errorf("change-def-state spec = %+v, want ArgsMin 1 and ArgOrFlag %q", state, want)
+	}
+	// The retired labels clean subcommand is hidden and deprecated.
+	for _, c := range ask.BuildSpec(rootCmd, "ask") {
+		if c.Path == "labels clean" {
+			t.Errorf("ask spec includes the retired command %q", c.Path)
+		}
+	}
+}
+
+func TestAskSpecReadsMutuallyExclusiveFlags(t *testing.T) {
+	// change-def-state annotates the group MarkFlagsMutuallyExclusive registers,
+	// since Cobra does not export flag groups to ask.
+	state := findAskSpec(t, "change-def-state")
+	if want := []string{"builtin", "show", "reset"}; !reflect.DeepEqual(state.ExclusiveFlags, want) {
+		t.Errorf("change-def-state ExclusiveFlags = %q, want %q", state.ExclusiveFlags, want)
+	}
+}
+
+func TestAskGrammarRootInfoAlternatives(t *testing.T) {
+	vocab := ask.NewVocab(nil)
+	m := &grammarRecorder{}
+	if _, err := ask.Suggest(m, ask.BuildSpec(rootCmd, "ask"), vocab, "show PEN neurons"); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if strings.Contains(m.grammar, `"root-info"`) {
+		t.Error("grammar offers root-info for a request with neither a root ID nor a position")
+	}
+	m = &grammarRecorder{}
+	if _, err := ask.Suggest(m, ask.BuildSpec(rootCmd, "ask"), vocab, "which column is 1,2,3 in"); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if !strings.Contains(m.grammar, `"root-info"`) || !strings.Contains(m.grammar, `" --pos "`) {
+		t.Errorf("grammar for a position request lacks root-info --pos:\n%s", m.grammar)
+	}
+}
+
+func TestAskGrammarChangeDefStateNeedsStateOrMode(t *testing.T) {
+	vocab := ask.NewVocab(nil)
+	// A bare change-def-state is a usage error, so the grammar must offer only
+	// the mode flags or the JSON-state argument.
+	m := &grammarRecorder{}
+	if _, err := ask.Suggest(m, ask.BuildSpec(rootCmd, "ask"), vocab, "print the default state"); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if strings.Contains(m.grammar, "::= \"change-def-state\"\n") {
+		t.Errorf("grammar offers the bare change-def-state:\n%s", m.grammar)
+	}
+	for _, want := range []string{`" --builtin"`, `" --show"`, `" --reset"`} {
+		if !strings.Contains(m.grammar, want) {
+			t.Errorf("grammar lacks %s:\n%s", want, m.grammar)
+		}
+	}
+	// With a JSON file in the request the argument form appears too.
+	m = &grammarRecorder{}
+	if _, err := ask.Suggest(m, ask.BuildSpec(rootCmd, "ask"), vocab, "set the default state from saved.json"); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if strings.Contains(m.grammar, "::= \"change-def-state\"\n") {
+		t.Errorf("grammar offers the bare change-def-state:\n%s", m.grammar)
+	}
+	if !strings.Contains(m.grammar, `"saved.json"`) || !strings.Contains(m.grammar, `::= "change-def-state" r`) {
+		t.Errorf("grammar lacks the change-def-state JSON argument form:\n%s", m.grammar)
+	}
+}
+
 func TestAskPrintsSuggestion(t *testing.T) {
 	_, engine := setupAskTest(t)
 	out, errOut, err := executeAsk(t, "ask", "--print", "--model", modelFile(t), "show", "PEN", "neurons")

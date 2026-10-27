@@ -12,6 +12,9 @@ every tracked source regardless of age. Hook-published sources are cleaned via
 the same --labels-hook command used to create them. --all, --older-than and
 --labels-hook apply only with --clean.
 
+The deprecated 'state-transfer --labels' path still creates these sources the
+same way until v0.25.0.
+
 Note: deleting a source removes its labels from any saved/shared state that still
 references it.
 

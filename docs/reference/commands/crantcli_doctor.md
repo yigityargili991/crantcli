@@ -14,8 +14,8 @@ error.
 
 By default doctor only inspects local configuration. With --online it also
 checks that the configured SeaTable token exchanges for a session and that
-CAVE answers a root lookup, which requires network access. Without a CAVE
-token the CAVE online check reports an info line instead of failing.
+CAVE answers a root lookup, which requires network access. An online check
+whose token is not configured reports an info line instead of an error.
 
 The exit status is nonzero when a required check fails, such as a missing
 SeaTable token. Missing optional credentials and the ask model only produce
@@ -41,7 +41,7 @@ crantcli doctor [flags]
 
 ```
   -h, --help     help for doctor
-      --online   Also test SeaTable and CAVE connectivity
+      --online   Also test SeaTable and CAVE connectivity; checks without a token are skipped
 ```
 
 ## See also

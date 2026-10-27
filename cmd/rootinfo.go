@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -232,17 +233,14 @@ func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCave
 
 // runRootInfoPosition renders only the nearest_column section for --pos. The
 // standalone output omits side and side_relation: a --pos lookup has no side
-// relation, and the position-query rows carry the raw select-option ID for side
-// (seatable.buildNeuronPositionRow copies the stored value), which is not
-// user-facing. Resolving it in the query layer would break the full report's
-// side_relation, which compares it against a likewise raw neuron-row side.
+// relation, and callers that need a side use the root-ID report.
 func runRootInfoPosition(out io.Writer, data rootInfoDataSource, x, y, z float64, opts rootInfoOptions) error {
 	nearest, nearestErr, err := fetchNearestColumnAt(data, x, y, z, "")
 	if err != nil {
 		return err
 	}
 	if nearestErr != "" {
-		return fmt.Errorf("%s", nearestErr)
+		return errors.New(nearestErr)
 	}
 	nearest.Side = ""
 	nearest.SideRelation = ""

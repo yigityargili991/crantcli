@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"math"
+	"strings"
 
-	"crantcli/internal/seatable"
 	"crantcli/internal/textout"
 
 	"github.com/spf13/cobra"
@@ -17,7 +17,7 @@ var lookupColumnCmd = &cobra.Command{
 	Annotations: map[string]string{"requiresToken": "true"},
 	Args:        cobra.MaximumNArgs(1),
 	Hidden:      true,
-	Deprecated:  "use 'root-info' with a root ID or --pos x,y,z instead; lookup-column will be removed in v0.24.0",
+	Deprecated:  "use 'root-info' with a root ID or --pos x,y,z instead; lookup-column will be removed in v0.25.0",
 }
 
 func init() {
@@ -28,9 +28,7 @@ func init() {
 	mustRegisterFlagCompletion(lookupColumnCmd, "pos", noFileCompletion)
 
 	lookupColumnCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		var x, y, z float64
-		hasPos := lookupColumnPos != ""
-
+		hasPos := cmd.Flags().Changed("pos")
 		if hasPos && len(args) > 0 {
 			return fmt.Errorf("cannot combine root_id argument with --pos flag")
 		}
@@ -38,72 +36,58 @@ func init() {
 			return fmt.Errorf("provide a root_id argument or use --pos x,y,z")
 		}
 
-		client, err := seatable.NewClient()
-		if err != nil {
-			return err
-		}
-
-		meta, err := client.FetchMetadata()
-		if err != nil {
-			return fmt.Errorf("fetching column metadata: %w", err)
-		}
-		regionOpts := seatable.SelectOptionMap(meta, "region")
-
+		// A changed-but-empty --pos fails as it does for root-info instead of
+		// falling through to the root-ID path.
+		var x, y, z float64
 		if hasPos {
+			if strings.TrimSpace(lookupColumnPos) == "" {
+				return fmt.Errorf("--pos requires a position as x,y,z")
+			}
 			px, py, pz, err := parsePos(lookupColumnPos)
 			if err != nil {
 				return err
 			}
 			x, y, z = px, py, pz
-		} else {
-			rootID := args[0]
-			neuron, err := seatable.QueryNeuronPosition(client, rootID, regionOpts)
-			if err != nil {
-				return err
-			}
-			if neuron == nil {
-				return fmt.Errorf("no neuron found with root_id %q", rootID)
-			}
-			if !neuron.HasPosition() {
-				return fmt.Errorf("neuron %s has no position coordinates", rootID)
-			}
-			x, y, z = neuron.X, neuron.Y, neuron.Z
 		}
 
-		candidates, err := seatable.QueryNeuronsWithPosition(client, regionOpts)
+		// Reuse root-info's data source and nearest-column lookup, so this
+		// deprecated command cannot drift from the command that replaced it.
+		data, err := rootInfoNewDataSource()
 		if err != nil {
 			return err
 		}
-		if len(candidates) == 0 {
-			return fmt.Errorf("no EPG/PEG neurons found")
-		}
-
-		var closest *seatable.NeuronPositionRow
-		closestDist := math.MaxFloat64
-
-		for i := range candidates {
-			c := &candidates[i]
-			if !c.HasPosition() {
-				continue
+		if !hasPos {
+			rootID := args[0]
+			row, err := data.QueryNeuronInfo(rootID)
+			if err != nil {
+				return err
 			}
-			d := euclideanDistance(x, y, z, c.X, c.Y, c.Z)
-			if d < closestDist {
-				closestDist = d
-				closest = c
+			if row == nil {
+				return fmt.Errorf("no neuron found with root_id %q", rootID)
 			}
+			if !row.HasPosition() {
+				return fmt.Errorf("neuron %s has no position coordinates", rootID)
+			}
+			x, y, z = row.X, row.Y, row.Z
 		}
 
-		if closest == nil {
-			return fmt.Errorf("no EPG/PEG neurons with valid position coordinates found")
+		nearest, nearestErr, err := fetchNearestColumnAt(data, x, y, z, "")
+		if err != nil {
+			return err
+		}
+		if nearestErr != "" {
+			return errors.New(nearestErr)
 		}
 
-		fmt.Println(formatLookupColumnOutput(closest))
-		return nil
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), formatLookupColumnOutput(nearest.Region, nearest.RootID))
+		return err
 	}
 
 	rootCmd.AddCommand(lookupColumnCmd)
 }
 
-func formatLookupColumnOutput(neuron *seatable.NeuronPositionRow) string {
-	return fmt.Sprintf("%s\t%s", textout.Sanitize(neuron.Region), textout.Sanitize(neuron.RootID))
+// formatLookupColumnOutput keeps the deprecated command's output shape: the
+// resolved region and the nearest EPG/PEG root ID, tab-separated.
+func formatLookupColumnOutput(region, rootID string) string {
+	return fmt.Sprintf("%s\t%s", textout.Sanitize(region), textout.Sanitize(rootID))
 }

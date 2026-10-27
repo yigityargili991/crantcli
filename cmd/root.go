@@ -16,6 +16,21 @@ var Version = "dev"
 
 var getAPIToken = config.GetAPIToken
 
+// errNoSeaTableToken is the canonical missing-token error. Commands declare
+// their requirement statically (the requiresToken annotation) or from their
+// flags, but a missing token always reads the same way.
+var errNoSeaTableToken = errors.New("no SeaTable token configured; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")
+
+// requireSeaTableToken reports the canonical missing-token error when the run
+// needs SeaTable (needed) and no token is configured. Commands whose token
+// requirement depends on their flags share the annotation-gated path's message.
+func requireSeaTableToken(needed bool) error {
+	if !needed || getAPIToken() != "" {
+		return nil
+	}
+	return errNoSeaTableToken
+}
+
 // stateServerResolver fetches the states Neuroglancer Share links point to.
 // Each token goes only to the host of the auth server that issued it, whose
 // state server accepts it, on the default https port: the CAVE token to
@@ -63,15 +78,9 @@ Run 'crantcli setup' to configure your SeaTable API token.`,
 		// Cobra validates arguments before this hook. Keep usage for syntax
 		// mistakes, but suppress it once execution has entered the runtime path.
 		cmd.Root().SilenceUsage = true
-		if cmd.Annotations["requiresToken"] != "true" {
-			return nil
-		}
-		if token := getAPIToken(); token != "" {
-			return nil
-		}
 		// Do not silently write credentials from a read-only query command:
 		// point the user at the explicit setup flow instead of prompting here.
-		return errors.New("no SeaTable token configured; run 'crantcli setup' to store one, or set CRANTTABLE_TOKEN / CRANTTABLE_TOKEN_FILE")
+		return requireSeaTableToken(cmd.Annotations["requiresToken"] == "true")
 	},
 }
 

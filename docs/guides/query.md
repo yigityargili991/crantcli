@@ -1,6 +1,6 @@
 # Query and group neurons
 
-`crantcli add` needs at least one filter. It queries matching CRANT rows, removes duplicate root IDs, and adds the remaining IDs to a Neuroglancer segmentation layer.
+`crantcli add` needs at least one classifier filter, or `--clipboard-ids` to inject root IDs the clipboard supplies instead. With filters it queries matching CRANT rows, removes duplicate root IDs, and adds the remaining IDs to a Neuroglancer segmentation layer.
 
 ## Filter a population
 
@@ -71,6 +71,30 @@ Select a specific segmentation layer when a state contains several:
 ```bash
 crantcli add --cell-type ER --layer "merge-biased seg"
 ```
+
+## Inject root IDs from the clipboard
+
+To add IDs you already know, copy them separated by spaces, commas, or
+newlines and name no filters:
+
+```bash
+crantcli add --clipboard-ids
+```
+
+The copied values must be decimal root IDs; duplicates are collapsed. `add`
+rejects a clipboard holding a Neuroglancer state URL, and names any entry that
+is not a root ID, instead of injecting it as a segment. This matters on a
+second run: by default `add` copies its output URL back to the clipboard, so
+the next `--clipboard-ids` run finds that URL rather than IDs.
+
+[`--labels`](labels.md) looks the copied IDs up in SeaTable; if none has
+metadata the run fails, and a partial match warns and labels only the rows it
+found. Without `--labels`, no SeaTable token is needed.
+
+The base state comes from `--state`, then piped JSON, then the configured or
+built-in template; the clipboard is read as IDs, never as a state. Segments are
+appended unless `--replace` is given. See
+[Work with Neuroglancer states](states.md) for base-state and output rules.
 
 ## Return root IDs only
 

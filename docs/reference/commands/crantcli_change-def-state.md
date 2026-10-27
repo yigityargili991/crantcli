@@ -11,7 +11,7 @@ Pass the full JSON state as an argument, or pass a path to a JSON file. Use
 --builtin to print the built-in template without reading or writing any state.
 
 ```
-crantcli change-def-state <json-state> [flags]
+crantcli change-def-state [json-state] [flags]
 ```
 
 ## Examples

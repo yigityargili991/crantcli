@@ -380,37 +380,6 @@ func TestExecutePagedSelectErrorsWhenResultSetExceedsSafetyLimit(t *testing.T) {
 	}
 }
 
-func TestQueryNeuronPositionReturnsRowWhenPositionIsMalformed(t *testing.T) {
-	client := &Client{
-		executeSQLFunc: func(sql string) (*SQLResponse, error) {
-			return &SQLResponse{
-				Results: []map[string]interface{}{
-					{
-						"root_id":   "root-malformed",
-						"region":    []interface{}{"452098"},
-						"cell_type": "EPG/PEG",
-						"position":  nil,
-					},
-				},
-			}, nil
-		},
-	}
-
-	row, err := QueryNeuronPosition(client, "root-malformed", map[string]string{"452098": "LX"})
-	if err != nil {
-		t.Fatalf("QueryNeuronPosition returned error: %v", err)
-	}
-	if row == nil {
-		t.Fatalf("QueryNeuronPosition returned nil row for an existing neuron with malformed position")
-	}
-	if row.RootID != "root-malformed" {
-		t.Fatalf("QueryNeuronPosition returned root_id %q, want %q", row.RootID, "root-malformed")
-	}
-	if row.HasPosition() {
-		t.Fatalf("QueryNeuronPosition returned HasPosition()=true for malformed position")
-	}
-}
-
 func TestQueryNeuronPositionsPreservesMalformedTargets(t *testing.T) {
 	var gotSQL string
 	client := &Client{
@@ -422,11 +391,14 @@ func TestQueryNeuronPositionsPreservesMalformedTargets(t *testing.T) {
 						"root_id":   "target-malformed",
 						"region":    []interface{}{"452098"},
 						"cell_type": "PFN",
-						"side":      "left",
+						"side":      "553927",
 						"position":  nil,
 					},
 				},
 			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
 		},
 	}
 
@@ -444,7 +416,7 @@ func TestQueryNeuronPositionsPreservesMalformedTargets(t *testing.T) {
 		t.Fatalf("RootID = %q, want target-malformed", rows[0].RootID)
 	}
 	if rows[0].Side != "left" {
-		t.Fatalf("Side = %q, want left", rows[0].Side)
+		t.Fatalf("Side = %q, want the resolved name %q", rows[0].Side, "left")
 	}
 	if rows[0].HasPosition() {
 		t.Fatalf("HasPosition() = true, want false for malformed position")
@@ -462,18 +434,21 @@ func TestQueryNeuronsWithPositionIncludesSideAndSkipsMalformedRows(t *testing.T)
 						"root_id":   "valid-epg",
 						"region":    []interface{}{"452098"},
 						"cell_type": "EPG/PEG",
-						"side":      "right",
+						"side":      "884118",
 						"position":  "1,2,3",
 					},
 					{
 						"root_id":   "bad-epg",
 						"region":    []interface{}{"452098"},
 						"cell_type": "EPG/PEG",
-						"side":      "left",
+						"side":      "553927",
 						"position":  nil,
 					},
 				},
 			}, nil
+		},
+		fetchMetadataFunc: func() (*MetadataResponse, error) {
+			return regionMetadata(), nil
 		},
 	}
 
@@ -491,7 +466,7 @@ func TestQueryNeuronsWithPositionIncludesSideAndSkipsMalformedRows(t *testing.T)
 		t.Fatalf("RootID = %q, want valid-epg", rows[0].RootID)
 	}
 	if rows[0].Side != "right" {
-		t.Fatalf("Side = %q, want right", rows[0].Side)
+		t.Fatalf("Side = %q, want the resolved name %q", rows[0].Side, "right")
 	}
 	if !rows[0].HasPosition() {
 		t.Fatalf("HasPosition() = false, want true")
@@ -513,7 +488,7 @@ func TestQueryNeuronInfoResolvesKnownFieldsAndExtras(t *testing.T) {
 						"cell_class":      "cx",
 						"cell_type":       "EPG/PEG",
 						"cell_subtype":    "sub",
-						"side":            "left",
+						"side":            "553927",
 						"region":          []interface{}{"452098"},
 						"tract":           "tract",
 						"nerve":           "nerve",
@@ -540,6 +515,9 @@ func TestQueryNeuronInfoResolvesKnownFieldsAndExtras(t *testing.T) {
 	}
 	if row.Region != "LX" {
 		t.Fatalf("Region = %q, want LX", row.Region)
+	}
+	if row.Side != "left" {
+		t.Fatalf("Side = %q, want the resolved option name %q", row.Side, "left")
 	}
 	if !row.HasPosition() || row.X != 1 || row.Y != 2 || row.Z != 3 {
 		t.Fatalf("position = (%v,%v,%v), set=%v; want (1,2,3), true", row.X, row.Y, row.Z, row.HasPosition())
@@ -595,6 +573,8 @@ func TestBuildNeuronInfoRowPrefersNamedColumnsOverMappedKeys(t *testing.T) {
 			"root_id":       "named-root",
 			"key_region":    []interface{}{"333131"},
 			"region":        []interface{}{"452098"},
+			"key_side":      "884118",
+			"side":          "553927",
 			"key_position":  "9, 9, 9",
 			"position":      "1, 2, 3",
 			"key_note":      "mapped note",
@@ -607,8 +587,13 @@ func TestBuildNeuronInfoRowPrefersNamedColumnsOverMappedKeys(t *testing.T) {
 			"452098": "LX",
 		},
 		map[string]string{
+			"553927": "left",
+			"884118": "right",
+		},
+		map[string]string{
 			"key_root":      "root_id",
 			"key_region":    "region",
+			"key_side":      "side",
 			"key_position":  "position",
 			"key_note":      "annotation",
 			"key_cell_type": "cell_type",
@@ -624,6 +609,9 @@ func TestBuildNeuronInfoRowPrefersNamedColumnsOverMappedKeys(t *testing.T) {
 	if row.Region != "LX" {
 		t.Fatalf("Region = %q, want LX", row.Region)
 	}
+	if row.Side != "left" {
+		t.Fatalf("Side = %q, want the named column's resolved option name", row.Side)
+	}
 	if !row.HasPosition() || row.X != 1 || row.Y != 2 || row.Z != 3 {
 		t.Fatalf("position = (%v,%v,%v), set=%v; want (1,2,3), true", row.X, row.Y, row.Z, row.HasPosition())
 	}
@@ -635,6 +623,32 @@ func TestBuildNeuronInfoRowPrefersNamedColumnsOverMappedKeys(t *testing.T) {
 	}
 	if _, ok := row.ExtraFields["key_cell_type"]; ok {
 		t.Fatal("ExtraFields unexpectedly includes mapped known field key")
+	}
+}
+
+// side_relation compares the target neuron's side against the nearest EPG/PEG
+// neuron's side, so both the info row and the position row must resolve a stored
+// option ID to the same display name.
+func TestSideResolutionIsConsistentBetweenInfoAndPositionRows(t *testing.T) {
+	sideOpts := SelectOptionMap(regionMetadata(), "side")
+	for _, raw := range []string{"553927", "884118"} {
+		t.Run(raw, func(t *testing.T) {
+			infoRow := buildNeuronInfoRow(
+				map[string]interface{}{"root_id": "111", "side": raw, "position": "1,2,3"},
+				nil, sideOpts, nil,
+			)
+			positionRow, err := buildNeuronPositionRow(
+				map[string]interface{}{"root_id": "111", "side": raw, "position": "1,2,3"}, nil, sideOpts)
+			if err != nil {
+				t.Fatalf("buildNeuronPositionRow error = %v", err)
+			}
+			if infoRow.Side == raw || positionRow.Side == raw {
+				t.Fatalf("raw side %q was not resolved: info=%q position=%q", raw, infoRow.Side, positionRow.Side)
+			}
+			if infoRow.Side != positionRow.Side {
+				t.Fatalf("side resolution differs: info=%q position=%q", infoRow.Side, positionRow.Side)
+			}
+		})
 	}
 }
 

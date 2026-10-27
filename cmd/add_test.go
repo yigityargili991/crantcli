@@ -18,6 +18,28 @@ import (
 	"crantcli/internal/segprops"
 )
 
+// The Long text must match the documented output rules: only a URL/template
+// input copies a URL back to the clipboard by default, a state file or piped
+// JSON prints to stdout, and --clipboard-ids can still take its base state from
+// --state or piped JSON.
+func TestAddLongDocumentsOutputDestinations(t *testing.T) {
+	for _, want := range []string{
+		"write the resulting URL back to the clipboard",
+		"a state file or piped JSON prints the formatted state to stdout",
+		"--state, piped JSON, or the default template",
+	} {
+		if !strings.Contains(addCmd.Long, want) {
+			t.Errorf("add Long lacks %q", want)
+		}
+	}
+	if strings.Contains(addCmd.Long, "With no --output, the resulting Neuroglancer URL is written back to the clipboard") {
+		t.Error("add Long still claims every no---output run writes the URL back to the clipboard")
+	}
+	if !strings.Contains(addCmd.Example, "crantcli add --clipboard-ids -s base.json --labels") {
+		t.Error("add examples lost the --clipboard-ids -s base.json guidance")
+	}
+}
+
 func TestDeliverRootIDs(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -206,8 +228,8 @@ func TestAddCommandTokenRequirement(t *testing.T) {
 		getAPIToken = func() string { return "" }
 
 		err := addCmd.RunE(addCmd, nil)
-		if err == nil || !strings.Contains(err.Error(), "no SeaTable token configured") {
-			t.Fatalf("error = %v, want a missing-token error", err)
+		if !errors.Is(err, errNoSeaTableToken) {
+			t.Fatalf("error = %v, want the canonical missing-token error", err)
 		}
 	})
 
@@ -216,8 +238,8 @@ func TestAddCommandTokenRequirement(t *testing.T) {
 		getAPIToken = func() string { return "" }
 
 		err := addCmd.RunE(addCmd, nil)
-		if err == nil || !strings.Contains(err.Error(), "no SeaTable token configured") {
-			t.Fatalf("error = %v, want a missing-token error", err)
+		if !errors.Is(err, errNoSeaTableToken) {
+			t.Fatalf("error = %v, want the canonical missing-token error", err)
 		}
 	})
 
@@ -2096,8 +2118,10 @@ func TestAddClipboardIDsRejectsQueryFlags(t *testing.T) {
 				phase string
 				err   error
 			}{
+				// Args is the only phase that runs for the CLI; the helper is
+				// checked directly because it is what Args calls.
 				{phase: "Args", err: addCmd.Args(addCmd, nil)},
-				{phase: "RunE", err: addCmd.RunE(addCmd, nil)},
+				{phase: "validateAddClipboardOptions", err: validateAddClipboardOptions()},
 			} {
 				if check.err == nil || !strings.Contains(check.err.Error(), want) || !strings.Contains(check.err.Error(), tt.wantFlag) {
 					t.Fatalf("%s error = %v, want it to name %q and %q", check.phase, check.err, want, tt.wantFlag)
