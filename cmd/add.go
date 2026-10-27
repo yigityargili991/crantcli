@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -426,7 +427,9 @@ func extractRootIDs(rows []seatable.NeuronRow) []string {
 }
 
 // readAddClipboardRootIDs reads and parses the root IDs copied to the
-// clipboard for --clipboard-ids.
+// clipboard for --clipboard-ids. The clipboard must hold root IDs: a state URL
+// or any token that is not a decimal uint64 would otherwise be injected as a
+// segment ID, producing a state the viewer cannot resolve.
 func readAddClipboardRootIDs() ([]string, error) {
 	text, err := addClipboardRead()
 	if err != nil {
@@ -435,9 +438,19 @@ func readAddClipboardRootIDs() ([]string, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("clipboard is empty — copy some root IDs first")
 	}
+	if nglstate.IsNeuroglancerURL(text) {
+		// add copies the state URL it builds back to the clipboard by default,
+		// so a second --clipboard-ids run reads that URL instead of root IDs.
+		return nil, fmt.Errorf("the clipboard holds a Neuroglancer state URL, not root IDs; copy the root IDs again (add copies its output URL back to the clipboard by default, so a second run reads that URL)")
+	}
 	ids := parseIDs(text)
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("no valid IDs found in clipboard")
+	}
+	for _, id := range ids {
+		if _, err := strconv.ParseUint(id, 10, 64); err != nil {
+			return nil, fmt.Errorf("clipboard entry %q is not a root ID", id)
+		}
 	}
 	fmt.Fprintf(os.Stderr, "Read %d IDs from clipboard\n", len(ids))
 	return ids, nil

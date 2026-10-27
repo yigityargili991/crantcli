@@ -27,6 +27,23 @@ type rootInfoCaveClient interface {
 	GetRootChangeLog(rootID uint64, filtered bool) ([]cave.ChangeLogRow, error)
 }
 
+// Test seams: the SeaTable data source and the CAVE client are replaceable, so
+// CLI-level tests can run the command without a SeaTable token or network
+// access. The data source seam returns the interface because the test package
+// cannot populate a seatable.Client's unexported query hooks.
+var (
+	rootInfoNewDataSource = func() (rootInfoDataSource, error) {
+		client, err := seatable.NewClient()
+		if err != nil {
+			return nil, err
+		}
+		return seatableRootInfoSource{client: client}, nil
+	}
+	rootInfoNewCAVEClient = func() (rootInfoCaveClient, error) {
+		return cave.NewClient()
+	}
+)
+
 type seatableRootInfoSource struct {
 	client *seatable.Client
 }
@@ -51,7 +68,6 @@ type rootInfoOptions struct {
 	JSON         bool
 	HistoryLimit int
 	Filtered     bool
-	Pos          string // --pos x,y,z; mutually exclusive with a root_id argument
 }
 
 type rootInfoResult struct {
@@ -149,30 +165,48 @@ func init() {
 	mustRegisterFlagCompletion(rootInfoCmd, "pos", noFileCompletion)
 
 	rootInfoCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("pos") {
+			// Validate and parse before creating any client: an empty --pos must
+			// fail here instead of falling through to the root-ID path.
+			if strings.TrimSpace(position) == "" {
+				return fmt.Errorf("--pos requires a position as x,y,z")
+			}
+			x, y, z, err := parsePos(position)
+			if err != nil {
+				return err
+			}
+			// The standalone --pos output has no history, so reject the
+			// root-ID-only flags instead of silently ignoring them.
+			if cmd.Flags().Changed("history-limit") {
+				return fmt.Errorf("cannot combine --pos with --history-limit")
+			}
+			if cmd.Flags().Changed("unfiltered") {
+				return fmt.Errorf("cannot combine --pos with --unfiltered")
+			}
+			data, err := rootInfoNewDataSource()
+			if err != nil {
+				return err
+			}
+			return runRootInfoPosition(cmd.OutOrStdout(), data, x, y, z, rootInfoOptions{JSON: asJSON})
+		}
+
 		if historyLimit < 0 {
 			return fmt.Errorf("--history-limit must be >= 0")
 		}
 
-		stClient, err := seatable.NewClient()
+		data, err := rootInfoNewDataSource()
 		if err != nil {
 			return err
 		}
-
-		opts := rootInfoOptions{
+		caveClient, err := rootInfoNewCAVEClient()
+		if err != nil {
+			return err
+		}
+		return runRootInfo(cmd.OutOrStdout(), data, caveClient, args[0], rootInfoOptions{
 			JSON:         asJSON,
 			HistoryLimit: historyLimit,
 			Filtered:     !unfiltered,
-		}
-		if cmd.Flags().Changed("pos") {
-			opts.Pos = position
-			return runRootInfo(cmd.OutOrStdout(), seatableRootInfoSource{client: stClient}, nil, "", opts)
-		}
-
-		caveClient, err := cave.NewClient()
-		if err != nil {
-			return err
-		}
-		return runRootInfo(cmd.OutOrStdout(), seatableRootInfoSource{client: stClient}, caveClient, args[0], opts)
+		})
 	}
 
 	rootCmd.AddCommand(rootInfoCmd)
@@ -184,9 +218,6 @@ type rootInfoPositionResult struct {
 }
 
 func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCaveClient, rawRootID string, opts rootInfoOptions) error {
-	if opts.Pos != "" {
-		return runRootInfoPosition(out, data, opts)
-	}
 	result, err := fetchRootInfo(data, caveClient, rawRootID, opts)
 	if err != nil {
 		return err
@@ -199,12 +230,13 @@ func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCave
 	return writeRootInfoText(out, result)
 }
 
-// runRootInfoPosition renders only the nearest_column section for --pos.
-func runRootInfoPosition(out io.Writer, data rootInfoDataSource, opts rootInfoOptions) error {
-	x, y, z, err := parsePos(opts.Pos)
-	if err != nil {
-		return err
-	}
+// runRootInfoPosition renders only the nearest_column section for --pos. The
+// standalone output omits side and side_relation: a --pos lookup has no side
+// relation, and the position-query rows carry the raw select-option ID for side
+// (seatable.buildNeuronPositionRow copies the stored value), which is not
+// user-facing. Resolving it in the query layer would break the full report's
+// side_relation, which compares it against a likewise raw neuron-row side.
+func runRootInfoPosition(out io.Writer, data rootInfoDataSource, x, y, z float64, opts rootInfoOptions) error {
 	nearest, nearestErr, err := fetchNearestColumnAt(data, x, y, z, "")
 	if err != nil {
 		return err
@@ -212,6 +244,7 @@ func runRootInfoPosition(out io.Writer, data rootInfoDataSource, opts rootInfoOp
 	if nearestErr != "" {
 		return fmt.Errorf("%s", nearestErr)
 	}
+	nearest.Side = ""
 	nearest.SideRelation = ""
 
 	if opts.JSON {
@@ -527,7 +560,7 @@ func writeRootInfoPositionSection(write rootInfoTextWriter, result *rootInfoResu
 }
 
 // writeRootInfoPositionText prints the nearest_column section on its own,
-// without the side relation a root ID would have.
+// without the side or side relation a root ID would have.
 func writeRootInfoPositionText(w io.Writer, nearest *rootInfoNearestColumn) error {
 	write := func(format string, args ...interface{}) error {
 		_, err := fmt.Fprintf(w, format, args...)
@@ -540,9 +573,6 @@ func writeRootInfoPositionText(w io.Writer, nearest *rootInfoNearestColumn) erro
 		return err
 	}
 	if err := write("  root_id: %s\n", displayValue(nearest.RootID)); err != nil {
-		return err
-	}
-	if err := write("  side: %s\n", displayValue(nearest.Side)); err != nil {
 		return err
 	}
 	return write("  distance: %.3f\n", nearest.Distance)

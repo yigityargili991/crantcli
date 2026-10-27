@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"crantcli/internal/ask"
 	"crantcli/internal/cave"
@@ -34,13 +32,13 @@ const doctorSmokeSupervoxelID uint64 = 73466068970462772
 // clients, cache path, model file) is replaceable, so the report can be
 // exercised without network access or user configuration.
 var (
-	doctorLookupSeaTableToken   = lookupSeaTableToken
+	doctorLookupSeaTableToken   = config.LookupAPIToken
 	doctorLookupCAVEToken       = config.LookupCAVEToken
 	doctorLookupCAVEGlobalToken = config.LookupCAVEGlobalToken
 	doctorReadDefaultState      = nglstate.ReadDefaultState
 	doctorNewSeaTableClient     = seatable.NewClient
 	doctorNewCAVEClient         = func() (doctorCAVEClient, error) { return cave.NewClient() }
-	doctorCacheDir              = os.UserCacheDir
+	doctorCacheDir              = askCacheDir
 	doctorStat                  = os.Stat
 	doctorCurrentModel          = func() ask.Model { return ask.CurrentModel }
 )
@@ -48,26 +46,6 @@ var (
 // doctorCAVEClient is the part of the CAVE client the online check uses.
 type doctorCAVEClient interface {
 	GetRootID(supervoxelID uint64) (uint64, error)
-}
-
-// lookupSeaTableToken reports whether a SeaTable token is configured and a
-// human-readable source, never the token itself. It mirrors the precedence
-// GetAPIToken uses: credential store, CRANTTABLE_TOKEN, CRANTTABLE_TOKEN_FILE.
-func lookupSeaTableToken() (token, source string) {
-	token = config.GetAPIToken()
-	if token == "" {
-		return "", ""
-	}
-	switch {
-	case config.ReadStoredToken() != "":
-		return token, "credential store"
-	case strings.TrimSpace(os.Getenv("CRANTTABLE_TOKEN")) != "":
-		return token, "environment (CRANTTABLE_TOKEN)"
-	default:
-		// GetAPIToken found the token here, so CRANTTABLE_TOKEN_FILE is set
-		// to a readable file.
-		return token, "file (CRANTTABLE_TOKEN_FILE)"
-	}
 }
 
 // doctorCheck is one line of the doctor report.
@@ -118,11 +96,14 @@ error.
 
 By default doctor only inspects local configuration. With --online it also
 checks that the configured SeaTable token exchanges for a session and that
-CAVE answers a root lookup, which requires network access.
+CAVE answers a root lookup, which requires network access. Without a CAVE
+token the CAVE online check reports an info line instead of failing.
 
 The exit status is nonzero when a required check fails, such as a missing
-SeaTable token or a custom default state that is not a JSON object. Missing
-optional credentials and the ask model only produce warnings or info lines.`,
+SeaTable token. Missing optional credentials and the ask model only produce
+warnings or info lines. A custom default state that cannot be read or is not a
+JSON object only produces a warning: crantcli ignores it and uses the built-in
+template.`,
 	Example: `  # Check the local configuration
   crantcli doctor
 
@@ -197,10 +178,11 @@ func doctorGlobalCAVETokenCheck() (status, subject, detail string) {
 
 func doctorDefaultStateCheck() (status, subject, detail string) {
 	const name = "default Neuroglancer state"
+	const ignored = "; crantcli ignores it and uses the built-in template"
 
 	data, err := doctorReadDefaultState()
 	if err != nil {
-		return doctorStatusError, name, "could not read the custom default state: " + err.Error()
+		return doctorStatusWarn, name, "could not read the custom default state" + ignored + ": " + err.Error()
 	}
 	if data == nil {
 		return doctorStatusOK, name, "built-in template"
@@ -208,10 +190,10 @@ func doctorDefaultStateCheck() (status, subject, detail string) {
 
 	var state map[string]json.RawMessage
 	if err := json.Unmarshal(data, &state); err != nil {
-		return doctorStatusError, name, "custom default state is not a JSON object: " + err.Error()
+		return doctorStatusWarn, name, "custom default state is not a JSON object" + ignored + ": " + err.Error()
 	}
 	if state == nil {
-		return doctorStatusError, name, "custom default state is not a JSON object"
+		return doctorStatusWarn, name, "custom default state is not a JSON object" + ignored
 	}
 	return doctorStatusOK, name, "custom"
 }
@@ -219,12 +201,22 @@ func doctorDefaultStateCheck() (status, subject, detail string) {
 func doctorAskModelCheck() (status, subject, detail string) {
 	const name = "ask model"
 
+	if custom := os.Getenv("CRANTCLI_ASK_MODEL"); custom != "" {
+		if _, err := doctorStat(custom); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return doctorStatusWarn, name, "CRANTCLI_ASK_MODEL points to a missing file: " + custom
+			}
+			return doctorStatusWarn, name, "could not check the custom model: " + err.Error()
+		}
+		return doctorStatusOK, name, "custom model (CRANTCLI_ASK_MODEL): " + custom
+	}
+
 	cacheDir, err := doctorCacheDir()
 	if err != nil {
 		return doctorStatusWarn, name, "could not find the user cache directory: " + err.Error()
 	}
 	model := doctorCurrentModel()
-	modelPath := ask.ModelPath(filepath.Join(cacheDir, "crantcli", "ask"), model)
+	modelPath := ask.ModelPath(askModelDir(cacheDir), model)
 	if _, err := doctorStat(modelPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return doctorStatusInfo, name,
@@ -247,6 +239,11 @@ func doctorSeaTableOnlineCheck() (status, subject, detail string) {
 func doctorCAVEOnlineCheck() (status, subject, detail string) {
 	const name = "CAVE connection"
 
+	// The CAVE token is optional, so --online must not fail without it; the
+	// local CAVE token check already warns about the missing token.
+	if token, _ := doctorLookupCAVEToken(); token == "" {
+		return doctorStatusInfo, name, "skipped; no CAVE token configured"
+	}
 	client, err := doctorNewCAVEClient()
 	if err != nil {
 		return doctorStatusError, name, "could not create the CAVE client: " + err.Error()

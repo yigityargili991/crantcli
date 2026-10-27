@@ -59,29 +59,6 @@ func TestRootInfoArgsRequiresExactlyOne(t *testing.T) {
 	}
 }
 
-func TestRunRootInfoPositionRejectsInvalidCoordinates(t *testing.T) {
-	for _, pos := range []string{
-		"1,2,nan",
-		"1,NaN,3",
-		"1,Inf,3",
-		"-Inf,2,3",
-		"1,2",
-		"1,2,3,4",
-		"a,b,c",
-	} {
-		t.Run(pos, func(t *testing.T) {
-			var out bytes.Buffer
-			err := runRootInfo(&out, &fakeRootInfoDataSource{}, nil, "", rootInfoOptions{Pos: pos})
-			if err == nil || !strings.Contains(err.Error(), "invalid --pos format") {
-				t.Fatalf("runRootInfo(--pos %q) error = %v, want invalid --pos format", pos, err)
-			}
-			if out.Len() != 0 {
-				t.Fatalf("runRootInfo(--pos %q) wrote output: %q", pos, out.String())
-			}
-		})
-	}
-}
-
 func positionTestDataSource() *fakeRootInfoDataSource {
 	return &fakeRootInfoDataSource{
 		regionOpts: map[string]string{"CX": "1", "LX": "2"},
@@ -94,14 +71,13 @@ func positionTestDataSource() *fakeRootInfoDataSource {
 
 func TestRunRootInfoPositionText(t *testing.T) {
 	var out bytes.Buffer
-	if err := runRootInfo(&out, positionTestDataSource(), nil, "", rootInfoOptions{Pos: "100.5,200.3,300.1"}); err != nil {
-		t.Fatalf("runRootInfo(--pos) error = %v", err)
+	if err := runRootInfoPosition(&out, positionTestDataSource(), 100.5, 200.3, 300.1, rootInfoOptions{}); err != nil {
+		t.Fatalf("runRootInfoPosition error = %v", err)
 	}
 
 	want := "nearest_column\n" +
 		"  region: CX\n" +
 		"  root_id: 222\n" +
-		"  side: left\n" +
 		"  distance: 0.000\n"
 	if got := out.String(); got != want {
 		t.Fatalf("--pos text output = %q, want %q", got, want)
@@ -113,15 +89,14 @@ func TestRunRootInfoPositionText(t *testing.T) {
 
 func TestRunRootInfoPositionJSON(t *testing.T) {
 	var out bytes.Buffer
-	if err := runRootInfo(&out, positionTestDataSource(), nil, "", rootInfoOptions{Pos: "100.5,200.3,300.1", JSON: true}); err != nil {
-		t.Fatalf("runRootInfo(--pos --json) error = %v", err)
+	if err := runRootInfoPosition(&out, positionTestDataSource(), 100.5, 200.3, 300.1, rootInfoOptions{JSON: true}); err != nil {
+		t.Fatalf("runRootInfoPosition error = %v", err)
 	}
 
 	want := `{
   "nearest_column": {
     "region": "CX",
     "root_id": "222",
-    "side": "left",
     "distance": 0
   }
 }
@@ -141,16 +116,250 @@ func TestRunRootInfoPositionJSON(t *testing.T) {
 	if err := json.Unmarshal(fields["nearest_column"], &nearest); err != nil {
 		t.Fatalf("decoding nearest_column: %v", err)
 	}
-	if _, ok := nearest["side_relation"]; ok {
-		t.Fatalf("--pos JSON has a side relation: %s", out.String())
+	for _, field := range []string{"side", "side_relation"} {
+		if _, ok := nearest[field]; ok {
+			t.Fatalf("--pos JSON has %q: %s", field, out.String())
+		}
+	}
+}
+
+// Position rows store side as a SeaTable select-option ID; the standalone --pos
+// output omits it because the retired lookup-column printed only region and
+// root_id, and --pos has no side relation.
+func TestRunRootInfoPositionOmitsRawSideID(t *testing.T) {
+	data := &fakeRootInfoDataSource{
+		regionOpts: map[string]string{"CX": "1"},
+		positions: []seatable.NeuronPositionRow{
+			{RootID: "222", Region: "CX", Side: "553927", X: 1, Y: 2, Z: 3, PositionSet: true},
+		},
+	}
+
+	wantText := "nearest_column\n" +
+		"  region: CX\n" +
+		"  root_id: 222\n" +
+		"  distance: 0.000\n"
+	var out bytes.Buffer
+	if err := runRootInfoPosition(&out, data, 1, 2, 3, rootInfoOptions{}); err != nil {
+		t.Fatalf("runRootInfoPosition error = %v", err)
+	}
+	if got := out.String(); got != wantText {
+		t.Fatalf("--pos text output = %q, want %q", got, wantText)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := runRootInfoPosition(&jsonOut, data, 1, 2, 3, rootInfoOptions{JSON: true}); err != nil {
+		t.Fatalf("runRootInfoPosition --json error = %v", err)
+	}
+	if strings.Contains(jsonOut.String(), "553927") {
+		t.Fatalf("--pos JSON leaks the raw side ID: %s", jsonOut.String())
+	}
+	if strings.Contains(jsonOut.String(), `"side"`) {
+		t.Fatalf("--pos JSON has a side field: %s", jsonOut.String())
 	}
 }
 
 func TestRunRootInfoPositionReportsMissingCandidates(t *testing.T) {
 	data := &fakeRootInfoDataSource{regionOpts: map[string]string{}}
 	var out bytes.Buffer
-	err := runRootInfo(&out, data, nil, "", rootInfoOptions{Pos: "1,2,3"})
+	err := runRootInfoPosition(&out, data, 1, 2, 3, rootInfoOptions{})
 	if err == nil || !strings.Contains(err.Error(), "no EPG/PEG neurons found") {
-		t.Fatalf("runRootInfo(--pos) error = %v, want missing candidates", err)
+		t.Fatalf("runRootInfoPosition error = %v, want missing candidates", err)
+	}
+}
+
+// rootInfoCLIStubs counts how often the command factories run, so tests can
+// assert which clients a mode creates.
+type rootInfoCLIStubs struct {
+	dataCalls int
+	caveCalls int
+}
+
+// stubRootInfoCommandClients replaces the root-info client factories and token
+// lookup for one CLI-level test, and restores them afterwards.
+func stubRootInfoCommandClients(t *testing.T, data rootInfoDataSource) *rootInfoCLIStubs {
+	t.Helper()
+
+	stubs := &rootInfoCLIStubs{}
+	previousDataSource := rootInfoNewDataSource
+	previousCAVE := rootInfoNewCAVEClient
+	previousGetAPIToken := getAPIToken
+	t.Cleanup(func() {
+		rootInfoNewDataSource = previousDataSource
+		rootInfoNewCAVEClient = previousCAVE
+		getAPIToken = previousGetAPIToken
+	})
+
+	getAPIToken = func() string { return "test-token" }
+	rootInfoNewDataSource = func() (rootInfoDataSource, error) {
+		stubs.dataCalls++
+		return data, nil
+	}
+	rootInfoNewCAVEClient = func() (rootInfoCaveClient, error) {
+		stubs.caveCalls++
+		return &fakeRootInfoCaveClient{}, nil
+	}
+	return stubs
+}
+
+// runRootInfoForTest runs the registered root-info command with clean flags.
+func runRootInfoForTest(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	resetCommandFlags(rootInfoCmd)
+	t.Cleanup(func() { resetCommandFlags(rootInfoCmd) })
+	return executeRootForTest(t, append([]string{"root-info"}, args...)...)
+}
+
+func TestRootInfoCommandPositionText(t *testing.T) {
+	stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+	out, _, err := runRootInfoForTest(t, "--pos", "100.5,200.3,300.1")
+	if err != nil {
+		t.Fatalf("root-info --pos error = %v", err)
+	}
+
+	want := "nearest_column\n" +
+		"  region: CX\n" +
+		"  root_id: 222\n" +
+		"  distance: 0.000\n"
+	if out != want {
+		t.Fatalf("root-info --pos output = %q, want %q", out, want)
+	}
+	if stubs.dataCalls != 1 {
+		t.Fatalf("data source factory calls = %d, want 1", stubs.dataCalls)
+	}
+	if stubs.caveCalls != 0 {
+		t.Fatalf("CAVE client factory calls = %d, want 0 for --pos", stubs.caveCalls)
+	}
+}
+
+func TestRootInfoCommandPositionJSON(t *testing.T) {
+	stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+	out, _, err := runRootInfoForTest(t, "--pos", "100.5,200.3,300.1", "--json")
+	if err != nil {
+		t.Fatalf("root-info --pos --json error = %v", err)
+	}
+
+	want := `{
+  "nearest_column": {
+    "region": "CX",
+    "root_id": "222",
+    "distance": 0
+  }
+}
+`
+	if out != want {
+		t.Fatalf("root-info --pos --json output = %q, want %q", out, want)
+	}
+	if stubs.caveCalls != 0 {
+		t.Fatalf("CAVE client factory calls = %d, want 0 for --pos --json", stubs.caveCalls)
+	}
+}
+
+func TestRootInfoCommandPositionInvalidFailsBeforeClients(t *testing.T) {
+	stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+	for _, pos := range []string{"1,2,nan", "1,2", "a,b,c"} {
+		t.Run(pos, func(t *testing.T) {
+			out, _, err := runRootInfoForTest(t, "--pos", pos)
+			if err == nil || !strings.Contains(err.Error(), "invalid --pos format") {
+				t.Fatalf("root-info --pos %q error = %v, want invalid --pos format", pos, err)
+			}
+			if out != "" {
+				t.Fatalf("root-info --pos %q wrote output: %q", pos, out)
+			}
+		})
+	}
+	if stubs.dataCalls != 0 || stubs.caveCalls != 0 {
+		t.Fatalf("invalid --pos created clients: data=%d cave=%d", stubs.dataCalls, stubs.caveCalls)
+	}
+}
+
+func TestRootInfoCommandPositionRejectsEmpty(t *testing.T) {
+	stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+	for _, args := range [][]string{{"--pos", ""}, {"--pos="}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			out, _, err := runRootInfoForTest(t, args...)
+			if err == nil || !strings.Contains(err.Error(), "--pos requires a position as x,y,z") {
+				t.Fatalf("root-info %v error = %v, want clear --pos error", args, err)
+			}
+			if out != "" {
+				t.Fatalf("root-info %v wrote output: %q", args, out)
+			}
+		})
+	}
+	if stubs.dataCalls != 0 || stubs.caveCalls != 0 {
+		t.Fatalf("empty --pos created clients: data=%d cave=%d", stubs.dataCalls, stubs.caveCalls)
+	}
+}
+
+func TestRootInfoCommandRejectsArgumentWithPosition(t *testing.T) {
+	stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+	_, _, err := runRootInfoForTest(t, "111", "--pos", "1,2,3")
+	if err == nil || !strings.Contains(err.Error(), "cannot combine root_id argument with --pos flag") {
+		t.Fatalf("root-info 111 --pos error = %v, want combination error", err)
+	}
+	if stubs.dataCalls != 0 || stubs.caveCalls != 0 {
+		t.Fatalf("combined root_id and --pos created clients: data=%d cave=%d", stubs.dataCalls, stubs.caveCalls)
+	}
+}
+
+func TestRootInfoCommandPositionRejectsRootIDOnlyFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "history-limit",
+			args:    []string{"--pos", "1,2,3", "--history-limit=-1"},
+			wantErr: "cannot combine --pos with --history-limit",
+		},
+		{
+			name:    "unfiltered",
+			args:    []string{"--pos", "1,2,3", "--unfiltered"},
+			wantErr: "cannot combine --pos with --unfiltered",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+			_, _, err := runRootInfoForTest(t, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("root-info %v error = %v, want %q", tt.args, err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "--history-limit must be >= 0") {
+				t.Fatalf("root-info %v hit the root-ID-only history check: %v", tt.args, err)
+			}
+			if stubs.dataCalls != 0 || stubs.caveCalls != 0 {
+				t.Fatalf("root-info %v created clients: data=%d cave=%d", tt.args, stubs.dataCalls, stubs.caveCalls)
+			}
+		})
+	}
+}
+
+func TestRootInfoCommandRootIDCreatesCAVEClient(t *testing.T) {
+	data := &fakeRootInfoDataSource{
+		row: &seatable.NeuronInfoRow{RootID: "111", ExtraFields: map[string]string{}},
+	}
+	stubs := stubRootInfoCommandClients(t, data)
+	out, _, err := runRootInfoForTest(t, "111")
+	if err != nil {
+		t.Fatalf("root-info 111 error = %v", err)
+	}
+	if !strings.Contains(out, "root_id: 111") {
+		t.Fatalf("root-info 111 output = %q, want root_id", out)
+	}
+	if stubs.dataCalls != 1 || stubs.caveCalls != 1 {
+		t.Fatalf("root-ID mode factory calls = data %d cave %d, want 1 and 1", stubs.dataCalls, stubs.caveCalls)
+	}
+}
+
+func TestRootInfoCommandRejectsNegativeHistoryLimit(t *testing.T) {
+	stubs := stubRootInfoCommandClients(t, positionTestDataSource())
+	_, _, err := runRootInfoForTest(t, "111", "--history-limit=-1")
+	if err == nil || !strings.Contains(err.Error(), "--history-limit must be >= 0") {
+		t.Fatalf("root-info 111 --history-limit=-1 error = %v, want negative limit error", err)
+	}
+	if stubs.dataCalls != 0 || stubs.caveCalls != 0 {
+		t.Fatalf("negative --history-limit created clients: data=%d cave=%d", stubs.dataCalls, stubs.caveCalls)
 	}
 }

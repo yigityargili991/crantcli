@@ -433,24 +433,34 @@ func readRawTokenAtPath(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// GetAPIToken retrieves the SeaTable API token from one of several sources.
-// It checks sources in the following precedence order:
+// GetAPIToken retrieves the SeaTable API token. See LookupAPIToken for the
+// sources it checks.
+func GetAPIToken() string {
+	token, _ := LookupAPIToken()
+	return token
+}
+
+// LookupAPIToken is GetAPIToken that also returns where the token came from,
+// named as the variable that supplied it ("CRANTTABLE_TOKEN" or
+// "CRANTTABLE_TOKEN_FILE") or as storedCredentialSource, so a message can say
+// where a token came from without showing it. It checks sources in the
+// following precedence order:
 //  1. System credential store (with migration from older credential files)
 //  2. CRANTTABLE_TOKEN environment variable
 //  3. CRANTTABLE_TOKEN_FILE environment variable (path to a file containing the token)
-//
-// Returns an empty string if no token is found from any source.
-func GetAPIToken() string {
+func LookupAPIToken() (token, source string) {
 	if token := ReadStoredToken(); token != "" {
-		return token
+		return token, storedCredentialSource
 	}
 	if token := strings.TrimSpace(os.Getenv("CRANTTABLE_TOKEN")); token != "" {
-		return token
+		return token, "CRANTTABLE_TOKEN"
 	}
 	if path := os.Getenv("CRANTTABLE_TOKEN_FILE"); path != "" {
-		return readTokenFile(path)
+		if token := readTokenFile(path); token != "" {
+			return token, "CRANTTABLE_TOKEN_FILE"
+		}
 	}
-	return ""
+	return "", ""
 }
 
 func caveCredentialFilePathForDir(configDir string) string {

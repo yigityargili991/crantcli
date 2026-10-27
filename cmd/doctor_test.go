@@ -49,7 +49,7 @@ func newDoctorTestState(t *testing.T) *doctorTestState {
 	t.Helper()
 	return &doctorTestState{
 		seaTableToken:  "seatable-token-value",
-		seaTableSource: "environment (CRANTTABLE_TOKEN)",
+		seaTableSource: "CRANTTABLE_TOKEN",
 		caveToken:      "cave-token-value",
 		caveSource:     "CAVE_TOKEN",
 		globalToken:    "global-cave-token-value",
@@ -63,6 +63,7 @@ func newDoctorTestState(t *testing.T) *doctorTestState {
 // install replaces every doctor seam for the duration of the test.
 func (s *doctorTestState) install(t *testing.T) {
 	t.Helper()
+	t.Setenv("CRANTCLI_ASK_MODEL", "")
 	previousSeaTable := doctorLookupSeaTableToken
 	previousCAVE := doctorLookupCAVEToken
 	previousGlobal := doctorLookupCAVEGlobalToken
@@ -144,7 +145,7 @@ func TestDoctorAllConfiguredOffline(t *testing.T) {
 	}
 	report := out.String()
 	for _, want := range []string{
-		"ok    SeaTable token: configured (source: environment (CRANTTABLE_TOKEN))",
+		"ok    SeaTable token: configured (source: CRANTTABLE_TOKEN)",
 		"ok    CAVE token: configured (source: CAVE_TOKEN)",
 		"ok    global CAVE token: configured (source: CAVE_GLOBAL_TOKEN)",
 		"ok    default Neuroglancer state: built-in template",
@@ -155,7 +156,7 @@ func TestDoctorAllConfiguredOffline(t *testing.T) {
 			t.Errorf("report missing %q:\n%s", want, report)
 		}
 	}
-	wantPath := filepath.Join(state.cacheDir, "crantcli", "ask", state.model.File)
+	wantPath := filepath.Join(askModelDir(state.cacheDir), state.model.File)
 	if state.statPath != wantPath {
 		t.Errorf("checked model path = %q, want %q", state.statPath, wantPath)
 	}
@@ -229,7 +230,9 @@ func TestDoctorCustomDefaultStateValid(t *testing.T) {
 	}
 }
 
-func TestDoctorInvalidDefaultStateFails(t *testing.T) {
+// TestDoctorInvalidDefaultStateWarns covers the invalid custom states
+// nglstate.LoadState silently ignores: they must not fail doctor.
+func TestDoctorInvalidDefaultStateWarns(t *testing.T) {
 	tests := []struct {
 		name  string
 		state []byte
@@ -238,6 +241,7 @@ func TestDoctorInvalidDefaultStateFails(t *testing.T) {
 		{"array", []byte(`[]`)},
 		{"null", []byte("null")},
 		{"string", []byte(`"state"`)},
+		{"empty file", []byte{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -246,34 +250,41 @@ func TestDoctorInvalidDefaultStateFails(t *testing.T) {
 			state.install(t)
 
 			var out bytes.Buffer
-			err := runDoctor(&out, false)
-			if err == nil {
-				t.Fatalf("expected an error for an invalid default state\nreport:\n%s", out.String())
+			if err := runDoctor(&out, false); err != nil {
+				t.Fatalf("an invalid custom default state should only warn: %v\nreport:\n%s", err, out.String())
 			}
 			report := out.String()
-			if !strings.Contains(report, "error default Neuroglancer state") {
-				t.Errorf("report missing default-state error line:\n%s", report)
+			if !strings.Contains(report, "warn  default Neuroglancer state") {
+				t.Errorf("report missing default-state warning line:\n%s", report)
 			}
-			if !strings.Contains(report, "not a JSON object") {
-				t.Errorf("report does not explain the invalid state:\n%s", report)
+			if !strings.Contains(report, "ignores it and uses the built-in template") {
+				t.Errorf("report does not explain the fallback:\n%s", report)
+			}
+			if strings.Contains(report, "error ") {
+				t.Errorf("invalid default state produced an error line:\n%s", report)
 			}
 		})
 	}
 }
 
-func TestDoctorDefaultStateReadErrorFails(t *testing.T) {
+func TestDoctorDefaultStateReadErrorWarns(t *testing.T) {
 	state := newDoctorTestState(t)
 	state.defaultStateErr = errors.New("permission denied")
 	state.install(t)
 
 	var out bytes.Buffer
-	err := runDoctor(&out, false)
-	if err == nil {
-		t.Fatalf("expected an error for an unreadable default state\nreport:\n%s", out.String())
+	if err := runDoctor(&out, false); err != nil {
+		t.Fatalf("an unreadable custom default state should only warn: %v\nreport:\n%s", err, out.String())
 	}
 	report := out.String()
-	if !strings.Contains(report, "error default Neuroglancer state: could not read") {
-		t.Errorf("report missing read-error line:\n%s", report)
+	if !strings.Contains(report, "warn  default Neuroglancer state: could not read the custom default state") {
+		t.Errorf("report missing read-warning line:\n%s", report)
+	}
+	if !strings.Contains(report, "ignores it and uses the built-in template") {
+		t.Errorf("report does not explain the fallback:\n%s", report)
+	}
+	if strings.Contains(report, "error ") {
+		t.Errorf("unreadable default state produced an error line:\n%s", report)
 	}
 }
 
@@ -288,6 +299,62 @@ func TestDoctorAskModelCacheDirErrorIsWarnOnly(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "warn  ask model: could not find the user cache directory") {
 		t.Errorf("report missing ask-model warning:\n%s", out.String())
+	}
+}
+
+func TestDoctorAskModelFromEnv(t *testing.T) {
+	t.Run("present", func(t *testing.T) {
+		state := newDoctorTestState(t)
+		state.cacheDirErr = errors.New("no cache directory")
+		state.install(t)
+		doctorStat = os.Stat
+
+		modelPath := filepath.Join(t.TempDir(), "custom-model.gguf")
+		if err := os.WriteFile(modelPath, []byte("gguf"), 0o600); err != nil {
+			t.Fatalf("write custom model: %v", err)
+		}
+		t.Setenv("CRANTCLI_ASK_MODEL", modelPath)
+
+		var out bytes.Buffer
+		if err := runDoctor(&out, false); err != nil {
+			t.Fatalf("a configured custom model should not fail: %v\nreport:\n%s", err, out.String())
+		}
+		report := out.String()
+		if want := "ok    ask model: custom model (CRANTCLI_ASK_MODEL): " + modelPath; !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+		if strings.Contains(report, "could not find the user cache directory") {
+			t.Errorf("a custom model should not need the cache directory:\n%s", report)
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		state := newDoctorTestState(t)
+		state.install(t)
+		doctorStat = os.Stat
+
+		modelPath := filepath.Join(t.TempDir(), "missing-model.gguf")
+		t.Setenv("CRANTCLI_ASK_MODEL", modelPath)
+
+		var out bytes.Buffer
+		if err := runDoctor(&out, false); err != nil {
+			t.Fatalf("a missing custom model should only warn: %v\nreport:\n%s", err, out.String())
+		}
+		report := out.String()
+		if want := "warn  ask model: CRANTCLI_ASK_MODEL points to a missing file: " + modelPath; !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+		if strings.Contains(report, "error ") {
+			t.Errorf("missing custom model produced an error line:\n%s", report)
+		}
+	})
+}
+
+func TestAskModelDir(t *testing.T) {
+	cacheRoot := t.TempDir()
+	want := filepath.Join(cacheRoot, "crantcli", "ask")
+	if got := askModelDir(cacheRoot); got != want {
+		t.Fatalf("askModelDir(%q) = %q, want %q", cacheRoot, got, want)
 	}
 }
 
@@ -352,6 +419,34 @@ func TestDoctorOnlineCAVERootLookupFailure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "error CAVE connection: root lookup failed: lookup failed") {
 		t.Errorf("report missing CAVE lookup error line:\n%s", out.String())
+	}
+}
+
+func TestDoctorOnlineWithoutCAVETokenSkipsCheck(t *testing.T) {
+	state := newDoctorTestState(t)
+	state.caveToken = ""
+	state.caveSource = ""
+	state.install(t)
+	doctorNewCAVEClient = func() (doctorCAVEClient, error) {
+		t.Error("CAVE client must not be created without a CAVE token")
+		return nil, errors.New("unexpected CAVE client")
+	}
+
+	var out bytes.Buffer
+	if err := runDoctor(&out, true); err != nil {
+		t.Fatalf("a missing optional CAVE token must not fail --online: %v\nreport:\n%s", err, out.String())
+	}
+	report := out.String()
+	for _, want := range []string{
+		"ok    SeaTable connection: token exchange succeeded",
+		"info  CAVE connection: skipped; no CAVE token configured",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "error ") {
+		t.Errorf("missing optional CAVE token produced an error line:\n%s", report)
 	}
 }
 

@@ -1951,6 +1951,24 @@ func TestAddClipboardIDsInjectsIntoState(t *testing.T) {
 			t.Fatalf("segments = %#v, want the clipboard IDs replacing the existing list: %#v", got, want)
 		}
 	})
+
+	t.Run("accepts production-shaped uint64 root IDs", func(t *testing.T) {
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) {
+			return "720575940610453042, 720575940379280858\n720575940610453042\t18446744073709551615", nil
+		}
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		want := []interface{}{"720575940610453042", "720575940379280858", "18446744073709551615"}
+		if got := run.layer["segments"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("segments = %#v, want the deduped clipboard root IDs: %#v", got, want)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+	})
 }
 
 func TestAddClipboardIDsClipboardFailures(t *testing.T) {
@@ -1988,6 +2006,54 @@ func TestAddClipboardIDsClipboardFailures(t *testing.T) {
 			}
 			if run.loaded {
 				t.Fatal("no state should be loaded when the clipboard yields no IDs")
+			}
+		})
+	}
+}
+
+// TestAddClipboardIDsRejectsNonRootIDPayloads: --clipboard-ids must only inject
+// root IDs. A Neuroglancer state URL is the likely payload when add has replaced
+// the clipboard with its output URL, and any other token -- a label, scientific
+// notation -- would otherwise reach the state as a segment ID.
+func TestAddClipboardIDsRejectsNonRootIDPayloads(t *testing.T) {
+	tests := []struct {
+		name      string
+		clip      string
+		wantError string
+	}{
+		{
+			name:      "Neuroglancer state URL",
+			clip:      `https://spelunker.cave-explorer.org/#!{"layers":[]}`,
+			wantError: "clipboard holds a Neuroglancer state URL, not root IDs",
+		},
+		{
+			name:      "non-numeric token",
+			clip:      "720575940610453042 PFN",
+			wantError: `clipboard entry "PFN" is not a root ID`,
+		},
+		{
+			name:      "scientific notation",
+			clip:      "720575940610453042 1e18",
+			wantError: `clipboard entry "1e18" is not a root ID`,
+		},
+		{
+			name:      "negative number",
+			clip:      "720575940610453042 -100",
+			wantError: `clipboard entry "-100" is not a root ID`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := isolateAddClipboardRun(t)
+			addClipboardRead = func() (string, error) { return tt.clip, nil }
+
+			err := addCmd.RunE(addCmd, nil)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want it to contain %q", err, tt.wantError)
+			}
+			if run.loaded || run.delivered {
+				t.Fatal("a clipboard without root IDs should not load or deliver a state")
 			}
 		})
 	}
@@ -2151,21 +2217,4 @@ func TestAddClipboardIDsLabelsUseMetadata(t *testing.T) {
 			t.Fatal("no state should be delivered when the label lookup fails")
 		}
 	})
-}
-
-// TestStateTransferDeprecatedAndHidden completes the retirement of
-// state-transfer: --clipboard-ids on add replaces it, and the old command says
-// so while it keeps working until v0.24.0.
-func TestStateTransferDeprecatedAndHidden(t *testing.T) {
-	if !stateTransferCmd.Hidden {
-		t.Error("state-transfer must be hidden from --help")
-	}
-	if stateTransferCmd.Deprecated == "" {
-		t.Fatal("state-transfer must be deprecated")
-	}
-	for _, want := range []string{"add --clipboard-ids", "v0.24.0"} {
-		if !strings.Contains(stateTransferCmd.Deprecated, want) {
-			t.Errorf("state-transfer deprecation warning %q lacks %q", stateTransferCmd.Deprecated, want)
-		}
-	}
 }

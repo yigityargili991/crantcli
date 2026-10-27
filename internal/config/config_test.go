@@ -495,6 +495,42 @@ func TestGetAPITokenPrecedence(t *testing.T) {
 	})
 }
 
+func TestLookupAPITokenPrecedence(t *testing.T) {
+	_, backend := setupTestHome(t)
+	t.Setenv("CRANTTABLE_TOKEN", "")
+	t.Setenv("CRANTTABLE_TOKEN_FILE", "")
+
+	expect := func(wantToken, wantSource string) {
+		t.Helper()
+		if token, source := LookupAPIToken(); token != wantToken || source != wantSource {
+			t.Fatalf("LookupAPIToken() = %q, %q; want %q, %q", token, source, wantToken, wantSource)
+		}
+	}
+
+	expect("", "")
+
+	tokenFile := filepath.Join(t.TempDir(), "token-file")
+	if err := os.WriteFile(tokenFile, []byte("file-token\n"), 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
+	t.Setenv("CRANTTABLE_TOKEN_FILE", tokenFile)
+	expect("file-token", "CRANTTABLE_TOKEN_FILE")
+
+	t.Setenv("CRANTTABLE_TOKEN", "env-token")
+	expect("env-token", "CRANTTABLE_TOKEN")
+
+	if err := StoreToken("stored-token"); err != nil {
+		t.Fatalf("StoreToken: %v", err)
+	}
+	expect("stored-token", storedCredentialSource)
+	if got := backend.values[credentialKey(credentialKeyringService, seaTableCredentialAccount)]; got != "stored-token" {
+		t.Fatalf("keyring token = %q, want stored-token", got)
+	}
+	if got := GetAPIToken(); got != "stored-token" {
+		t.Fatalf("GetAPIToken() = %q, want stored-token", got)
+	}
+}
+
 func TestCAVETokenSources(t *testing.T) {
 	home, backend := setupTestHome(t)
 
@@ -766,6 +802,8 @@ func TestTokenLookupsSkipBlankValues(t *testing.T) {
 	}{
 		{"GetAPIToken", "CRANTTABLE_TOKEN", "CRANTTABLE_TOKEN_FILE", seaTableCredentialAccount,
 			func() (string, string) { return GetAPIToken(), "" }, false},
+		{"LookupAPIToken", "CRANTTABLE_TOKEN", "CRANTTABLE_TOKEN_FILE", seaTableCredentialAccount,
+			LookupAPIToken, true},
 		{"LookupCAVEToken", "CAVE_TOKEN", "CAVE_TOKEN_FILE", caveCredentialAccount, LookupCAVEToken, true},
 		{"LookupCAVEGlobalToken", "CAVE_GLOBAL_TOKEN", "CAVE_GLOBAL_TOKEN_FILE", caveGlobalCredentialAccount,
 			LookupCAVEGlobalToken, true},
