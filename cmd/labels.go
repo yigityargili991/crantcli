@@ -22,7 +22,17 @@ var labelsClean = labelhost.Clean
 var labelsCmd = &cobra.Command{
 	Use:   "labels",
 	Short: "Manage label sources created by commands using --labels",
-	Args:  cobra.NoArgs,
+	Long: `Manage label sources (gists or hook-published) that 'add --labels' and
+'cave-history --labels' created and tracked.
+
+With --clean, deletes tracked sources older than --older-than. Use --all to delete
+every tracked source regardless of age. Hook-published sources are cleaned via
+the same --labels-hook command used to create them. --all, --older-than and
+--labels-hook apply only with --clean.
+
+Note: deleting a source removes its labels from any saved/shared state that still
+references it.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clean, err := cmd.Flags().GetBool("clean")
 		if err != nil {
@@ -43,17 +53,8 @@ func init() {
 	registerCleanFlags(labelsCmd)
 
 	cleanCmd := &cobra.Command{
-		Use:   "clean",
-		Short: "Delete label sources (gists or hook-published) tracked by crantcli",
-		Long: `Delete label sources that 'add --labels' or
-'state-transfer --labels' or 'cave-history --labels' created and tracked.
-
-By default, deletes tracked sources older than --older-than. Use --all to delete
-every tracked source regardless of age. Hook-published sources are cleaned via
-the same --labels-hook command used to create them.
-
-Note: deleting a source removes its labels from any saved/shared state that still
-references it.`,
+		Use:        "clean",
+		Short:      "Delete label sources (gists or hook-published) tracked by crantcli",
 		Args:       cobra.NoArgs,
 		Hidden:     true,
 		Deprecated: "use 'labels --clean' instead; the clean subcommand will be removed in v0.24.0",

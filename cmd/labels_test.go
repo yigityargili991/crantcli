@@ -320,7 +320,7 @@ func TestLabelsBareCommandPrintsHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bare labels returned error: %v", err)
 	}
-	for _, want := range []string{"Usage:", "--clean", "--all", "--older-than", "--labels-hook"} {
+	for _, want := range []string{"Usage:", "--clean", "--all", "--older-than", "--labels-hook", "removes its labels from any saved/shared state"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("bare labels help lacks %q:\n%s", want, stdout)
 		}
