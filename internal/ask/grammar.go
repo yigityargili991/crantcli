@@ -100,6 +100,11 @@ func grammarFlags(g *gbnf, c *CmdSpec, e evidence) string {
 		if ok, gated := e.boolOK[name]; skipFlags[name] || gated && !ok {
 			continue
 		}
+		// labels rejects --all and --older-than without --clean, so they need
+		// the same evidence --clean does.
+		if c.Path == "labels" && (name == "all" || name == "older-than") && !e.boolOK["clean"] {
+			continue
+		}
 		var item string
 		switch {
 		case f.Type == "bool" && f.Default == "true":
@@ -119,6 +124,17 @@ func grammarFlags(g *gbnf, c *CmdSpec, e evidence) string {
 			}
 		}
 		items = append(items, g.rule(item))
+	}
+	// labels only cleans with --clean, so when the request asks to clean,
+	// --clean is required and the other flags stay optional.
+	if c.Path == "labels" && e.boolOK["clean"] {
+		clean := g.memo[gLit(" --clean")]
+		for i := range items {
+			if items[i] != clean {
+				items[i] += "?"
+			}
+		}
+		return strings.Join(items, " ")
 	}
 	if len(items) == 0 {
 		return ""

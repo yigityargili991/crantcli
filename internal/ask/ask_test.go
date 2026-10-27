@@ -42,6 +42,8 @@ func testSpec() []*CmdSpec {
 	lookup := &cobra.Command{Use: "lookup-column [root_id]", Run: run, Hidden: true}
 	labels := &cobra.Command{Use: "labels", Run: run}
 	labels.Flags().Bool("clean", false, "")
+	labels.Flags().Bool("all", false, "")
+	labels.Flags().Duration("older-than", 0, "")
 	// labels clean is hidden after its replacement by labels --clean.
 	clean := &cobra.Command{Use: "clean", Run: run, Hidden: true}
 	clean.Flags().Bool("all", false, "")
@@ -170,6 +172,8 @@ func TestGrammarGates(t *testing.T) {
 		{"column requests", "which column is 576460752669867599 in", []string{`"root-info"`}, []string{`"lookup-column"`, `"add"`, `"list"`}},
 		{"clean needs a word for it", "show the label sources", nil, []string{`" --clean"`}},
 		{"clean when asked", "clean up old label sources", []string{`" --clean"`}, nil},
+		{"labels --all and --older-than need a clean word", "wipe all label sources older than 24h", []string{`"labels"`}, []string{`" --all"`, `" --older-than "`}},
+		{"labels --all and --older-than when cleaning", "delete all label sources older than 24h", []string{`" --all"`, `" --older-than "`}, nil},
 		{"clipboard ids are never suggested", "show PEN neurons", nil, []string{`" --clipboard-ids"`}},
 		{"single color-by field", "show PEN colored by cell_type", []string{`"cell_type"`}, []string{`"cell_type,cell_subtype"`}},
 		{"two color-by fields", "show PEN colored by group and side", []string{`"group,side"`}, []string{`"group,cell_type"`}},

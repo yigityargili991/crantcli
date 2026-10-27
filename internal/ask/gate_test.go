@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +98,70 @@ func TestGrammarDefaultTrueBool(t *testing.T) {
 	spec := []*CmdSpec{{Path: "add", Flags: []FlagSpec{{Name: "labels", Type: "bool", Default: "true"}}}}
 	if g := grammar(spec, testVocab(), "add things"); !strings.Contains(g, `" --labels=false"`) {
 		t.Errorf("grammar lacks --labels=false: %s", g)
+	}
+}
+
+func TestGrammarCleanGateIsLabelsOnly(t *testing.T) {
+	spec := []*CmdSpec{{Path: "check-cave", Flags: []FlagSpec{{Name: "all", Type: "bool", Default: "false"}}}}
+	if g := grammar(spec, testVocab(), "check every neuron"); !strings.Contains(g, `" --all"`) {
+		t.Errorf("grammar lacks --all for check-cave: %s", g)
+	}
+}
+
+// grammarRegexp turns a grammar from grammar() into an anchored regexp by
+// inlining its rules, which works because no rule refers to itself.
+func grammarRegexp(g string) *regexp.Regexp {
+	rules := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(g), "\n") {
+		name, body, _ := strings.Cut(line, " ::= ")
+		rules[name] = body
+	}
+	tok := regexp.MustCompile(`"(?:\\.|[^"\\])*"|\{\d+,\d+\}|\w+|\S`)
+	var expand func(string) string
+	expand = func(body string) string {
+		var b strings.Builder
+		for _, s := range tok.FindAllString(body, -1) {
+			switch lit, err := strconv.Unquote(s); {
+			case err == nil:
+				b.WriteString(regexp.QuoteMeta(lit))
+			case s == "(":
+				b.WriteString("(?:")
+			case rules[s] != "":
+				b.WriteString("(?:" + expand(rules[s]) + ")")
+			default:
+				b.WriteString(s)
+			}
+		}
+		return b.String()
+	}
+	return regexp.MustCompile("^(?:" + expand(rules["root"]) + ")$")
+}
+
+func TestGrammarLabelsNeedsClean(t *testing.T) {
+	spec, v := testSpec(), testVocab()
+	tests := []struct {
+		q              string
+		accept, reject []string
+	}{
+		{"delete label sources older than 24h",
+			[]string{" labels --clean", " labels --all --clean", " labels --clean --older-than 24h", " labels --all --clean --older-than 24h"},
+			[]string{" labels", " labels --all", " labels --older-than 24h", " labels --all --older-than 24h"}},
+		{"wipe label sources older than 24h",
+			[]string{" labels"},
+			[]string{" labels --clean", " labels --all", " labels --older-than 24h"}},
+	}
+	for _, tt := range tests {
+		re := grammarRegexp(grammar(spec, v, tt.q))
+		for _, line := range tt.accept {
+			if !re.MatchString(line) {
+				t.Errorf("grammar for %q rejects %q", tt.q, line)
+			}
+		}
+		for _, line := range tt.reject {
+			if re.MatchString(line) {
+				t.Errorf("grammar for %q accepts %q", tt.q, line)
+			}
+		}
 	}
 }
 
