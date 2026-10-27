@@ -15,7 +15,8 @@
 - Print the embedded default scene with `crantcli change-def-state --builtin`,
   which replaces `generate`.
 - Delete tracked label sources with `crantcli labels --clean`, which replaces
-  `labels clean`.
+  `labels clean`. `--all`, `--older-than`, and `--labels-hook` work only with
+  `--clean`.
 - Run `crantcli doctor` to report the configured token sources, the
   default-state source, and the ask model, and with `--online` to check
   SeaTable and CAVE reachability. It prints no token values.
@@ -31,6 +32,9 @@
   still run but are hidden from `--help`, and they will be removed in v0.24.0.
   Deprecated `state-transfer` keeps its old behavior: it always replaces the
   layer's segments and writes a URL to the clipboard without `--output`.
+- Stop `ask` from suggesting label cleanup unless the request says clean,
+  delete, remove, or prune. Its cleanup suggestions always include `--clean`,
+  which `labels` needs before `--all` or `--older-than`.
 
 ## v0.22.3 - 2026-10-22
 

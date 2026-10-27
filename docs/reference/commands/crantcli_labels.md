@@ -2,6 +2,19 @@
 
 Manage label sources created by commands using --labels
 
+## Synopsis
+
+Manage label sources (gists or hook-published) that 'add --labels' and
+'cave-history --labels' created and tracked.
+
+With --clean, deletes tracked sources older than --older-than. Use --all to delete
+every tracked source regardless of age. Hook-published sources are cleaned via
+the same --labels-hook command used to create them. --all, --older-than and
+--labels-hook apply only with --clean.
+
+Note: deleting a source removes its labels from any saved/shared state that still
+references it.
+
 ```
 crantcli labels [flags]
 ```
