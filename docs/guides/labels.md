@@ -115,6 +115,8 @@ crantcli labels --clean --all
 !!! danger "Cleanup changes saved scenes"
     Deleting a published source removes labels from every saved or shared state that still references it. Segment IDs remain, but their generated labels no longer load.
 
+    crantcli remembers the sources it deleted, so the next `add --labels` or `add --replace` run over such a state drops them from the layer instead of keeping a source that no longer loads. `add --replace` also drops the label source the built-in template ships for its own segments.
+
 ## Use a custom publisher
 
 Provide a hook command with `--labels-hook` or `CRANT_LABELS_HOOK`:

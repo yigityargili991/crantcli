@@ -70,6 +70,16 @@
   `root-info --pos` still omits both side fields.
 - `root-info --pos ""` and `--pos=` fail with
   `--pos requires a position as x,y,z` instead of a root-ID error.
+- Label sources that `labels --clean` or the `--labels-ttl` cleanup deleted no
+  longer persist in states that still reference them. crantcli remembers the
+  URLs it deleted (the newest 1,000, in
+  `~/.crantcli/label_sources_retired.json`). The next `--labels` run replaces
+  such a source instead of keeping it beside the new one, and `add --replace`
+  drops it even without `--labels`. `add --replace` also drops the label
+  source the built-in template ships for its own segments. Sources crantcli
+  never published stay, and an `add` run without `--replace` or `--labels`
+  leaves the layer's sources as they are. Sources deleted before this release
+  are not remembered.
 
 ## v0.22.3 - 2026-10-22
 
