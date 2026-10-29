@@ -419,6 +419,9 @@ func deliverAddState(cfg *addRunConfig, results *addRunResults) error {
 	}
 
 	nglstate.AddSegments(layer, results.rootIDs, addReplace)
+	if addReplace {
+		dropStaleLabelSources(os.Stderr, layer)
+	}
 
 	applyAddSegmentColors(layer, addColorPlan{
 		rootIDs:       results.rootIDs,

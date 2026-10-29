@@ -249,6 +249,58 @@ func EnsureSegmentPropertiesSource(layer map[string]interface{}, propertiesURL s
 	return nil
 }
 
+// RemoveSources drops the layer's secondary sources whose URL is listed in urls
+// and returns how many it dropped. The primary (first) source always stays, and
+// a layer with nothing to drop is left exactly as it was.
+func RemoveSources(layer map[string]interface{}, urls []string) int {
+	sources, ok := layer["source"].([]interface{})
+	if !ok || len(sources) < 2 {
+		return 0
+	}
+	drop := make(map[string]bool, len(urls))
+	for _, u := range urls {
+		if u != "" {
+			drop[u] = true
+		}
+	}
+
+	kept := make([]interface{}, 0, len(sources))
+	kept = append(kept, sources[0])
+	for _, s := range sources[1:] {
+		if !drop[sourceURL(s)] {
+			kept = append(kept, s)
+		}
+	}
+	removed := len(sources) - len(kept)
+	if removed > 0 {
+		layer["source"] = kept
+	}
+	return removed
+}
+
+// secondarySourceURLs lists the URLs of the sources after the first on every
+// segmentation layer of state.
+func secondarySourceURLs(state map[string]interface{}) []string {
+	layers, _ := state["layers"].([]interface{})
+	var urls []string
+	for _, l := range layers {
+		layer, ok := l.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if layerType, _ := layer["type"].(string); layerType != "segmentation" {
+			continue
+		}
+		sources, _ := layer["source"].([]interface{})
+		for i := 1; i < len(sources); i++ {
+			if u := sourceURL(sources[i]); u != "" {
+				urls = append(urls, u)
+			}
+		}
+	}
+	return urls
+}
+
 // sourceURL extracts the URL from a source entry (string or object form).
 func sourceURL(s interface{}) string {
 	switch v := s.(type) {

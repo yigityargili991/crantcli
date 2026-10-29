@@ -1,6 +1,8 @@
 package labelhost
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -390,5 +392,176 @@ func TestCleanAllFailuresWritesNothing(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Fatalf("manifest rewritten despite no deletions:\nbefore: %s\nafter: %s", before, after)
+	}
+}
+
+// TestCleanRetiresDeletedURLs covers both cleanup paths: only a source that was
+// actually deleted, and has a URL, moves to the retired ledger. Failed deletes
+// and fresh sources stay tracked and are not retired.
+func TestCleanRetiresDeletedURLs(t *testing.T) {
+	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name  string
+		clean func() error
+	}{
+		{"GC", func() error { return GC(time.Hour, "") }},
+		{"Clean", func() error { _, _, err := Clean(false, time.Hour, ""); return err }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			withManifest(t, base.Add(-100*time.Hour))
+			for _, id := range []string{"ok", "bad", "nourl"} {
+				url := "https://hook.example/" + id + "/|neuroglancer-precomputed:"
+				if id == "nourl" {
+					url = ""
+				}
+				if err := Record(Published{ID: id, URL: url, Kind: kindGist}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			nowFunc = func() time.Time { return base }
+			fresh := "https://hook.example/fresh/|neuroglancer-precomputed:"
+			if err := Record(Published{ID: "fresh", URL: fresh, Kind: kindGist}); err != nil {
+				t.Fatal(err)
+			}
+			stubRun(map[string]string{"bad": "HTTP 404: Not Found"})
+
+			if err := test.clean(); err != nil {
+				t.Fatal(err)
+			}
+
+			retired, err := readRetired()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []retiredEntry{{URL: "https://hook.example/ok/|neuroglancer-precomputed:", RetiredAt: base}}
+			if !reflect.DeepEqual(retired, want) {
+				t.Errorf("retired = %v, want %v", retired, want)
+			}
+			if got := RetiredURLs(); !reflect.DeepEqual(got, []string{want[0].URL}) {
+				t.Errorf("RetiredURLs = %v, want %v", got, []string{want[0].URL})
+			}
+			recorded := RecordedURLs()
+			sort.Strings(recorded)
+			if wantRecorded := []string{"https://hook.example/bad/|neuroglancer-precomputed:", fresh}; !reflect.DeepEqual(recorded, wantRecorded) {
+				t.Errorf("RecordedURLs = %v, want %v", recorded, wantRecorded)
+			}
+		})
+	}
+}
+
+// A cleanup that deletes nothing must not create the retired ledger either.
+func TestCleanWithoutDeletionsWritesNoRetiredLedger(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		record bool
+	}{
+		{name: "nothing tracked"},
+		{name: "every delete fails", record: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			withManifest(t, time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC))
+			if test.record {
+				if err := Record(Published{ID: "flaky", URL: "https://hook.example/flaky/", Kind: kindGist}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stubRun(map[string]string{"flaky": "boom"})
+
+			if _, _, err := Clean(true, time.Hour, ""); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(retiredPath()); !os.IsNotExist(err) {
+				t.Fatalf("retired ledger written by a cleanup that deleted nothing (stat err %v)", err)
+			}
+		})
+	}
+}
+
+func TestRetireKeepsNewestURLs(t *testing.T) {
+	base := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	withManifest(t, base)
+	old := make([]retiredEntry, maxRetired)
+	for i := range old {
+		old[i] = retiredEntry{URL: fmt.Sprintf("https://hook.example/old-%d/", i), RetiredAt: base.Add(-time.Hour)}
+	}
+	if err := writeList(retiredPath(), old); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retiring a URL that is already in the ledger moves it to the end rather
+	// than listing it twice; the oldest entries make room for the new ones.
+	again := old[5].URL
+	if err := retire([]entry{{URL: "https://hook.example/new/"}, {URL: again}, {URL: ""}}); err != nil {
+		t.Fatal(err)
+	}
+
+	retired, err := readRetired()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retired) != maxRetired {
+		t.Fatalf("ledger holds %d URLs, want %d", len(retired), maxRetired)
+	}
+	if got, want := retired[0].URL, old[1].URL; got != want {
+		t.Errorf("oldest kept = %q, want %q (only old-0 dropped)", got, want)
+	}
+	tail := []retiredEntry{{URL: "https://hook.example/new/", RetiredAt: base}, {URL: again, RetiredAt: base}}
+	if got := retired[len(retired)-2:]; !reflect.DeepEqual(got, tail) {
+		t.Errorf("newest = %v, want %v", got, tail)
+	}
+	for _, r := range retired[:len(retired)-2] {
+		if r.URL == again {
+			t.Fatalf("%q is listed twice", again)
+		}
+	}
+}
+
+// A hook may publish every run to the same URL. Once published again, that URL
+// is live, and the retired ledger must not make commands drop it.
+func TestRetiredURLsSkipsRepublishedURL(t *testing.T) {
+	withManifest(t, time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC))
+	url := "https://hook.example/fixed/|neuroglancer-precomputed:"
+	if err := retire([]entry{{URL: url}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := RetiredURLs(); !reflect.DeepEqual(got, []string{url}) {
+		t.Fatalf("RetiredURLs = %v, want %v", got, []string{url})
+	}
+
+	if err := Record(Published{ID: "fixed", URL: url, Kind: kindHook}); err != nil {
+		t.Fatal(err)
+	}
+	if got := RetiredURLs(); len(got) != 0 {
+		t.Fatalf("RetiredURLs = %v, want the republished URL left out", got)
+	}
+}
+
+// The sources are gone by the time the ledger is written, so failing to write
+// it warns but neither fails the cleanup nor keeps the deleted entries tracked.
+func TestCleanWarnsWhenRetiredLedgerFails(t *testing.T) {
+	withManifest(t, time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC))
+	var warnings bytes.Buffer
+	warnOut = &warnings
+	t.Cleanup(func() { warnOut = os.Stderr })
+	if err := Record(Published{ID: "ok", URL: "https://hook.example/ok/", Kind: kindGist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(retiredPath(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stubRun(nil)
+
+	deleted, kept, err := Clean(true, time.Hour, "")
+	if err != nil {
+		t.Fatalf("Clean: %v", err)
+	}
+	if deleted != 1 || kept != 0 {
+		t.Fatalf("deleted=%d kept=%d, want 1/0", deleted, kept)
+	}
+	if entries, err := readManifest(); err != nil || len(entries) != 0 {
+		t.Fatalf("manifest = %v (err %v), want the deleted entry gone", entries, err)
+	}
+	if !strings.Contains(warnings.String(), "Warning: could not record deleted label sources") {
+		t.Fatalf("warnings = %q, want the ledger failure reported", warnings.String())
 	}
 }

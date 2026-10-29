@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"crantcli/internal/clipboard"
+	"crantcli/internal/labelhost"
 	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
 	"crantcli/internal/segprops"
@@ -1125,6 +1126,191 @@ func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
 	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
 	if got := layer["source"]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("source = %#v, want %#v", got, want)
+	}
+}
+
+// TestAttachCellTypeLabels_RemovesSourceDeletedByEarlierClean covers a state
+// that outlives its label source: 'labels --clean' deletes the source and stops
+// tracking it, but a saved state or clipboard URL still carries it. The next
+// --labels run must still recognize the source as crantcli's and replace it,
+// rather than keep the dead source next to the new one.
+func TestAttachCellTypeLabels_RemovesSourceDeletedByEarlierClean(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	oldURL := "https://hook.example/old/|neuroglancer-precomputed:"
+	newURL := "https://hook.example/new/|neuroglancer-precomputed:"
+	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
+	layer := map[string]interface{}{"source": []interface{}{"graphene://x"}}
+
+	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, labelsHookScript(t, "", oldURL)); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, _, err := labelhost.Clean(true, 0, labelsHookScript(t, "", oldURL)); err != nil || deleted != 1 {
+		t.Fatalf("Clean deleted %d (err %v), want the published source deleted", deleted, err)
+	}
+	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, labelsHookScript(t, "", newURL)); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("source = %#v, want the deleted source replaced: %#v", got, want)
+	}
+}
+
+// TestAddCommandReplaceDropsDeletedLabelSources covers the --replace half of
+// the clean-then-replace flow: once 'labels --clean' has deleted a source, an
+// add --replace run drops it from the state it rewrites even without --labels,
+// and keeps sources crantcli never published. A plain append changes nothing.
+func TestAddCommandReplaceDropsDeletedLabelSources(t *testing.T) {
+	deadURL := "https://hook.example/old/|neuroglancer-precomputed:"
+	foreignURL := "https://example.org/shared/labels/|neuroglancer-precomputed:"
+	staleLayer := func() map[string]interface{} {
+		return map[string]interface{}{
+			"type": "segmentation",
+			"source": []interface{}{
+				"graphene://x",
+				map[string]interface{}{"url": deadURL},
+				map[string]interface{}{"url": foreignURL},
+			},
+			"segments": []interface{}{"7"},
+		}
+	}
+	publishThenClean := func(t *testing.T) {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		hook := labelsHookScript(t, "", deadURL)
+		scratch := map[string]interface{}{"source": "graphene://x"}
+		if err := attachCellTypeLabels(scratch, []seatable.NeuronRow{{RootID: "7", CellType: "ER"}}, segprops.DefaultOptions(), time.Hour, hook); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, _, err := labelhost.Clean(true, 0, hook); err != nil || deleted != 1 {
+			t.Fatalf("Clean deleted %d (err %v), want the published source deleted", deleted, err)
+		}
+	}
+
+	t.Run("replace drops the deleted source", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		publishThenClean(t)
+		layer := staleLayer()
+		addTestStateDeliveryFor(t, layer)
+		addReplace = true
+		addRootIDsOnly = false
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		want := []interface{}{"graphene://x", map[string]interface{}{"url": foreignURL}}
+		if got := layer["source"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("source = %#v, want %#v", got, want)
+		}
+		if got := layer["segments"]; !reflect.DeepEqual(got, []interface{}{"100"}) {
+			t.Fatalf("segments = %#v, want the queried root ID only", got)
+		}
+	})
+
+	t.Run("replace with labels swaps in the new source", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		publishThenClean(t)
+		newURL := "https://hook.example/new/|neuroglancer-precomputed:"
+		layer := staleLayer()
+		addTestStateDeliveryFor(t, layer)
+		addReplace = true
+		addLabels = true
+		addLabelsHook = labelsHookScript(t, "", newURL)
+		addRootIDsOnly = false
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		want := []interface{}{
+			"graphene://x",
+			map[string]interface{}{"url": foreignURL},
+			map[string]interface{}{"url": newURL},
+		}
+		if got := layer["source"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("source = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("append leaves the layer alone", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		publishThenClean(t)
+		layer := staleLayer()
+		addTestStateDeliveryFor(t, layer)
+		addRootIDsOnly = false
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := layer["source"], staleLayer()["source"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("source = %#v, want it unchanged: %#v", got, want)
+		}
+	})
+}
+
+// TestAddCommandReplaceDropsTemplateLabelSource covers the built-in template,
+// whose segmentation layer ships a label source for its own segments that no
+// manifest tracks. --replace swaps those segments out, so it drops that source
+// with them; a plain append keeps both the segments and their labels.
+func TestAddCommandReplaceDropsTemplateLabelSource(t *testing.T) {
+	templateLayer := func(t *testing.T) (map[string]interface{}, []interface{}) {
+		t.Helper()
+		var scene map[string]interface{}
+		if err := json.Unmarshal(nglstate.DefaultScene, &scene); err != nil {
+			t.Fatal(err)
+		}
+		layer, _, err := nglstate.FindSegmentationLayer(scene, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources, ok := layer["source"].([]interface{})
+		if !ok || len(sources) < 2 {
+			t.Skipf("the built-in template's segmentation layer carries no label source to drop: %#v", layer["source"])
+		}
+		return layer, append([]interface{}{}, sources...)
+	}
+
+	for _, test := range []struct {
+		name    string
+		replace bool
+		want    func(sources []interface{}) []interface{}
+	}{
+		{
+			name:    "replace drops it",
+			replace: true,
+			want:    func(sources []interface{}) []interface{} { return sources[:1] },
+		},
+		{
+			name: "append keeps it",
+			want: func(sources []interface{}) []interface{} { return sources },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateAddCommandRun(t)
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			layer, sources := templateLayer(t)
+			addTestStateDeliveryFor(t, layer)
+			addReplace = test.replace
+			addRootIDsOnly = false
+
+			if err := addCmd.RunE(addCmd, nil); err != nil {
+				t.Fatal(err)
+			}
+
+			if got, want := layer["source"], test.want(sources); !reflect.DeepEqual(got, want) {
+				t.Fatalf("source = %#v, want %#v", got, want)
+			}
+		})
 	}
 }
 

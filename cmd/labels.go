@@ -281,7 +281,9 @@ func attachSegmentPropertyLabels(errOut io.Writer, layers []map[string]interface
 }
 
 // prepareLabelPublishing checks the publisher and cleans expired sources,
-// retaining their URLs so layers can replace them even after cleanup.
+// retaining their URLs so layers can replace them even after cleanup. The URLs
+// an earlier cleanup deleted are returned too, since saved states still carry
+// them.
 func prepareLabelPublishing(errOut io.Writer, ttl time.Duration, hookCmd string) ([]string, error) {
 	if hookCmd == "" {
 		if err := labelhost.EnsureGistAvailable(); err != nil {
@@ -292,11 +294,22 @@ func prepareLabelPublishing(errOut io.Writer, ttl time.Duration, hookCmd string)
 		fmt.Fprintf(errOut, "Publishing labels via hook: %s\n", hookCmd)
 	}
 
-	prior := labelhost.RecordedURLs()
+	prior := append(labelhost.RecordedURLs(), labelhost.RetiredURLs()...)
 	if err := labelhost.GC(ttl, hookCmd); err != nil {
 		fmt.Fprintf(errOut, "Warning: label cleanup failed: %v\n", err)
 	}
 	return prior, nil
+}
+
+// dropStaleLabelSources removes label sources that no longer describe a layer
+// whose segments were just replaced: sources crantcli deleted, which saved
+// states still carry, and the built-in template's own label source, which
+// labels the template's segments. Sources crantcli never published stay.
+func dropStaleLabelSources(errOut io.Writer, layer map[string]interface{}) {
+	stale := append(labelhost.RetiredURLs(), nglstate.TemplateSecondarySourceURLs()...)
+	if removed := nglstate.RemoveSources(layer, stale); removed > 0 {
+		fmt.Fprintf(errOut, "Removed %d stale label source(s) from the layer\n", removed)
+	}
 }
 
 // publishTrackedLabelSource publishes labels and records the source for cleanup.
