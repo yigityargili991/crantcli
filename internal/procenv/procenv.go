@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package procenv prepares subprocess environments without leaking credentials
 // that belong to crantcli or its authenticated tooling.
 package procenv

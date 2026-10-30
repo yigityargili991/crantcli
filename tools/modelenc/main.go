@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Command modelenc encrypts a raider model for release. It logs in with the
 // configured SeaTable token, derives the model key from the CRANT base ID,
 // writes the encrypted asset, and prints the values to pin in

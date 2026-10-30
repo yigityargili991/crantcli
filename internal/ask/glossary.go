@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 package ask
 
 // glossary bridges English phrases to table codes. Only entries whose value

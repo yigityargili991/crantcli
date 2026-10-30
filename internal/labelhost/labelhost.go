@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package labelhost publishes segment_properties "info" files to somewhere the
 // browser can fetch them — a secret GitHub gist by default, or a user-supplied
 // publish/cleanup hook command — and tracks them in a local manifest so they can
