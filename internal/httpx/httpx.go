@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package httpx provides a small shared HTTP layer for the CRANT API clients.
 // It centralizes the HTTP client/timeout and converts non-2xx responses into a
 // typed StatusError so callers can wrap them with context or inspect the body.

@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package textout neutralizes untrusted strings (values from state files,
 // clipboard contents, server responses, and database rows) before they are
 // written to a terminal. Control characters in such strings can inject ANSI

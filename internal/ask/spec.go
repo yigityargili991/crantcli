@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ask turns a plain-English request into a crantcli command line with
 // a small fine-tuned language model. Table values found in the request are
 // shown to the model, and a per-request grammar only lets it write commands,

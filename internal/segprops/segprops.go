@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package segprops builds neuroglancer_segment_properties "info" files that map
 // root IDs to display labels (and filterable tags) so cell types show next to
 // segment IDs in the Neuroglancer Seg. panel.

@@ -1,3 +1,6 @@
+// Copyright 2026 Yigit Yargili
+// SPDX-License-Identifier: Apache-2.0
+
 // Package statesrv fetches the Neuroglancer states that Share links point to.
 // The viewer's Share button stores a state on a state server and copies a
 // link that names where, such as
