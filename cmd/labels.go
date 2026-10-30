@@ -15,49 +15,120 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// labelsClean deletes tracked label sources. Tests replace it so they never
+// touch a real gist or hook.
+var labelsClean = labelhost.Clean
+
 var labelsCmd = &cobra.Command{
 	Use:   "labels",
 	Short: "Manage label sources created by commands using --labels",
-}
+	Long: `Manage label sources (gists or hook-published) that 'add --labels' and
+'cave-history --labels' created and tracked.
 
-func init() {
-	var (
-		cleanAll       bool
-		cleanOlderThan time.Duration
-		cleanHook      string
-	)
-
-	cleanCmd := &cobra.Command{
-		Use:   "clean",
-		Short: "Delete label sources (gists or hook-published) tracked by crantcli",
-		Long: `Delete label sources that 'add --labels' or
-'state-transfer --labels' or 'cave-history --labels' created and tracked.
-
-By default, deletes tracked sources older than --older-than. Use --all to delete
+With --clean, deletes tracked sources older than --older-than. Use --all to delete
 every tracked source regardless of age. Hook-published sources are cleaned via
-the same --labels-hook command used to create them.
+the same --labels-hook command used to create them. --all, --older-than and
+--labels-hook apply only with --clean.
+
+The deprecated 'state-transfer --labels' path still creates these sources the
+same way until v0.25.0.
 
 Note: deleting a source removes its labels from any saved/shared state that still
 references it.`,
-		Args: cobra.NoArgs,
-	}
-	cleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every tracked label source regardless of age")
-	cleanCmd.Flags().DurationVar(&cleanOlderThan, "older-than", 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
-	cleanCmd.Flags().StringVar(&cleanHook, "labels-hook", "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
-	mustRegisterFlagCompletion(cleanCmd, "older-than", noFileCompletion)
-	mustRegisterFlagCompletion(cleanCmd, "labels-hook", noFileCompletion)
-
-	cleanCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		deleted, kept, err := labelhost.Clean(cleanAll, cleanOlderThan, resolveLabelsHook(cleanHook))
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clean, err := cmd.Flags().GetBool("clean")
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "Deleted %d label source(s); %d still tracked\n", deleted, kept)
-		return nil
+		if !clean {
+			if err := rejectCleanFlagsWithoutClean(cmd); err != nil {
+				return err
+			}
+			return cmd.Help()
+		}
+		return runLabelsClean(cmd)
+	},
+}
+
+func init() {
+	labelsCmd.Flags().Bool("clean", false, "Delete label sources tracked by crantcli")
+	registerCleanFlags(labelsCmd)
+
+	cleanCmd := &cobra.Command{
+		Use:        "clean",
+		Short:      "Delete label sources (gists or hook-published) tracked by crantcli",
+		Args:       cobra.NoArgs,
+		Hidden:     true,
+		Deprecated: "use 'labels --clean' instead; the clean subcommand will be removed in v0.25.0",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLabelsClean(cmd)
+		},
 	}
+	registerCleanFlags(cleanCmd)
 
 	labelsCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(labelsCmd)
+}
+
+// Clean-only flags: registerCleanFlags declares them and
+// rejectCleanFlagsWithoutClean reports them, so the two lists cannot drift.
+const (
+	cleanFlagAll        = "all"
+	cleanFlagOlderThan  = "older-than"
+	cleanFlagLabelsHook = "labels-hook"
+)
+
+// cleanFlagNames lists the clean-only flags in the order the rejection message
+// names them.
+var cleanFlagNames = []string{cleanFlagAll, cleanFlagOlderThan, cleanFlagLabelsHook}
+
+// registerCleanFlags declares the flags shared by 'labels --clean' and the
+// deprecated 'labels clean' subcommand, keeping their names and help identical.
+func registerCleanFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool(cleanFlagAll, false, "Delete every tracked label source regardless of age")
+	cmd.Flags().Duration(cleanFlagOlderThan, 168*time.Hour, "Delete tracked sources older than this (ignored with --all)")
+	cmd.Flags().String(cleanFlagLabelsHook, "", "Hook command used to clean hook-published sources; defaults to $CRANT_LABELS_HOOK")
+	mustRegisterFlagCompletion(cmd, cleanFlagOlderThan, noFileCompletion)
+	mustRegisterFlagCompletion(cmd, cleanFlagLabelsHook, noFileCompletion)
+}
+
+// runLabelsClean deletes tracked label sources and reports how many remain.
+func runLabelsClean(cmd *cobra.Command) error {
+	all, err := cmd.Flags().GetBool("all")
+	if err != nil {
+		return err
+	}
+	olderThan, err := cmd.Flags().GetDuration("older-than")
+	if err != nil {
+		return err
+	}
+	hook, err := cmd.Flags().GetString("labels-hook")
+	if err != nil {
+		return err
+	}
+
+	deleted, kept, err := labelsClean(all, olderThan, resolveLabelsHook(hook))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Deleted %d label source(s); %d still tracked\n", deleted, kept)
+	return nil
+}
+
+// rejectCleanFlagsWithoutClean names clean-only flags passed without --clean,
+// which would otherwise be dropped while the bare command prints its help.
+func rejectCleanFlagsWithoutClean(cmd *cobra.Command) error {
+	var set []string
+	for _, name := range cleanFlagNames {
+		if cmd.Flags().Changed(name) {
+			set = append(set, "--"+name)
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s can only be used with --clean", strings.Join(set, " and "))
 }
 
 func resolveLabelsHook(flagValue string) string {
@@ -210,7 +281,9 @@ func attachSegmentPropertyLabels(errOut io.Writer, layers []map[string]interface
 }
 
 // prepareLabelPublishing checks the publisher and cleans expired sources,
-// retaining their URLs so layers can replace them even after cleanup.
+// retaining their URLs so layers can replace them even after cleanup. The URLs
+// an earlier cleanup deleted are returned too, since saved states still carry
+// them.
 func prepareLabelPublishing(errOut io.Writer, ttl time.Duration, hookCmd string) ([]string, error) {
 	if hookCmd == "" {
 		if err := labelhost.EnsureGistAvailable(); err != nil {
@@ -221,11 +294,22 @@ func prepareLabelPublishing(errOut io.Writer, ttl time.Duration, hookCmd string)
 		fmt.Fprintf(errOut, "Publishing labels via hook: %s\n", hookCmd)
 	}
 
-	prior := labelhost.RecordedURLs()
+	prior := append(labelhost.RecordedURLs(), labelhost.RetiredURLs()...)
 	if err := labelhost.GC(ttl, hookCmd); err != nil {
 		fmt.Fprintf(errOut, "Warning: label cleanup failed: %v\n", err)
 	}
 	return prior, nil
+}
+
+// dropStaleLabelSources removes label sources that no longer describe a layer
+// whose segments were just replaced: sources crantcli deleted, which saved
+// states still carry, and the built-in template's own label source, which
+// labels the template's segments. Sources crantcli never published stay.
+func dropStaleLabelSources(errOut io.Writer, layer map[string]interface{}) {
+	stale := append(labelhost.RetiredURLs(), nglstate.TemplateSecondarySourceURLs()...)
+	if removed := nglstate.RemoveSources(layer, stale); removed > 0 {
+		fmt.Fprintf(errOut, "Removed %d stale label source(s) from the layer\n", removed)
+	}
 }
 
 // publishTrackedLabelSource publishes labels and records the source for cleanup.

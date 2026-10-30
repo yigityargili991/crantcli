@@ -11,14 +11,6 @@ import (
 	"crantcli/internal/seatable"
 )
 
-func TestParseIDs(t *testing.T) {
-	got := parseIDs("111, 222\n111\t333")
-	want := []string{"111", "222", "333"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("parseIDs() = %#v, want %#v", got, want)
-	}
-}
-
 // stateTransferRun records what an isolated state-transfer run did with the
 // outside world it can no longer reach.
 type stateTransferRun struct {
@@ -404,6 +396,10 @@ func TestStateTransferPreRunNeedsTokenForLabels(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("error = %v, want it to contain %q", err, tt.wantError)
 			}
+			// The deprecated command shares the canonical missing-token error.
+			if !errors.Is(err, errNoSeaTableToken) {
+				t.Fatalf("error = %v, want the canonical missing-token error", err)
+			}
 		})
 	}
 }
@@ -440,6 +436,23 @@ func TestStateTransferLabelsFlagsMatchAdd(t *testing.T) {
 		}
 		if stateFlag.DefValue != addFlag.DefValue {
 			t.Fatalf("state-transfer --%s default = %q, want add default %q", name, stateFlag.DefValue, addFlag.DefValue)
+		}
+	}
+}
+
+// TestStateTransferDeprecatedAndHidden covers the deprecation of
+// state-transfer: --clipboard-ids on add supersedes it, and the old command says
+// so while it keeps working until v0.25.0.
+func TestStateTransferDeprecatedAndHidden(t *testing.T) {
+	if !stateTransferCmd.Hidden {
+		t.Error("state-transfer must be hidden from --help")
+	}
+	if stateTransferCmd.Deprecated == "" {
+		t.Fatal("state-transfer must be deprecated")
+	}
+	for _, want := range []string{"add --clipboard-ids", "v0.25.0"} {
+		if !strings.Contains(stateTransferCmd.Deprecated, want) {
+			t.Errorf("state-transfer deprecation warning %q lacks %q", stateTransferCmd.Deprecated, want)
 		}
 	}
 }

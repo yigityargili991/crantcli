@@ -55,6 +55,12 @@ var (
 	}
 )
 
+// askModelDir is where the raider model and its vocabulary live under the
+// user cache directory.
+func askModelDir(cacheRoot string) string {
+	return filepath.Join(cacheRoot, "crantcli", "ask")
+}
+
 // askEngine is the loaded model.
 type askEngine interface {
 	ask.Completer
@@ -116,7 +122,7 @@ func init() {
 		if err != nil {
 			return fmt.Errorf("finding the cache directory: %w", err)
 		}
-		dir := filepath.Join(cacheDir, "crantcli", "ask")
+		dir := askModelDir(cacheDir)
 
 		modelPath, err := askModelPath(cmd, in, dir, askModel, askDownload)
 		if err != nil || modelPath == "" || len(args) == 0 {
@@ -215,7 +221,7 @@ func offerAskModel(cmd *cobra.Command) error {
 	if err != nil {
 		return nil
 	}
-	dir := filepath.Join(cacheDir, "crantcli", "ask")
+	dir := askModelDir(cacheDir)
 	m := ask.CurrentModel
 	if _, err := os.Stat(ask.ModelPath(dir, m)); err == nil {
 		return nil

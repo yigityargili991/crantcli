@@ -13,10 +13,33 @@ import (
 	"time"
 
 	"crantcli/internal/clipboard"
+	"crantcli/internal/labelhost"
 	"crantcli/internal/nglstate"
 	"crantcli/internal/seatable"
 	"crantcli/internal/segprops"
 )
+
+// The Long text must match the documented output rules: only a URL/template
+// input copies a URL back to the clipboard by default, a state file or piped
+// JSON prints to stdout, and --clipboard-ids can still take its base state from
+// --state or piped JSON.
+func TestAddLongDocumentsOutputDestinations(t *testing.T) {
+	for _, want := range []string{
+		"write the resulting URL back to the clipboard",
+		"a state file or piped JSON prints the formatted state to stdout",
+		"--state, piped JSON, or the default template",
+	} {
+		if !strings.Contains(addCmd.Long, want) {
+			t.Errorf("add Long lacks %q", want)
+		}
+	}
+	if strings.Contains(addCmd.Long, "With no --output, the resulting Neuroglancer URL is written back to the clipboard") {
+		t.Error("add Long still claims every no---output run writes the URL back to the clipboard")
+	}
+	if !strings.Contains(addCmd.Example, "crantcli add --clipboard-ids -s base.json --labels") {
+		t.Error("add examples lost the --clipboard-ids -s base.json guidance")
+	}
+}
 
 func TestDeliverRootIDs(t *testing.T) {
 	for _, test := range []struct {
@@ -103,6 +126,10 @@ func isolateAddCommandRun(t *testing.T) {
 	previousFind := addFindSegmentationLayer
 	previousDeliver := addDeliverState
 	previousClipboard := addClipboardWrite
+	previousClipboardIDs := addClipboardIDs
+	previousClipboardRead := addClipboardRead
+	previousQueryRootIDs := addQueryNeuronsByRootIDs
+	previousGetAPIToken := getAPIToken
 	t.Cleanup(func() {
 		addSuperClass = previousOptions.superClass
 		addCellClasses = previousOptions.cellClasses
@@ -133,6 +160,10 @@ func isolateAddCommandRun(t *testing.T) {
 		addFindSegmentationLayer = previousFind
 		addDeliverState = previousDeliver
 		addClipboardWrite = previousClipboard
+		addClipboardIDs = previousClipboardIDs
+		addClipboardRead = previousClipboardRead
+		addQueryNeuronsByRootIDs = previousQueryRootIDs
+		getAPIToken = previousGetAPIToken
 		addCmd.SetOut(nil)
 		addCmd.SetErr(nil)
 	})
@@ -159,10 +190,62 @@ func isolateAddCommandRun(t *testing.T) {
 	addLabelsHook = ""
 	addLabelBy = defaultLabelBy
 	addLabelTags = defaultLabelTags
+	addClipboardIDs = false
 
 	addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
 	addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
 		return []seatable.NeuronRow{{RootID: "100"}}, nil
+	}
+	addClipboardRead = func() (string, error) {
+		t.Error("add read the clipboard without --clipboard-ids")
+		return "", errors.New("unexpected clipboard read")
+	}
+	addQueryNeuronsByRootIDs = func(*seatable.Client, []string) ([]seatable.NeuronRow, error) {
+		t.Error("add queried root IDs without --clipboard-ids --labels")
+		return nil, errors.New("unexpected root ID query")
+	}
+	getAPIToken = func() string { return "test-token" }
+}
+
+// TestAddCommandTokenRequirement covers the conditional SeaTable token check:
+// add only asks for a token when it will actually query the table.
+func TestAddCommandTokenRequirement(t *testing.T) {
+	t.Run("--clipboard-ids without labels needs no token", func(t *testing.T) {
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		getAPIToken = func() string { return "" }
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatalf("tokenless --clipboard-ids run failed: %v", err)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+	})
+
+	t.Run("--clipboard-ids with labels needs a token", func(t *testing.T) {
+		isolateAddClipboardRun(t)
+		addLabels = true
+		getAPIToken = func() string { return "" }
+
+		err := addCmd.RunE(addCmd, nil)
+		if !errors.Is(err, errNoSeaTableToken) {
+			t.Fatalf("error = %v, want the canonical missing-token error", err)
+		}
+	})
+
+	t.Run("query mode needs a token", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		getAPIToken = func() string { return "" }
+
+		err := addCmd.RunE(addCmd, nil)
+		if !errors.Is(err, errNoSeaTableToken) {
+			t.Fatalf("error = %v, want the canonical missing-token error", err)
+		}
+	})
+
+	if addCmd.Annotations["requiresToken"] == "true" {
+		t.Error("add must not use the static requiresToken annotation; its requirement depends on the flags")
 	}
 }
 
@@ -1046,6 +1129,191 @@ func TestAttachCellTypeLabels_RemovesExpiredHookURLPrunedByGC(t *testing.T) {
 	}
 }
 
+// TestAttachCellTypeLabels_RemovesSourceDeletedByEarlierClean covers a state
+// that outlives its label source: 'labels --clean' deletes the source and stops
+// tracking it, but a saved state or clipboard URL still carries it. The next
+// --labels run must still recognize the source as crantcli's and replace it,
+// rather than keep the dead source next to the new one.
+func TestAttachCellTypeLabels_RemovesSourceDeletedByEarlierClean(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	oldURL := "https://hook.example/old/|neuroglancer-precomputed:"
+	newURL := "https://hook.example/new/|neuroglancer-precomputed:"
+	rows := []seatable.NeuronRow{{RootID: "1", CellType: "ER"}}
+	layer := map[string]interface{}{"source": []interface{}{"graphene://x"}}
+
+	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, labelsHookScript(t, "", oldURL)); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, _, err := labelhost.Clean(true, 0, labelsHookScript(t, "", oldURL)); err != nil || deleted != 1 {
+		t.Fatalf("Clean deleted %d (err %v), want the published source deleted", deleted, err)
+	}
+	if err := attachCellTypeLabels(layer, rows, segprops.DefaultOptions(), time.Hour, labelsHookScript(t, "", newURL)); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []interface{}{"graphene://x", map[string]interface{}{"url": newURL}}
+	if got := layer["source"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("source = %#v, want the deleted source replaced: %#v", got, want)
+	}
+}
+
+// TestAddCommandReplaceDropsDeletedLabelSources covers the --replace half of
+// the clean-then-replace flow: once 'labels --clean' has deleted a source, an
+// add --replace run drops it from the state it rewrites even without --labels,
+// and keeps sources crantcli never published. A plain append changes nothing.
+func TestAddCommandReplaceDropsDeletedLabelSources(t *testing.T) {
+	deadURL := "https://hook.example/old/|neuroglancer-precomputed:"
+	foreignURL := "https://example.org/shared/labels/|neuroglancer-precomputed:"
+	staleLayer := func() map[string]interface{} {
+		return map[string]interface{}{
+			"type": "segmentation",
+			"source": []interface{}{
+				"graphene://x",
+				map[string]interface{}{"url": deadURL},
+				map[string]interface{}{"url": foreignURL},
+			},
+			"segments": []interface{}{"7"},
+		}
+	}
+	publishThenClean := func(t *testing.T) {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		hook := labelsHookScript(t, "", deadURL)
+		scratch := map[string]interface{}{"source": "graphene://x"}
+		if err := attachCellTypeLabels(scratch, []seatable.NeuronRow{{RootID: "7", CellType: "ER"}}, segprops.DefaultOptions(), time.Hour, hook); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, _, err := labelhost.Clean(true, 0, hook); err != nil || deleted != 1 {
+			t.Fatalf("Clean deleted %d (err %v), want the published source deleted", deleted, err)
+		}
+	}
+
+	t.Run("replace drops the deleted source", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		publishThenClean(t)
+		layer := staleLayer()
+		addTestStateDeliveryFor(t, layer)
+		addReplace = true
+		addRootIDsOnly = false
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		want := []interface{}{"graphene://x", map[string]interface{}{"url": foreignURL}}
+		if got := layer["source"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("source = %#v, want %#v", got, want)
+		}
+		if got := layer["segments"]; !reflect.DeepEqual(got, []interface{}{"100"}) {
+			t.Fatalf("segments = %#v, want the queried root ID only", got)
+		}
+	})
+
+	t.Run("replace with labels swaps in the new source", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		publishThenClean(t)
+		newURL := "https://hook.example/new/|neuroglancer-precomputed:"
+		layer := staleLayer()
+		addTestStateDeliveryFor(t, layer)
+		addReplace = true
+		addLabels = true
+		addLabelsHook = labelsHookScript(t, "", newURL)
+		addRootIDsOnly = false
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		want := []interface{}{
+			"graphene://x",
+			map[string]interface{}{"url": foreignURL},
+			map[string]interface{}{"url": newURL},
+		}
+		if got := layer["source"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("source = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("append leaves the layer alone", func(t *testing.T) {
+		isolateAddCommandRun(t)
+		publishThenClean(t)
+		layer := staleLayer()
+		addTestStateDeliveryFor(t, layer)
+		addRootIDsOnly = false
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := layer["source"], staleLayer()["source"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("source = %#v, want it unchanged: %#v", got, want)
+		}
+	})
+}
+
+// TestAddCommandReplaceDropsTemplateLabelSource covers the built-in template,
+// whose segmentation layer ships a label source for its own segments that no
+// manifest tracks. --replace swaps those segments out, so it drops that source
+// with them; a plain append keeps both the segments and their labels.
+func TestAddCommandReplaceDropsTemplateLabelSource(t *testing.T) {
+	templateLayer := func(t *testing.T) (map[string]interface{}, []interface{}) {
+		t.Helper()
+		var scene map[string]interface{}
+		if err := json.Unmarshal(nglstate.DefaultScene, &scene); err != nil {
+			t.Fatal(err)
+		}
+		layer, _, err := nglstate.FindSegmentationLayer(scene, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources, ok := layer["source"].([]interface{})
+		if !ok || len(sources) < 2 {
+			t.Skipf("the built-in template's segmentation layer carries no label source to drop: %#v", layer["source"])
+		}
+		return layer, append([]interface{}{}, sources...)
+	}
+
+	for _, test := range []struct {
+		name    string
+		replace bool
+		want    func(sources []interface{}) []interface{}
+	}{
+		{
+			name:    "replace drops it",
+			replace: true,
+			want:    func(sources []interface{}) []interface{} { return sources[:1] },
+		},
+		{
+			name: "append keeps it",
+			want: func(sources []interface{}) []interface{} { return sources },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateAddCommandRun(t)
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			layer, sources := templateLayer(t)
+			addTestStateDeliveryFor(t, layer)
+			addReplace = test.replace
+			addRootIDsOnly = false
+
+			if err := addCmd.RunE(addCmd, nil); err != nil {
+				t.Fatal(err)
+			}
+
+			if got, want := layer["source"], test.want(sources); !reflect.DeepEqual(got, want) {
+				t.Fatalf("source = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
 // labelsHookScript writes a --labels-hook script that answers publish with url
 // and treats clean as a no-op, and returns the command that runs it. The
 // published info JSON is captured in publishTo, or discarded when it is empty.
@@ -1792,4 +2060,371 @@ func TestExtractRootIDs(t *testing.T) {
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Errorf("ids = %v, want %v", ids, wantIDs)
 	}
+}
+
+// addClipboardRun records what a --clipboard-ids run did with the state after
+// the clipboard was read.
+type addClipboardRun struct {
+	layer     map[string]interface{}
+	result    *nglstate.LoadResult
+	loaded    bool
+	state     string
+	generate  bool
+	delivered bool
+}
+
+// isolateAddClipboardRun stubs the seams a --clipboard-ids run reaches after
+// reading the clipboard: the state load, layer lookup, delivery, and every
+// SeaTable path. The SeaTable stubs fail the test when reached, so a run
+// without --labels is checked never to query rather than assumed not to.
+func isolateAddClipboardRun(t *testing.T, existingSegments ...string) *addClipboardRun {
+	t.Helper()
+	isolateAddCommandRun(t)
+	// The shared isolation defaults to a --region query to keep add runnable
+	// without filters; --clipboard-ids rejects that combination.
+	addRegions = nil
+	setFlagForTest(t, addCmd, "clipboard-ids", "true")
+
+	layer := map[string]interface{}{"type": "segmentation", "source": "graphene://x"}
+	if len(existingSegments) > 0 {
+		segments := make([]interface{}, 0, len(existingSegments))
+		for _, segment := range existingSegments {
+			segments = append(segments, segment)
+		}
+		layer["segments"] = segments
+	}
+	run := &addClipboardRun{layer: layer}
+	run.result = &nglstate.LoadResult{
+		State:  map[string]interface{}{"layers": []interface{}{layer}},
+		Source: nglstate.SourceTemplate,
+	}
+	addLoadState = func(state string, generate bool) (*nglstate.LoadResult, error) {
+		run.loaded, run.state, run.generate = true, state, generate
+		return run.result, nil
+	}
+	addFindSegmentationLayer = func(map[string]interface{}, string) (map[string]interface{}, int, error) {
+		return layer, 0, nil
+	}
+	addDeliverState = func(got *nglstate.LoadResult, _ nglstate.DeliveryOptions) error {
+		run.delivered = got == run.result
+		return nil
+	}
+	addNewClient = func() (*seatable.Client, error) {
+		t.Error("--clipboard-ids without --labels built a SeaTable client")
+		return nil, errors.New("unexpected SeaTable client")
+	}
+	addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+		t.Error("--clipboard-ids ran a SeaTable classifier query")
+		return nil, errors.New("unexpected classifier query")
+	}
+	return run
+}
+
+// TestAddClipboardIDsInjectsIntoState covers the path that replaces the
+// SeaTable classifier query: the copied IDs are parsed, deduped, and injected
+// into the segmentation layer -- appended by default, replaced with --replace --
+// while the state load never decodes the clipboard as a state URL.
+func TestAddClipboardIDsInjectsIntoState(t *testing.T) {
+	t.Run("appends by default", func(t *testing.T) {
+		run := isolateAddClipboardRun(t, "9")
+		addClipboardRead = func() (string, error) { return "100, 200\n100\t300", nil }
+		addState = "base.json"
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		want := []interface{}{"9", "100", "200", "300"}
+		if got := run.layer["segments"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("segments = %#v, want the clipboard IDs appended: %#v", got, want)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+		if !run.loaded || run.state != "base.json" || !run.generate {
+			t.Fatalf("LoadState(%q, %v), want (\"base.json\", true): the clipboard holds IDs, not a state URL", run.state, run.generate)
+		}
+	})
+
+	t.Run("replace flag replaces the segment list", func(t *testing.T) {
+		run := isolateAddClipboardRun(t, "9")
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		addReplace = true
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		want := []interface{}{"100", "200"}
+		if got := run.layer["segments"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("segments = %#v, want the clipboard IDs replacing the existing list: %#v", got, want)
+		}
+	})
+
+	t.Run("accepts production-shaped uint64 root IDs", func(t *testing.T) {
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) {
+			return "720575940610453042, 720575940379280858\n720575940610453042\t18446744073709551615", nil
+		}
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		want := []interface{}{"720575940610453042", "720575940379280858", "18446744073709551615"}
+		if got := run.layer["segments"]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("segments = %#v, want the deduped clipboard root IDs: %#v", got, want)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+	})
+}
+
+func TestAddClipboardIDsClipboardFailures(t *testing.T) {
+	tests := []struct {
+		name      string
+		clip      string
+		clipErr   error
+		wantError string
+	}{
+		{
+			name:      "read fails",
+			clipErr:   errors.New("no selection owner"),
+			wantError: "reading clipboard",
+		},
+		{
+			name:      "clipboard holds only whitespace",
+			clip:      "  \n\t ",
+			wantError: "clipboard is empty",
+		},
+		{
+			name:      "clipboard holds only separators",
+			clip:      ", ,\t,",
+			wantError: "no valid IDs found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := isolateAddClipboardRun(t)
+			addClipboardRead = func() (string, error) { return tt.clip, tt.clipErr }
+
+			err := addCmd.RunE(addCmd, nil)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want it to contain %q", err, tt.wantError)
+			}
+			if run.loaded {
+				t.Fatal("no state should be loaded when the clipboard yields no IDs")
+			}
+		})
+	}
+}
+
+// TestAddClipboardIDsRejectsNonRootIDPayloads: --clipboard-ids must only inject
+// root IDs. A Neuroglancer state URL is the likely payload when add has replaced
+// the clipboard with its output URL, and any other token -- a label, scientific
+// notation -- would otherwise reach the state as a segment ID.
+func TestAddClipboardIDsRejectsNonRootIDPayloads(t *testing.T) {
+	tests := []struct {
+		name      string
+		clip      string
+		wantError string
+	}{
+		{
+			name:      "Neuroglancer state URL",
+			clip:      `https://spelunker.cave-explorer.org/#!{"layers":[]}`,
+			wantError: "clipboard holds a Neuroglancer state URL, not root IDs",
+		},
+		{
+			name:      "non-numeric token",
+			clip:      "720575940610453042 PFN",
+			wantError: `clipboard entry "PFN" is not a root ID`,
+		},
+		{
+			name:      "scientific notation",
+			clip:      "720575940610453042 1e18",
+			wantError: `clipboard entry "1e18" is not a root ID`,
+		},
+		{
+			name:      "negative number",
+			clip:      "720575940610453042 -100",
+			wantError: `clipboard entry "-100" is not a root ID`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := isolateAddClipboardRun(t)
+			addClipboardRead = func() (string, error) { return tt.clip, nil }
+
+			err := addCmd.RunE(addCmd, nil)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want it to contain %q", err, tt.wantError)
+			}
+			if run.loaded || run.delivered {
+				t.Fatal("a clipboard without root IDs should not load or deliver a state")
+			}
+		})
+	}
+}
+
+// TestAddClipboardIDsRejectsQueryFlags covers the flags that only shape a
+// SeaTable classifier query, now that --clipboard-ids supplies the root IDs
+// itself.
+func TestAddClipboardIDsRejectsQueryFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		set      func()
+		wantFlag string
+	}{
+		{name: "super class", set: func() { addSuperClass = "sensory" }, wantFlag: "--super-class"},
+		{name: "cell class", set: func() { addCellClasses = []string{"LNO"} }, wantFlag: "--cell-class"},
+		{name: "cell type", set: func() { addCellTypes = []string{"ER"} }, wantFlag: "--cell-type"},
+		{name: "cell subtype", set: func() { addCellSubtypes = []string{"PFNc"} }, wantFlag: "--cell-subtype"},
+		{name: "side", set: func() { addSide = "left" }, wantFlag: "--side"},
+		{name: "region", set: func() { addRegions = []string{"LX"} }, wantFlag: "--region"},
+		{name: "bundle", set: func() { addBundles = []string{"LX"} }, wantFlag: "--bundle"},
+		{name: "tract", set: func() { addTract = "LM" }, wantFlag: "--tract"},
+		{name: "proofread", set: func() { addProofread = "true" }, wantFlag: "--proofread"},
+		{name: "intersect", set: func() { addIntersect = true }, wantFlag: "--intersect"},
+		{name: "color by", set: func() { addColorBy = "cell_type" }, wantFlag: "--color-by"},
+		{name: "root IDs only", set: func() { addRootIDsOnly = true }, wantFlag: "--root-ids-only"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := isolateAddClipboardRun(t)
+			addClipboardRead = func() (string, error) {
+				t.Error("a rejected flag combination read the clipboard")
+				return "", errors.New("unexpected clipboard read")
+			}
+			tt.set()
+
+			want := "--clipboard-ids cannot be combined with"
+			for _, check := range []struct {
+				phase string
+				err   error
+			}{
+				// Args is the only phase that runs for the CLI; the helper is
+				// checked directly because it is what Args calls.
+				{phase: "Args", err: addCmd.Args(addCmd, nil)},
+				{phase: "validateAddClipboardOptions", err: validateAddClipboardOptions()},
+			} {
+				if check.err == nil || !strings.Contains(check.err.Error(), want) || !strings.Contains(check.err.Error(), tt.wantFlag) {
+					t.Fatalf("%s error = %v, want it to name %q and %q", check.phase, check.err, want, tt.wantFlag)
+				}
+			}
+			if run.delivered || run.loaded {
+				t.Fatal("a rejected flag combination should not load or deliver a state")
+			}
+		})
+	}
+
+	t.Run("state and delivery flags are allowed", func(t *testing.T) {
+		isolateAddClipboardRun(t)
+		addState = "base.json"
+		addOutput = "out.json"
+		addLayer = "seg"
+		addColor = "red"
+		addReplace = true
+		addOpen = true
+		if err := addCmd.Args(addCmd, nil); err != nil {
+			t.Fatalf("Args rejected flags --clipboard-ids supports: %v", err)
+		}
+	})
+}
+
+// TestAddClipboardIDsLabelsUseMetadata is the clipboard half of the label
+// wiring add already covers for queried rows: the copied IDs are looked up
+// through seatable.QueryNeuronsByRootIDs and the metadata labels them.
+func TestAddClipboardIDsLabelsUseMetadata(t *testing.T) {
+	t.Run("fetches metadata for the clipboard IDs", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		addLabels = true
+		published := filepath.Join(t.TempDir(), "info.json")
+		addLabelsHook = labelsHookScript(t, published, "https://hook.example/new/|neuroglancer-precomputed:")
+
+		var queried []string
+		addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
+		addQueryNeuronsByRootIDs = func(_ *seatable.Client, ids []string) ([]seatable.NeuronRow, error) {
+			queried = ids
+			return []seatable.NeuronRow{
+				{RootID: "100", CellType: "PFN"},
+				{RootID: "200", CellType: "PEN"},
+			}, nil
+		}
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"100", "200"}; !reflect.DeepEqual(queried, want) {
+			t.Fatalf("queried %v, want the clipboard root IDs %v", queried, want)
+		}
+		if labels, _ := publishedLabelsAndTags(t, published); !reflect.DeepEqual(labels, []string{"PFN", "PEN"}) {
+			t.Fatalf("labels = %v, want the looked-up cell types", labels)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+	})
+
+	t.Run("partial metadata still injects and labels", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		addLabels = true
+		published := filepath.Join(t.TempDir(), "info.json")
+		addLabelsHook = labelsHookScript(t, published, "https://hook.example/new/|neuroglancer-precomputed:")
+		addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
+		addQueryNeuronsByRootIDs = func(*seatable.Client, []string) ([]seatable.NeuronRow, error) {
+			return []seatable.NeuronRow{{RootID: "100", CellType: "PFN"}}, nil
+		}
+
+		if err := addCmd.RunE(addCmd, nil); err != nil {
+			t.Fatalf("a partial metadata match should still deliver a state: %v", err)
+		}
+		if !run.delivered {
+			t.Fatal("state was not delivered")
+		}
+		if labels, _ := publishedLabelsAndTags(t, published); !reflect.DeepEqual(labels, []string{"PFN"}) {
+			t.Fatalf("labels = %v, want just the row that matched", labels)
+		}
+	})
+
+	t.Run("no metadata fails", func(t *testing.T) {
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		addLabels = true
+		addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
+		addQueryNeuronsByRootIDs = func(*seatable.Client, []string) ([]seatable.NeuronRow, error) {
+			return nil, nil
+		}
+
+		err := addCmd.RunE(addCmd, nil)
+		if err == nil || !strings.Contains(err.Error(), "no CRANT metadata found for clipboard root IDs") {
+			t.Fatalf("error = %v, want it to report missing CRANT metadata", err)
+		}
+		if run.delivered {
+			t.Fatal("no state should be delivered when its labels have no metadata")
+		}
+	})
+
+	t.Run("metadata query failure surfaces", func(t *testing.T) {
+		run := isolateAddClipboardRun(t)
+		addClipboardRead = func() (string, error) { return "100 200", nil }
+		addLabels = true
+		addNewClient = func() (*seatable.Client, error) { return &seatable.Client{}, nil }
+		addQueryNeuronsByRootIDs = func(*seatable.Client, []string) ([]seatable.NeuronRow, error) {
+			return nil, errors.New("401 unauthorized")
+		}
+
+		err := addCmd.RunE(addCmd, nil)
+		if err == nil || !strings.Contains(err.Error(), "querying labels for clipboard root IDs") {
+			t.Fatalf("error = %v, want it to carry the SeaTable failure", err)
+		}
+		if run.delivered {
+			t.Fatal("no state should be delivered when the label lookup fails")
+		}
+	})
 }

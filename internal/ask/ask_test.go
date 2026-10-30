@@ -27,21 +27,46 @@ func testSpec() []*CmdSpec {
 	add.Flags().Bool("open", false, "")
 	add.Flags().Bool("intersect", false, "")
 	add.Flags().Bool("labels", false, "")
+	add.Flags().Bool("clipboard-ids", false, "")
 	history := &cobra.Command{Use: "cave-history <root_id>", Run: run}
 	history.Flags().Bool("open", false, "")
 	history.Flags().Bool("unfiltered", false, "")
 	list := &cobra.Command{Use: "list <field>", Run: run}
 	list.Flags().Bool("count", false, "")
 	list.Flags().String("cell-type", "", "")
-	lookup := &cobra.Command{Use: "lookup-column [root_id]", Run: run}
-	labels := &cobra.Command{Use: "labels"}
-	clean := &cobra.Command{Use: "clean", Run: run}
+	rootInfo := &cobra.Command{Use: "root-info [root_id]", Args: rootInfoArgs, Run: run}
+	rootInfo.Flags().String("pos", "", "")
+	rootInfo.Flags().Bool("json", false, "")
+	// lookup-column was retired in favor of root-info and is hidden, so the
+	// spec must not offer it.
+	lookup := &cobra.Command{Use: "lookup-column [root_id]", Run: run, Hidden: true}
+	labels := &cobra.Command{Use: "labels", Run: run}
+	labels.Flags().Bool("clean", false, "")
+	labels.Flags().Bool("all", false, "")
+	labels.Flags().Duration("older-than", 0, "")
+	// labels clean is hidden after its replacement by labels --clean.
+	clean := &cobra.Command{Use: "clean", Run: run, Hidden: true}
 	clean.Flags().Bool("all", false, "")
 	labels.AddCommand(clean)
 	hidden := &cobra.Command{Use: "secret", Run: run, Hidden: true}
 	askCmd := &cobra.Command{Use: "ask <request>", Run: run}
-	root.AddCommand(add, history, list, lookup, labels, hidden, askCmd)
+	root.AddCommand(add, history, list, rootInfo, lookup, labels, hidden, askCmd)
 	return BuildSpec(root, "ask")
+}
+
+// rootInfoArgs mirrors cmd.rootInfoArgs: exactly one of a root ID or --pos.
+func rootInfoArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return errors.New("accepts at most 1 arg(s)")
+	}
+	hasPos := cmd.Flags().Changed("pos")
+	if hasPos && len(args) > 0 {
+		return errors.New("cannot combine root_id argument with --pos flag")
+	}
+	if !hasPos && len(args) == 0 {
+		return errors.New("provide a root_id argument or use --pos x,y,z")
+	}
+	return nil
 }
 
 func testVocab() *Vocab {
@@ -59,9 +84,12 @@ func TestBuildSpec(t *testing.T) {
 	for _, c := range spec {
 		paths = append(paths, c.Path)
 	}
-	want := []string{"add", "cave-history", "labels clean", "list", "lookup-column"}
+	want := []string{"add", "cave-history", "labels", "list", "root-info"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	if c := findCmd(spec, "lookup-column"); c != nil {
+		t.Errorf("spec includes the retired lookup-column command: %+v", c)
 	}
 	if c := findCmd(spec, "cave-history"); c.ArgsUse != "<root_id>" {
 		t.Errorf("cave-history ArgsUse = %q", c.ArgsUse)
@@ -71,6 +99,31 @@ func TestBuildSpec(t *testing.T) {
 	}
 	if f := findCmd(spec, "add").flag("s"); f == nil || f.Name != "state" {
 		t.Errorf("shorthand -s did not resolve to --state: %+v", f)
+	}
+	// root-info's Args validator requires a root ID, and --pos can stand in
+	// for it; the probe must find that without running the command.
+	if c := findCmd(spec, "root-info"); c.ArgsMin != 1 || !reflect.DeepEqual(c.ArgOrFlag, []string{"pos"}) {
+		t.Errorf("root-info spec = %+v, want ArgsMin 1 and ArgOrFlag [pos]", c)
+	}
+}
+
+func TestBuildSpecSkipsDeprecatedCommands(t *testing.T) {
+	root := &cobra.Command{Use: "crantcli"}
+	run := func(*cobra.Command, []string) {}
+	retired := &cobra.Command{Use: "retired", Deprecated: "use 'modern' instead", Run: run}
+	modern := &cobra.Command{Use: "modern", Run: run}
+	hidden := &cobra.Command{Use: "hidden", Hidden: true, Run: run}
+	root.AddCommand(retired, modern, hidden)
+
+	spec := BuildSpec(root)
+	if c := findCmd(spec, "retired"); c != nil {
+		t.Errorf("spec includes the deprecated command: %+v", c)
+	}
+	if findCmd(spec, "modern") == nil {
+		t.Errorf("spec lacks the live command: %+v", spec)
+	}
+	if findCmd(spec, "hidden") != nil {
+		t.Errorf("spec includes the hidden command")
 	}
 }
 
@@ -91,6 +144,53 @@ func TestBuildSpecCarriesRequiredArgs(t *testing.T) {
 	}
 	if runE {
 		t.Error("BuildSpec ran the command instead of inspecting its Args validator")
+	}
+}
+
+func TestBuildSpecProbesArgumentAlternatives(t *testing.T) {
+	root := &cobra.Command{Use: "crantcli"}
+	run := func(*cobra.Command, []string) {}
+	info := &cobra.Command{Use: "info [root_id]", Args: rootInfoArgs, Run: run}
+	info.Flags().String("pos", "", "")
+	info.Flags().Bool("json", false, "")
+	plain := &cobra.Command{Use: "plain <root_id>", Args: cobra.ExactArgs(1), Run: run}
+	// state needs an argument or one of its mode flags; the mode flags are not
+	// exclusive with the argument at the Args level, and still stand in for it.
+	stateArgs := func(cmd *cobra.Command, args []string) error {
+		if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+			return err
+		}
+		if len(args) == 0 {
+			for _, name := range []string{"builtin", "show", "reset"} {
+				if cmd.Flags().Changed(name) {
+					return nil
+				}
+			}
+			return errors.New("provide a JSON state, or use --builtin / --show / --reset")
+		}
+		return nil
+	}
+	state := &cobra.Command{Use: "state [json-state]", Args: stateArgs, Run: run}
+	state.Flags().Bool("builtin", false, "")
+	state.Flags().Bool("show", false, "")
+	state.Flags().Bool("reset", false, "")
+	root.AddCommand(info, plain, state)
+
+	spec := BuildSpec(root)
+	if got := findCmd(spec, "info"); got == nil || got.ArgsMin != 1 || !reflect.DeepEqual(got.ArgOrFlag, []string{"pos"}) {
+		t.Errorf("info spec = %+v, want ArgsMin 1 and ArgOrFlag [pos]", got)
+	}
+	if got := findCmd(spec, "plain"); got == nil || got.ArgsMin != 1 || len(got.ArgOrFlag) != 0 {
+		t.Errorf("plain spec = %+v, want ArgsMin 1 and no alternatives", got)
+	}
+	if got := findCmd(spec, "state"); got == nil || got.ArgsMin != 1 || !reflect.DeepEqual(got.ArgOrFlag, []string{"builtin", "reset", "show"}) {
+		t.Errorf("state spec = %+v, want ArgsMin 1 and ArgOrFlag [builtin reset show]", got)
+	}
+	if info.Flags().Changed("pos") {
+		t.Error("probing left --pos marked as changed")
+	}
+	if state.Flags().Changed("builtin") {
+		t.Error("probing left --builtin marked as changed")
 	}
 }
 
@@ -156,7 +256,16 @@ func TestGrammarGates(t *testing.T) {
 		{"unfiltered needs a word for it", "edit history of 576460752669867599", nil, []string{`" --unfiltered"`}},
 		{"only retrieved values", "show PEN neurons", []string{`"PEN"`}, []string{`"EPG"`}},
 		{"root id commands need an id", "show PEN neurons", nil, []string{`"cave-history"`}},
-		{"column requests", "which column is 576460752669867599 in", []string{`"lookup-column"`}, []string{`"add"`, `"list"`}},
+		{"column requests", "which column is 576460752669867599 in", []string{`"root-info"`}, []string{`"lookup-column"`, `"add"`, `"list"`}},
+		{"clean needs a word for it", "show the label sources", nil, []string{`" --clean"`}},
+		{"clean when asked", "clean up old label sources", []string{`" --clean"`}, nil},
+		{"wipe means clean", "wipe the old label sources", []string{`" --clean"`}, nil},
+		{"clean negated", "don't clean the label sources", nil, []string{`" --clean"`}},
+		{"clean-only flags need clean evidence", "show all label sources older than 24h", []string{`"labels"`}, []string{`" --clean"`, `" --all"`, `" --older-than "`}},
+		{"erase all means --all", "erase all label sources", []string{`" --clean"`, `" --all"`}, nil},
+		{"labels --all needs evidence of all", "delete label sources older than 24h", []string{`" --older-than "`}, []string{`" --all"`}},
+		{"labels --all and --older-than when cleaning", "delete all label sources older than 24h", []string{`" --all"`, `" --older-than "`}, nil},
+		{"clipboard ids are never suggested", "show PEN neurons", nil, []string{`" --clipboard-ids"`}},
 		{"single color-by field", "show PEN colored by cell_type", []string{`"cell_type"`}, []string{`"cell_type,cell_subtype"`}},
 		{"two color-by fields", "show PEN colored by group and side", []string{`"group,side"`}, []string{`"group,cell_type"`}},
 		{"unquoted layer", "show PEN on the seg v2 layer", []string{`"'seg v2'"`}, nil},

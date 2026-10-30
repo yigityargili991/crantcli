@@ -25,14 +25,12 @@ Run 'crantcli setup' to configure your SeaTable API token.
 * [crantcli change-def-state](crantcli_change-def-state.md)	 - Set the default Neuroglancer state
 * [crantcli check-cave](crantcli_check-cave.md)	 - Check if root IDs are still current in CAVE
 * [crantcli completion](crantcli_completion.md)	 - Generate the autocompletion script for the specified shell
-* [crantcli generate](crantcli_generate.md)	 - Output the default CRANT scene template
+* [crantcli doctor](crantcli_doctor.md)	 - Report configuration health and test connectivity
 * [crantcli inspect](crantcli_inspect.md)	 - Show info about a Neuroglancer state
 * [crantcli labels](crantcli_labels.md)	 - Manage label sources created by commands using --labels
 * [crantcli list](crantcli_list.md)	 - List distinct values for a classification field
-* [crantcli lookup-column](crantcli_lookup-column.md)	 - Find the closest EPG/PEG neuron's column (region) by position
 * [crantcli root-info](crantcli_root-info.md)	 - Show CRANT, CAVE, and nearest-column info for a root ID
 * [crantcli setup](crantcli_setup.md)	 - Set or update API tokens (SeaTable and CAVE)
 * [crantcli side-check](crantcli_side-check.md)	 - Check selected neuron sides against the nearest EPG/PEG neuron
-* [crantcli state-transfer](crantcli_state-transfer.md)	 - Build a Neuroglancer state from IDs in the clipboard
 * [crantcli update](crantcli_update.md)	 - Update crantcli to the latest release
 

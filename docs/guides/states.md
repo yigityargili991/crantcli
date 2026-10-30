@@ -19,7 +19,7 @@ state servers it can sign in to.
 ## Pipe a state
 
 ```bash
-crantcli generate \
+crantcli change-def-state --builtin \
   | crantcli add --cell-type ER \
   > er-state.json
 ```
@@ -39,21 +39,37 @@ crantcli inspect --state result.json
 Copy root IDs separated by spaces, commas, or newlines, then run:
 
 ```bash
-crantcli state-transfer
+crantcli add --clipboard-ids
 ```
 
-The IDs are deduplicated and replace the target segmentation layer’s segment list. Choose the base state and output explicitly when needed:
+The IDs are deduplicated and appended to the target segmentation layer. Pass
+`--replace` to replace the layer’s existing segment list instead (the
+deprecated `state-transfer` command always replaced).
+
+`--clipboard-ids` only changes where the IDs come from. The base state is
+resolved as usual: `--state`, then piped JSON, then the configured or built-in
+template. The clipboard is never decoded as a state in this mode; its contents
+are the IDs. Choose the base state and output explicitly when needed:
 
 ```bash
-crantcli state-transfer \
+crantcli add --clipboard-ids \
   --state base.json \
   --output result.json \
   --layer "proofreadable seg" \
   --color turquoise
 ```
 
+Piping JSON supplies the base state while the clipboard supplies the IDs; a
+file or piped base state writes the result to standard output:
+
+```bash
+crantcli add --clipboard-ids < base.json > result.json
+```
+
 !!! warning
-    `state-transfer` replaces the selected layer’s existing segment list. Keep a copy of the base state if you may need that selection later.
+    `add --clipboard-ids --replace` replaces the selected layer’s existing
+    segment list. Keep a copy of the base state if you may need that selection
+    later.
 
 ## Configure a reusable default
 
@@ -70,7 +86,7 @@ The configured JSON is stored at `~/.crantcli/default_state.json`.
 Write the embedded CRANT scene to a file:
 
 ```bash
-crantcli generate > crant-scene.json
+crantcli change-def-state --builtin > crant-scene.json
 ```
 
 ## Understand output behavior
@@ -86,9 +102,12 @@ If clipboard writing fails, crantcli warns and prints the URL to standard
 output. The command still succeeds, because the URL reached you; it fails only
 if no destination could be written at all.
 
-`state-transfer` is the exception: without `--output` it always copies a URL to
-the clipboard, whatever the input source. Linux Wayland/X11 clipboard support
-is built into the binary; external clipboard tools are compatibility fallbacks
-only.
+`add --clipboard-ids` follows these output rules. The template (no `--state` and
+no piped JSON) or a URL passed to `--state` copies the resulting URL to the
+clipboard; a `--state` file or piped JSON writes JSON to standard output unless
+`--output` is given. The deprecated `state-transfer` command is the exception:
+without `--output` it always copies a URL to the clipboard, whatever the input
+source. Linux Wayland/X11 clipboard support is built into the binary; external
+clipboard tools are compatibility fallbacks only.
 
 [Learn the full resolution order](../concepts/state-resolution.md)

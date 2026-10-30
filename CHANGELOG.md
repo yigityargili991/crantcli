@@ -1,5 +1,86 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Look up the nearest EPG/PEG column for a position with
+  `crantcli root-info --pos x,y,z`. It prints only the `nearest_column`
+  section, in text or with `--json`, omits the side fields that only a
+  root-ID lookup has, and rejects the root-ID-only `--history-limit` and
+  `--unfiltered` flags. `root-info` now takes exactly one of a root ID or
+  `--pos`.
+- Read root IDs from the clipboard and inject them with
+  `crantcli add --clipboard-ids`, which replaces `state-transfer`. It appends
+  to the layer by default; pass `--replace` for the old replace behavior, and
+  it needs no SeaTable token unless `--labels` looks metadata up. The base
+  state comes from `--state`, piped JSON, or the default template; the
+  clipboard is read only as IDs.
+- Print the embedded default scene with `crantcli change-def-state --builtin`,
+  which replaces `generate`.
+- Delete tracked label sources with `crantcli labels --clean`, which replaces
+  `labels clean`. `--all`, `--older-than`, and `--labels-hook` work only with
+  `--clean`.
+- Run `crantcli doctor` to report the configured token sources, the
+  default-state source, and the ask model, and with `--online` to check
+  SeaTable and CAVE reachability, skipping a check whose token is not
+  configured. It prints no token values.
+
+### Changed
+
+- Deprecate `crantcli lookup-column`; use `crantcli root-info` with a root ID
+  or `--pos x,y,z` instead. `lookup-column` still runs but is hidden from
+  `--help`, and it will be removed in v0.25.0.
+- Deprecate `crantcli generate`, `crantcli state-transfer`, and
+  `crantcli labels clean`; use `crantcli change-def-state --builtin`,
+  `crantcli add --clipboard-ids`, and `crantcli labels --clean` instead. They
+  still run but are hidden from `--help`, and they will be removed in
+  v0.25.0. Deprecated `state-transfer` keeps its old behavior: it always
+  replaces the layer's segments and writes a URL to the clipboard without
+  `--output`.
+- `change-def-state` shows its JSON argument as optional in its usage line
+  (`crantcli change-def-state [json-state]`), since `--builtin`, `--show`, and
+  `--reset` take no argument, and its no-argument error names those flags too.
+- `ask` only suggests command lines the CLI accepts: it no longer emits bare
+  `root-info` or combines a root ID with `--pos`, no longer emits bare
+  `change-def-state` or two of `--builtin`/`--show`/`--reset`, and never names
+  a deprecated command.
+- `ask`'s cleanup suggestions follow the request's wording: clean, delete,
+  remove, prune, wipe, erase, and purge count, a negated mention ("don't
+  clean") does not, and `--all` needs an explicit all or every indication. Its
+  cleanup suggestions always include `--clean`, which `labels` needs before
+  `--all` or `--older-than`.
+
+### Fixed
+
+- `add --clipboard-ids` validates the clipboard instead of injecting whatever
+  it holds. A Neuroglancer state URL is rejected with an explanation: add
+  copies its output URL back to the clipboard by default, so a second run
+  finds that URL instead of root IDs. An entry that is not a decimal root ID
+  is named in the error rather than passed through as a segment ID.
+- Deprecated `state-transfer --labels` reports a missing SeaTable token with
+  the same message the other SeaTable commands use.
+- `doctor` warns without failing when the custom default state cannot be read
+  or is not a JSON object, saying crantcli ignores it and uses the built-in
+  template. It also reports a model named by `CRANTCLI_ASK_MODEL`, and names
+  the SeaTable and CAVE token sources consistently.
+- `root-info`'s full report prints display names for `side` and
+  `nearest_column.side` in both text and `--json` instead of the raw SeaTable
+  select-option IDs, and `side_relation` compares those resolved names.
+  `root-info --pos` still omits both side fields.
+- `root-info --pos ""` and `--pos=` fail with
+  `--pos requires a position as x,y,z` instead of a root-ID error.
+- Label sources that `labels --clean` or the `--labels-ttl` cleanup deleted no
+  longer persist in states that still reference them. crantcli remembers the
+  URLs it deleted (the newest 1,000, in
+  `~/.crantcli/label_sources_retired.json`). The next `--labels` run replaces
+  such a source instead of keeping it beside the new one, and `add --replace`
+  drops it even without `--labels`. `add --replace` also drops the label
+  source the built-in template ships for its own segments. Sources crantcli
+  never published stay, and an `add` run without `--replace` or `--labels`
+  leaves the layer's sources as they are. Sources deleted before this release
+  are not remembered.
+
 ## v0.22.3 - 2026-10-22
 
 ### Added

@@ -19,6 +19,7 @@ type evidence struct {
 	boolOK                                         map[string]bool // gated bool flags -> the request asks for them
 	column                                         bool            // the request asks for the nearest or containing column
 	colorFields                                    map[string]bool // fields named near a color word
+	cleanAll                                       bool            // the request asks to delete every label source
 }
 
 var (
@@ -33,6 +34,14 @@ var (
 	reOpenWord    = regexp.MustCompile(`(?i)\bopen|browser|\blaunch|\bpop (?:it |that |them )?up\b|\bviewer\b`)
 	reViewerState = regexp.MustCompile(`(?i)\bviewer state`)
 	reOpenNeg     = regexp.MustCompile(`(?i)\b(?:without|don'?t|do not|no need to|not)\b[^.,;?!]{0,20}\bopen\w*`)
+	// Cleaning words mean deleting label sources; a negated mention ("don't
+	// clean") does not, and "wipe"/"erase"/"purge" count as cleaning too.
+	reCleanWord = regexp.MustCompile(`(?i)\b(?:clean(?:up)?|delete|remove|prune|wipe|erase|purge)\w*`)
+	reCleanNeg  = regexp.MustCompile(`(?i)\b(?:without|don'?t|do not|no need to|not|never)\b[^.,;?!]{0,20}\b(?:clean(?:up)?|delete|remove|prune|wipe|erase|purge)\w*`)
+	// Deleting every source regardless of age is the only evidence for --all:
+	// it is destructive, so a negated "all" does not count either.
+	reAllWord = regexp.MustCompile(`(?i)\ball\b|\bevery\b|\beverything\b|regardless of (?:their |its |the )?age|\bany age\b`)
+	reAllNeg  = regexp.MustCompile(`(?i)\b(?:without|don'?t|do not|no need to|not|never)\b[^.,;?!]{0,20}\b(?:all|every(?:thing)?)\b`)
 	// Other bool flags the model tends to add unasked need words like these.
 	boolEvidence = map[string]*regexp.Regexp{
 		"count":      regexp.MustCompile(`(?i)\bcount|how many|number of|tally|per (?:value|type)`),
@@ -135,6 +144,10 @@ func gatherEvidence(v *Vocab, q string) evidence {
 	for name, re := range boolEvidence {
 		e.boolOK[name] = re.MatchString(q)
 	}
+	// "clean" is gated like a bool flag but its evidence is negation-aware, and
+	// --all additionally needs an un-negated word for deleting everything.
+	e.boolOK["clean"] = reCleanWord.MatchString(reCleanNeg.ReplaceAllString(q, ""))
+	e.cleanAll = e.boolOK["clean"] && reAllWord.MatchString(reAllNeg.ReplaceAllString(q, ""))
 	e.column = reColumn.MatchString(q)
 	e.colorFields = colorFieldsNamed(q)
 	e.durations = reDuration.FindAllString(q, -1)
@@ -241,32 +254,40 @@ type argRule struct {
 }
 
 // gatedArgs returns the argument rule for a command, or false when the
-// command is impossible for this request (it needs a root ID and there is none).
+// command is impossible for this request (it needs a root ID and there is
+// none, or it needs an argument that no evidence provides).
 func gatedArgs(c *CmdSpec, e evidence) (argRule, bool) {
+	var rule argRule
 	switch {
-	case c.Path == "list":
-		return argRule{vals: labelFields, min: 1, max: 1}, true
+	case c.ArgsUse == "<field>":
+		// list's argument names a classification field.
+		rule = argRule{vals: labelFields, min: 1, max: 1}
 	case strings.Contains(c.ArgsUse, "root_id...]"):
-		if len(e.ids) == 0 {
-			if c.ArgsMin > 0 {
-				return argRule{}, false
-			}
-			return argRule{}, true
-		}
-		min := 0
-		if c.ArgsMin > 0 {
-			min = 1
-		}
-		return argRule{vals: uniq(e.ids), min: min}, true
+		rule = argRule{vals: uniq(e.ids)}
 	case strings.HasPrefix(c.ArgsUse, "<root_id>"):
-		if len(e.ids) == 0 {
+		if len(e.ids) == 0 && len(c.ArgOrFlag) == 0 {
 			return argRule{}, false
 		}
-		return argRule{vals: uniq(e.ids), min: 1, max: 1}, true
+		rule = argRule{vals: uniq(e.ids), min: 1, max: 1}
 	case strings.HasPrefix(c.ArgsUse, "[root_id]"):
-		return argRule{vals: uniq(e.ids), max: 1}, true
+		rule = argRule{vals: uniq(e.ids), max: 1}
 	case c.ArgsUse != "":
-		return argRule{vals: uniq(e.files), max: 1}, true
+		rule = argRule{vals: uniq(e.files), max: 1}
 	}
-	return argRule{}, true
+	// Honor the command's Args validator for every command: one that rejects
+	// zero arguments needs an argument, unless a flag can stand in for it
+	// (root-info --pos).
+	if c.ArgsMin > 0 {
+		if len(rule.vals) == 0 {
+			if len(c.ArgOrFlag) == 0 {
+				return argRule{}, false
+			}
+		} else {
+			rule.min = 1
+		}
+	}
+	if len(rule.vals) == 0 {
+		return argRule{}, true
+	}
+	return rule, true
 }

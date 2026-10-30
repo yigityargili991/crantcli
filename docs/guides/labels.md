@@ -20,10 +20,14 @@ crantcli add --cell-type ER --labels
 Or attach labels to known clipboard IDs:
 
 ```bash
-crantcli state-transfer --labels
+crantcli add --clipboard-ids --labels
 ```
 
-Clipboard IDs without CRANT metadata remain unlabeled.
+`--labels` looks the copied IDs up in SeaTable, so this form needs a SeaTable
+token. If none of the IDs have CRANT metadata, the run fails with
+`no CRANT metadata found for clipboard root IDs`. If only some do, crantcli
+warns how many it found and labels those rows; the remaining IDs are still
+injected, without labels.
 
 For edit history, publish the editor and UTC time beside historical root IDs:
 
@@ -78,10 +82,10 @@ Tag values carry a short field prefix (`subtype_`, `side_`, `region_`), so value
 crantcli add --cell-type ER --labels --label-tags none
 ```
 
-Both flags accept the CRANTb_meta classification fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and `proofread`. They work the same way on `state-transfer`:
+Both flags accept the CRANTb_meta classification fields: `super_class`, `cell_class`, `cell_type`, `cell_subtype`, `cell_instance`, `side`, `region`, `tract`, `nerve`, `hemilineage`, and `proofread`. They work the same way with clipboard root IDs:
 
 ```bash
-crantcli state-transfer --labels --label-by cell_instance,cell_type --label-tags cell_type,side
+crantcli add --clipboard-ids --labels --label-by cell_instance,cell_type --label-tags cell_type,side
 ```
 
 !!! note "Shaping flags need `--labels`"
@@ -99,17 +103,19 @@ Clean tracked sources explicitly:
 
 ```bash
 # Sources older than seven days
-crantcli labels clean
+crantcli labels --clean
 
 # Choose another age
-crantcli labels clean --older-than 24h
+crantcli labels --clean --older-than 24h
 
 # Delete every tracked source
-crantcli labels clean --all
+crantcli labels --clean --all
 ```
 
 !!! danger "Cleanup changes saved scenes"
     Deleting a published source removes labels from every saved or shared state that still references it. Segment IDs remain, but their generated labels no longer load.
+
+    crantcli remembers the sources it deleted, so the next `add --labels` or `add --replace` run over such a state drops them from the layer instead of keeping a source that no longer loads. `add --replace` also drops the label source the built-in template ships for its own segments.
 
 ## Use a custom publisher
 

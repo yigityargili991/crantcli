@@ -1,7 +1,8 @@
 // Package labelhost publishes segment_properties "info" files to somewhere the
 // browser can fetch them — a secret GitHub gist by default, or a user-supplied
 // publish/cleanup hook command — and tracks them in a local manifest so they can
-// be garbage-collected later.
+// be garbage-collected later. The URLs of deleted sources move to a retired
+// ledger, so states that still reference them can be cleaned up as well.
 //
 // Hook contract (when a hook command is configured):
 //   - Publish:  `<hook> publish`  — receives the info JSON on stdin, must print
@@ -18,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,11 @@ import (
 const (
 	manifestDir  = ".crantcli"
 	manifestFile = "label_gists.json" // legacy name; also holds hook-published entries
+	retiredFile  = "label_sources_retired.json"
+
+	// maxRetired bounds the retired ledger. When a cleanup would grow it past
+	// this many URLs, the oldest ones are forgotten.
+	maxRetired = 1000
 
 	kindGist = "gist"
 	kindHook = "hook"
@@ -89,6 +96,9 @@ var run = func(stdin []byte, name string, args ...string) ([]byte, error) {
 var (
 	nowFunc          = time.Now
 	manifestPathFunc = defaultManifestPath
+	// warnOut receives problems that must not fail a cleanup whose deletions
+	// already happened.
+	warnOut io.Writer = os.Stderr
 )
 
 // Publish hosts the info bytes. If hookCmd is non-empty it is used; otherwise a
@@ -324,36 +334,109 @@ func defaultManifestPath() string {
 }
 
 func readManifest() ([]entry, error) {
-	path := manifestPathFunc()
-	if path == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil, nil
-	}
 	var entries []entry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, fmt.Errorf("parsing label manifest: %w", err)
+	if err := readList(manifestPathFunc(), "label manifest", &entries); err != nil {
+		return nil, err
 	}
 	return entries, nil
 }
 
 func writeManifest(entries []entry) error {
-	path := manifestPathFunc()
+	return writeList(manifestPathFunc(), entries)
+}
+
+// retiredEntry is a label source crantcli deleted. States saved while it was
+// live still reference it, so commands that rewrite a layer remove it there.
+type retiredEntry struct {
+	URL       string    `json:"url"`
+	RetiredAt time.Time `json:"retired_at"`
+}
+
+// retiredPath keeps the retired ledger next to the manifest. It is a separate
+// file so the manifest keeps the format older crantcli versions read.
+func retiredPath() string {
+	manifest := manifestPathFunc()
+	if manifest == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(manifest), retiredFile)
+}
+
+func readRetired() ([]retiredEntry, error) {
+	var retired []retiredEntry
+	if err := readList(retiredPath(), "retired label sources", &retired); err != nil {
+		return nil, err
+	}
+	return retired, nil
+}
+
+// retire records the URLs of deleted entries in the retired ledger, newest
+// last. A URL retired again moves to the end, and the ledger keeps at most
+// maxRetired URLs.
+func retire(deleted []entry) error {
+	added := make(map[string]bool, len(deleted))
+	var urls []string
+	for _, e := range deleted {
+		if e.URL != "" && !added[e.URL] {
+			added[e.URL] = true
+			urls = append(urls, e.URL)
+		}
+	}
+	if len(urls) == 0 {
+		return nil
+	}
+
+	existing, err := readRetired()
+	if err != nil {
+		return err
+	}
+	ledger := make([]retiredEntry, 0, len(existing)+len(urls))
+	for _, r := range existing {
+		if !added[r.URL] {
+			ledger = append(ledger, r)
+		}
+	}
+	now := nowFunc()
+	for _, u := range urls {
+		ledger = append(ledger, retiredEntry{URL: u, RetiredAt: now})
+	}
+	if len(ledger) > maxRetired {
+		ledger = ledger[len(ledger)-maxRetired:]
+	}
+	return writeList(retiredPath(), ledger)
+}
+
+// readList reads a JSON array file into list. A missing or empty file leaves
+// list empty.
+func readList(path, name string, list interface{}) error {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, list); err != nil {
+		return fmt.Errorf("parsing %s: %w", name, err)
+	}
+	return nil
+}
+
+// writeList writes list as a JSON array file only the user can read.
+func writeList(path string, list interface{}) error {
 	if path == "" {
 		return fmt.Errorf("could not determine home directory")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating manifest directory: %w", err)
 	}
-	data, err := json.MarshalIndent(entries, "", "  ")
+	data, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -378,6 +461,23 @@ func RecordedURLs() []string {
 	for _, e := range entries {
 		if e.URL != "" {
 			urls = append(urls, e.URL)
+		}
+	}
+	return urls
+}
+
+// RetiredURLs returns the source URLs of label sources crantcli deleted and has
+// not published again, so layers that still carry them can drop them.
+func RetiredURLs() []string {
+	retired, _ := readRetired()
+	live := make(map[string]bool)
+	for _, u := range RecordedURLs() {
+		live[u] = true
+	}
+	urls := make([]string, 0, len(retired))
+	for _, r := range retired {
+		if r.URL != "" && !live[r.URL] {
+			urls = append(urls, r.URL)
 		}
 	}
 	return urls
@@ -409,7 +509,7 @@ func clean(all bool, age time.Duration, hookCmd string) (int, int, error) {
 
 	cutoff := nowFunc().Add(-age)
 	kept := make([]entry, 0, len(entries))
-	deleted := 0
+	var deleted []entry
 	for _, e := range entries {
 		expired := all || !e.CreatedAt.After(cutoff)
 		if !expired {
@@ -427,17 +527,22 @@ func clean(all bool, age time.Duration, hookCmd string) (int, int, error) {
 			kept = append(kept, e)
 			continue
 		}
-		deleted++
+		deleted = append(deleted, e)
 	}
 
 	// Only rewrite the manifest when the tracked set actually changed.
-	if deleted == 0 {
+	if len(deleted) == 0 {
 		return 0, len(kept), nil
 	}
-	if err := writeManifest(kept); err != nil {
-		return deleted, len(kept), err
+	// Retire the deleted URLs before the manifest forgets them. The sources are
+	// already gone, so failing to record them is a warning, not an error.
+	if err := retire(deleted); err != nil {
+		fmt.Fprintf(warnOut, "Warning: could not record deleted label sources: %v\n", err)
 	}
-	return deleted, len(kept), nil
+	if err := writeManifest(kept); err != nil {
+		return len(deleted), len(kept), err
+	}
+	return len(deleted), len(kept), nil
 }
 
 func deleteEntry(e entry, hookCmd string) error {

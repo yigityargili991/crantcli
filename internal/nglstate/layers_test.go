@@ -608,3 +608,111 @@ func TestSetSegmentColorByGroups(t *testing.T) {
 		}
 	})
 }
+
+func TestRemoveSources(t *testing.T) {
+	const (
+		deadA = "https://hook.example/a/|neuroglancer-precomputed:"
+		deadB = "https://hook.example/b/|neuroglancer-precomputed:"
+		other = "https://example.org/labels/|neuroglancer-precomputed:"
+	)
+	graphene := map[string]interface{}{"url": "graphene://x", "state": map[string]interface{}{}}
+
+	tests := []struct {
+		name    string
+		source  interface{}
+		urls    []string
+		want    interface{}
+		removed int
+	}{
+		{
+			name:    "drops listed secondary sources in either form",
+			source:  []interface{}{graphene, map[string]interface{}{"url": deadA}, deadB, map[string]interface{}{"url": other}},
+			urls:    []string{deadA, deadB},
+			want:    []interface{}{graphene, map[string]interface{}{"url": other}},
+			removed: 2,
+		},
+		{
+			name:   "keeps the primary source even when listed",
+			source: []interface{}{"graphene://x", map[string]interface{}{"url": other}},
+			urls:   []string{"graphene://x"},
+			want:   []interface{}{"graphene://x", map[string]interface{}{"url": other}},
+		},
+		{
+			name:   "leaves a string source as a string",
+			source: "graphene://x",
+			urls:   []string{"graphene://x"},
+			want:   "graphene://x",
+		},
+		{
+			name:   "leaves an object source as an object",
+			source: graphene,
+			urls:   []string{"graphene://x"},
+			want:   graphene,
+		},
+		{
+			name:   "leaves a layer without listed sources alone",
+			source: []interface{}{"graphene://x", map[string]interface{}{"url": other}, map[string]interface{}{"transform": "no url"}},
+			urls:   []string{deadA, ""},
+			want:   []interface{}{"graphene://x", map[string]interface{}{"url": other}, map[string]interface{}{"transform": "no url"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			layer := map[string]interface{}{"source": tt.source}
+			if removed := RemoveSources(layer, tt.urls); removed != tt.removed {
+				t.Errorf("removed = %d, want %d", removed, tt.removed)
+			}
+			if got := layer["source"]; !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("source = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSecondarySourceURLs(t *testing.T) {
+	state := map[string]interface{}{"layers": []interface{}{
+		map[string]interface{}{"type": "image", "source": []interface{}{"precomputed://img", "https://example.org/not-a-segmentation/"}},
+		map[string]interface{}{"type": "segmentation", "source": []interface{}{
+			map[string]interface{}{"url": "graphene://x"},
+			"https://example.org/labels/a/|neuroglancer-precomputed:",
+			map[string]interface{}{"url": "https://example.org/labels/b/|neuroglancer-precomputed:"},
+		}},
+		map[string]interface{}{"type": "segmentation", "source": "precomputed://single"},
+		"not a layer",
+	}}
+
+	want := []string{
+		"https://example.org/labels/a/|neuroglancer-precomputed:",
+		"https://example.org/labels/b/|neuroglancer-precomputed:",
+	}
+	if got := secondarySourceURLs(state); !reflect.DeepEqual(got, want) {
+		t.Errorf("secondarySourceURLs = %v, want %v", got, want)
+	}
+}
+
+// The template's secondary sources are dropped from layers built on it, so none
+// of them may be a layer's primary source.
+func TestTemplateSecondarySourceURLsExcludePrimarySources(t *testing.T) {
+	scene, err := parseJSON(DefaultScene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := make(map[string]bool)
+	for _, l := range scene["layers"].([]interface{}) {
+		layer := l.(map[string]interface{})
+		switch s := layer["source"].(type) {
+		case []interface{}:
+			if len(s) > 0 {
+				primary[sourceURL(s[0])] = true
+			}
+		default:
+			primary[sourceURL(s)] = true
+		}
+	}
+	for _, u := range TemplateSecondarySourceURLs() {
+		if primary[u] {
+			t.Errorf("template secondary source %q is also a primary source", u)
+		}
+	}
+}

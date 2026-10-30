@@ -19,7 +19,8 @@ Setup then offers to download raider, the small model we fine-tuned for the expe
 | Add labels to clipboard IDs | ✓ | | |
 | Check whether root IDs are current | ✓ | ✓ | |
 | Show CAVE edit history | | ✓ | |
-| Show combined `root-info` | ✓ | ✓ | |
+| Show combined `root-info` for a root ID | ✓ | ✓ | |
+| Find the nearest column for a position (`root-info --pos`) | ✓ | | |
 | Load a [Share link](../concepts/state-resolution.md#share-links) stored on `proofreading.zetta.ai` | | ✓ | |
 | Load a [Share link](../concepts/state-resolution.md#share-links) stored on `global.daf-apis.com` | | | ✓ |
 | Download the `ask` model and look up table values | ✓ | | |

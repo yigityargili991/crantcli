@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -26,6 +27,23 @@ type rootInfoCaveClient interface {
 	GetRootID(supervoxelID uint64) (uint64, error)
 	GetRootChangeLog(rootID uint64, filtered bool) ([]cave.ChangeLogRow, error)
 }
+
+// Test seams: the SeaTable data source and the CAVE client are replaceable, so
+// CLI-level tests can run the command without a SeaTable token or network
+// access. The data source seam returns the interface because the test package
+// cannot populate a seatable.Client's unexported query hooks.
+var (
+	rootInfoNewDataSource = func() (rootInfoDataSource, error) {
+		client, err := seatable.NewClient()
+		if err != nil {
+			return nil, err
+		}
+		return seatableRootInfoSource{client: client}, nil
+	}
+	rootInfoNewCAVEClient = func() (rootInfoCaveClient, error) {
+		return cave.NewClient()
+	}
+)
 
 type seatableRootInfoSource struct {
 	client *seatable.Client
@@ -110,11 +128,26 @@ type rootInfoHistory struct {
 }
 
 var rootInfoCmd = &cobra.Command{
-	Use:         "root-info <root_id>",
+	Use:         "root-info [root_id]",
 	Short:       "Show CRANT, CAVE, and nearest-column info for a root ID",
-	Long:        `Show CRANT metadata, CAVE current-root status, edit history, and nearest EPG/PEG column context for a root ID.`,
+	Long:        `Show CRANT metadata, CAVE current-root status, edit history, and nearest EPG/PEG column context for a root ID. With --pos, print only the nearest EPG/PEG column for an x,y,z position.`,
 	Annotations: map[string]string{"requiresToken": "true"},
-	Args:        cobra.ExactArgs(1),
+	Args:        rootInfoArgs,
+}
+
+// rootInfoArgs accepts a root ID argument or --pos, and exactly one of them.
+func rootInfoArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("accepts at most 1 arg(s), received %d", len(args))
+	}
+	hasPos := cmd.Flags().Changed("pos")
+	if hasPos && len(args) > 0 {
+		return fmt.Errorf("cannot combine root_id argument with --pos flag")
+	}
+	if !hasPos && len(args) == 0 {
+		return fmt.Errorf("provide a root_id argument or use --pos x,y,z")
+	}
+	return nil
 }
 
 func init() {
@@ -122,28 +155,55 @@ func init() {
 		asJSON       bool
 		historyLimit int
 		unfiltered   bool
+		position     string
 	)
 
 	rootInfoCmd.Flags().BoolVar(&asJSON, "json", false, "Print JSON output")
 	rootInfoCmd.Flags().IntVar(&historyLimit, "history-limit", 5, "Number of recent CAVE history entries to print")
 	rootInfoCmd.Flags().BoolVar(&unfiltered, "unfiltered", false, "Include unfiltered split/merge history")
+	rootInfoCmd.Flags().StringVar(&position, "pos", "", "Position as x,y,z (e.g. 100.5,200.3,300.1)")
 	rootInfoCmd.ValidArgsFunction = noFileCompletion
+	mustRegisterFlagCompletion(rootInfoCmd, "pos", noFileCompletion)
 
 	rootInfoCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("pos") {
+			// Validate and parse before creating any client: an empty --pos must
+			// fail here instead of falling through to the root-ID path.
+			if strings.TrimSpace(position) == "" {
+				return fmt.Errorf("--pos requires a position as x,y,z")
+			}
+			x, y, z, err := parsePos(position)
+			if err != nil {
+				return err
+			}
+			// The standalone --pos output has no history, so reject the
+			// root-ID-only flags instead of silently ignoring them.
+			if cmd.Flags().Changed("history-limit") {
+				return fmt.Errorf("cannot combine --pos with --history-limit")
+			}
+			if cmd.Flags().Changed("unfiltered") {
+				return fmt.Errorf("cannot combine --pos with --unfiltered")
+			}
+			data, err := rootInfoNewDataSource()
+			if err != nil {
+				return err
+			}
+			return runRootInfoPosition(cmd.OutOrStdout(), data, x, y, z, rootInfoOptions{JSON: asJSON})
+		}
+
 		if historyLimit < 0 {
 			return fmt.Errorf("--history-limit must be >= 0")
 		}
 
-		stClient, err := seatable.NewClient()
+		data, err := rootInfoNewDataSource()
 		if err != nil {
 			return err
 		}
-		caveClient, err := cave.NewClient()
+		caveClient, err := rootInfoNewCAVEClient()
 		if err != nil {
 			return err
 		}
-
-		return runRootInfo(cmd.OutOrStdout(), seatableRootInfoSource{client: stClient}, caveClient, args[0], rootInfoOptions{
+		return runRootInfo(cmd.OutOrStdout(), data, caveClient, args[0], rootInfoOptions{
 			JSON:         asJSON,
 			HistoryLimit: historyLimit,
 			Filtered:     !unfiltered,
@@ -151,6 +211,11 @@ func init() {
 	}
 
 	rootCmd.AddCommand(rootInfoCmd)
+}
+
+// rootInfoPositionResult is the --pos output: only the nearest column.
+type rootInfoPositionResult struct {
+	NearestColumn *rootInfoNearestColumn `json:"nearest_column"`
 }
 
 func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCaveClient, rawRootID string, opts rootInfoOptions) error {
@@ -164,6 +229,28 @@ func runRootInfo(out io.Writer, data rootInfoDataSource, caveClient rootInfoCave
 		return enc.Encode(result)
 	}
 	return writeRootInfoText(out, result)
+}
+
+// runRootInfoPosition renders only the nearest_column section for --pos. The
+// standalone output omits side and side_relation: a --pos lookup has no side
+// relation, and callers that need a side use the root-ID report.
+func runRootInfoPosition(out io.Writer, data rootInfoDataSource, x, y, z float64, opts rootInfoOptions) error {
+	nearest, nearestErr, err := fetchNearestColumnAt(data, x, y, z, "")
+	if err != nil {
+		return err
+	}
+	if nearestErr != "" {
+		return errors.New(nearestErr)
+	}
+	nearest.Side = ""
+	nearest.SideRelation = ""
+
+	if opts.JSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rootInfoPositionResult{NearestColumn: nearest})
+	}
+	return writeRootInfoPositionText(out, nearest)
 }
 
 func fetchRootInfo(data rootInfoDataSource, caveClient rootInfoCaveClient, rawRootID string, opts rootInfoOptions) (*rootInfoResult, error) {
@@ -275,6 +362,13 @@ func buildRootInfoCAVEStatus(client rootInfoCaveClient, row *seatable.NeuronInfo
 }
 
 func fetchNearestColumn(data rootInfoDataSource, row *seatable.NeuronInfoRow) (*rootInfoNearestColumn, string, error) {
+	return fetchNearestColumnAt(data, row.X, row.Y, row.Z, row.Side)
+}
+
+// fetchNearestColumnAt finds the nearest EPG/PEG neuron to x,y,z. targetSide
+// is the side of the neuron being looked up; it is empty for a --pos lookup,
+// which has no side relation.
+func fetchNearestColumnAt(data rootInfoDataSource, x, y, z float64, targetSide string) (*rootInfoNearestColumn, string, error) {
 	regionOpts, err := data.RegionOptions()
 	if err != nil {
 		return nil, "", err
@@ -295,7 +389,7 @@ func fetchNearestColumn(data rootInfoDataSource, row *seatable.NeuronInfoRow) (*
 		if !candidate.HasPosition() {
 			continue
 		}
-		d := euclideanDistance(row.X, row.Y, row.Z, candidate.X, candidate.Y, candidate.Z)
+		d := euclideanDistance(x, y, z, candidate.X, candidate.Y, candidate.Z)
 		if d < closestDist {
 			closestDist = d
 			closest = candidate
@@ -310,7 +404,7 @@ func fetchNearestColumn(data rootInfoDataSource, row *seatable.NeuronInfoRow) (*
 		RootID:       closest.RootID,
 		Side:         closest.Side,
 		Distance:     closestDist,
-		SideRelation: nearestSideRelation(row.Side, closest.Side),
+		SideRelation: nearestSideRelation(targetSide, closest.Side),
 	}, "", nil
 }
 
@@ -461,6 +555,25 @@ func writeRootInfoPositionSection(write rootInfoTextWriter, result *rootInfoResu
 	}
 
 	return nil
+}
+
+// writeRootInfoPositionText prints the nearest_column section on its own,
+// without the side or side relation a root ID would have.
+func writeRootInfoPositionText(w io.Writer, nearest *rootInfoNearestColumn) error {
+	write := func(format string, args ...interface{}) error {
+		_, err := fmt.Fprintf(w, format, args...)
+		return err
+	}
+	if err := write("nearest_column\n"); err != nil {
+		return err
+	}
+	if err := write("  region: %s\n", displayValue(nearest.Region)); err != nil {
+		return err
+	}
+	if err := write("  root_id: %s\n", displayValue(nearest.RootID)); err != nil {
+		return err
+	}
+	return write("  distance: %.3f\n", nearest.Distance)
 }
 
 func writeRootInfoNearestColumnSection(write rootInfoTextWriter, result *rootInfoResult) error {

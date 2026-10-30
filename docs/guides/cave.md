@@ -151,4 +151,6 @@ crantcli root-info 720575940610453042 --json
 ```
 
 !!! note
-    `check-cave` and `root-info` need both SeaTable and CAVE access. `cave-history` needs only CAVE access.
+    `check-cave` and `root-info <root_id>` need both SeaTable and CAVE access;
+    `root-info --pos x,y,z` needs only SeaTable, because it never queries CAVE.
+    `cave-history` needs only CAVE access.

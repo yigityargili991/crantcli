@@ -45,7 +45,11 @@ func parseSpec() []*CmdSpec {
 			{Name: "older-than", Type: "duration", Default: "24h"},
 			{Name: "state", Short: "s", Type: "string"},
 		}},
-		{Path: "labels clean", Flags: []FlagSpec{{Name: "all", Type: "bool", Default: "false"}}},
+		{Path: "labels", Flags: []FlagSpec{
+			{Name: "all", Type: "bool", Default: "false"},
+			{Name: "clean", Type: "bool", Default: "false"},
+			{Name: "older-than", Type: "duration", Default: "168h"},
+		}},
 		{Path: "cave-history", ArgsUse: "<root_id>"},
 	}
 }
@@ -61,7 +65,9 @@ func TestParseLine(t *testing.T) {
 		{"add --open=false --labels=true --older-than=1440m", command{Cmd: "add", Flags: map[string][]string{}}, ""},
 		{"add --bundle BU", command{Cmd: "add", Flags: map[string][]string{"region": {"BU"}}}, ""},
 		{"add --labels=false", command{Cmd: "add", Flags: map[string][]string{"labels": {"false"}}}, ""},
-		{"labels clean --all", command{Cmd: "labels clean", Flags: map[string][]string{"all": {"true"}}}, ""},
+		{"labels --clean", command{Cmd: "labels", Flags: map[string][]string{"clean": {"true"}}}, ""},
+		{"labels --all --clean", command{Cmd: "labels", Flags: map[string][]string{"all": {"true"}, "clean": {"true"}}}, ""},
+		{"labels --clean --older-than 48h", command{Cmd: "labels", Flags: map[string][]string{"clean": {"true"}, "older-than": {"48h"}}}, ""},
 		{"cave-history 576460752669867599 - x", command{Cmd: "cave-history", Args: []string{"576460752669867599", "-", "x"}, Flags: map[string][]string{}}, ""},
 		{"", command{}, "empty command"},
 		{"crantcli", command{}, "empty command"},

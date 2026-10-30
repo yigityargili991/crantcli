@@ -264,28 +264,6 @@ func resolveDistinctSelectValues(meta *MetadataResponse, column string, resp *SQ
 	return buildDistinctResponse(column, counts, withCount)
 }
 
-// QueryNeuronPosition queries a single neuron's position by root ID.
-func QueryNeuronPosition(client *Client, rootID string, regionOpts map[string]string) (*NeuronPositionRow, error) {
-	sql := fmt.Sprintf("SELECT `root_id`, `region`, `cell_type`, `side`, `position` FROM `%s` WHERE `root_id` = '%s' LIMIT 1",
-		config.SeaTableTable, escapeSQL(rootID))
-
-	resp, err := client.ExecuteSQL(sql)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(resp.Results) == 0 {
-		return nil, nil
-	}
-
-	row, err := buildNeuronPositionRow(resp.Results[0], regionOpts)
-	if err != nil {
-		log.Printf("warning: skipping neuron %s: %v", row.RootID, err)
-		return &row, nil
-	}
-	return &row, nil
-}
-
 // QueryNeuronsWithPosition queries all EPG/PEG neurons with their positions.
 func QueryNeuronsWithPosition(client *Client, regionOpts map[string]string) ([]NeuronPositionRow, error) {
 	f := &Filters{CellType: "EPG/PEG"}
@@ -312,10 +290,15 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 		}
 	}
 
-	sqlFilters, err := filtersWithResolvedSideFromClient(client, f)
+	meta, err := client.FetchMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("fetching column metadata: %w", err)
+	}
+	sqlFilters, err := filtersWithResolvedSide(f, meta)
 	if err != nil {
 		return nil, err
 	}
+	sideOpts := SelectOptionMap(meta, "side")
 
 	rowsRaw, err := executePagedSelect(client, "`root_id`, `region`, `cell_type`, `side`, `position`", buildWhere(sqlFilters))
 	if err != nil {
@@ -328,7 +311,7 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 			continue
 		}
 
-		row, err := buildNeuronPositionRow(r, regionOpts)
+		row, err := buildNeuronPositionRow(r, regionOpts, sideOpts)
 		// With preserveInvalid, return malformed target rows rather than
 		// logging/skipping them; side-check inspects PositionSet/HasPosition.
 		if err != nil && !preserveInvalid {
@@ -340,12 +323,12 @@ func queryNeuronPositions(client *Client, f *Filters, regionOpts map[string]stri
 	return rows, nil
 }
 
-func buildNeuronPositionRow(r map[string]interface{}, regionOpts map[string]string) (NeuronPositionRow, error) {
+func buildNeuronPositionRow(r map[string]interface{}, regionOpts, sideOpts map[string]string) (NeuronPositionRow, error) {
 	row := NeuronPositionRow{
 		RootID:   toString(r["root_id"]),
 		Region:   resolveSelectValue(r["region"], regionOpts),
 		CellType: toString(r["cell_type"]),
-		Side:     toString(r["side"]),
+		Side:     resolveSelectValue(r["side"], sideOpts),
 	}
 
 	x, y, z, err := parsePositionValue(r["position"])
@@ -387,11 +370,13 @@ func QueryNeuronInfo(client *Client, rootID string) (*NeuronInfoRow, error) {
 		return nil, fmt.Errorf("fetching column metadata: %w", err)
 	}
 
-	row := buildNeuronInfoRow(resp.Results[0], SelectOptionMap(meta, "region"), tableColumnKeyToName(meta))
+	// side and region are both single-select columns: resolve their IDs to
+	// display names, matching what QueryNeurons returns.
+	row := buildNeuronInfoRow(resp.Results[0], SelectOptionMap(meta, "region"), SelectOptionMap(meta, "side"), tableColumnKeyToName(meta))
 	return &row, nil
 }
 
-func buildNeuronInfoRow(r map[string]interface{}, regionOpts map[string]string, keyToName map[string]string) NeuronInfoRow {
+func buildNeuronInfoRow(r map[string]interface{}, regionOpts, sideOpts map[string]string, keyToName map[string]string) NeuronInfoRow {
 	values := canonicalColumnValues(r, keyToName)
 	get := func(name string) (interface{}, bool) {
 		value, ok := values[name]
@@ -404,7 +389,7 @@ func buildNeuronInfoRow(r map[string]interface{}, regionOpts map[string]string, 
 		CellClass:    toStringValue(get("cell_class")),
 		CellType:     toStringValue(get("cell_type")),
 		CellSubtype:  toStringValue(get("cell_subtype")),
-		Side:         toStringValue(get("side")),
+		Side:         resolveSelectValueFromLookup(get, "side", sideOpts),
 		Region:       resolveSelectValueFromLookup(get, "region", regionOpts),
 		Tract:        toStringValue(get("tract")),
 		Nerve:        toStringValue(get("nerve")),

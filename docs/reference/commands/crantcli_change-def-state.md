@@ -7,27 +7,30 @@ Set the default Neuroglancer state
 Set or update the default Neuroglancer JSON state used when no other state
 source is available (no --state, piped JSON, or clipboard URL).
 
-Pass the full JSON state as an argument, or pass a path to a JSON file.
+Pass the full JSON state as an argument, or pass a path to a JSON file. Use
+--builtin to print the built-in template without reading or writing any state.
 
 ```
-crantcli change-def-state <json-state> [flags]
+crantcli change-def-state [json-state] [flags]
 ```
 
 ## Examples
 
 ```bash
-  crantcli change-def-state "$(crantcli generate)"
+  crantcli change-def-state "$(crantcli change-def-state --builtin)"
   crantcli change-def-state /path/to/state.json
   crantcli change-def-state --show
   crantcli change-def-state --reset
+  crantcli change-def-state --builtin
 ```
 
 ## Options
 
 ```
-  -h, --help    help for change-def-state
-      --reset   Reset to built-in default
-      --show    Show the current default state
+      --builtin   Print the built-in default state template
+  -h, --help      help for change-def-state
+      --reset     Reset to built-in default
+      --show      Show the current default state
 ```
 
 ## See also
