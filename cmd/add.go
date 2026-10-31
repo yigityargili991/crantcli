@@ -422,7 +422,7 @@ func groupForColoring(matches *addQueryMatches, cfg *addRunConfig, errOut io.Wri
 	fields := cfg.colorByFields
 	switch {
 	case len(fields) == 0:
-		results.groups = queryGroupIDs(matches.groups)
+		results.groups = ownedQueryGroupIDs(matches.groups)
 	case len(fields) == 1 && continuousAddColorByFields[fields[0]]:
 		gradient := buildGradientColorByValues(matches.rows, fields[0])
 		results.gradient = &gradient
@@ -437,25 +437,38 @@ func groupForColoring(matches *addQueryMatches, cfg *addRunConfig, errOut io.Wri
 		reportNestedColorByGroups(errOut, fields, results.nestedGroups, labels)
 	}
 	// After the groups that were colored, so the two read together.
-	if colorByQueryGroup(cfg.colorByFields) {
+	if colorsQueryGroups(cfg) {
 		reportUncoloredQueryGroups(errOut, matches.groups)
 	}
 	return results
 }
 
-// queryGroupIDs returns each query group's root IDs, in query order.
-func queryGroupIDs(groups []queryGroup) [][]string {
-	ids := make([][]string, 0, len(groups))
+// ownedQueryGroupIDs returns the root IDs of each query group that owns any. A
+// group an earlier one emptied takes no colors, so a plain --color paints the
+// others as though it had never been asked for, as --color-by group does.
+func ownedQueryGroupIDs(groups []queryGroup) [][]string {
+	owned := make([][]string, 0, len(groups))
 	for _, group := range groups {
-		ids = append(ids, group.rootIDs)
+		if group.ownsRootIDs() {
+			owned = append(owned, group.rootIDs)
+		}
 	}
-	return ids
+	return owned
 }
 
 // colorByQueryGroup reports whether --color-by starts with "group", whose outer
 // level is the query groups rather than a field's values.
 func colorByQueryGroup(fields []string) bool {
 	return len(fields) > 0 && fields[0] == queryGroupColorByField
+}
+
+// colorsQueryGroups reports whether a run colors its neurons query group by
+// query group: under --color-by group, and under any plain --color.
+func colorsQueryGroups(cfg *addRunConfig) bool {
+	if len(cfg.colorByFields) > 0 {
+		return colorByQueryGroup(cfg.colorByFields)
+	}
+	return cfg.color != ""
 }
 
 // reportAddMatchTotal closes the query report with the size of the merged
@@ -950,7 +963,7 @@ func buildCrossProductSpecs(base *seatable.Filters, dims []specDim) []querySpec 
 // color, grouped the way the user asked for them, and the resolved color input.
 type addColorPlan struct {
 	rootIDs       []string     // every injected root ID, for whole-set coloring
-	groups        [][]string   // query groups, or one group per single --color-by value
+	groups        [][]string   // query groups owning root IDs, or one group per single --color-by value
 	nestedGroups  [][][]string // set only for a two-field --color-by
 	gradient      *gradientColorBy
 	color         string
@@ -1083,13 +1096,13 @@ func queryGroupLabel(specLabel string) string {
 	return colorByLabel(queryGroupColorByField, specLabel)
 }
 
-// reportUncoloredQueryGroups names the query groups --color-by group leaves
-// out. A group holding no root IDs of its own -- because it matched nothing, or
-// because an earlier group already claimed every neuron it found -- takes no
-// color family, which also spaces the remaining groups as though it never
-// existed. Saying so beats dropping it silently. A result where no group holds
-// anything has no coloring for a group to be left out of, so it reports
-// nothing.
+// reportUncoloredQueryGroups names the query groups that coloring by query
+// group (--color-by group, or a plain --color) leaves out. A group holding no
+// root IDs of its own -- because it matched nothing, or because an earlier
+// group already claimed every neuron it found -- takes no colors, so the
+// remaining groups are colored as though it never existed. Saying so beats
+// dropping it silently. A result where no group holds anything has no coloring
+// for a group to be left out of, so it reports nothing.
 func reportUncoloredQueryGroups(w io.Writer, groups []queryGroup) {
 	if !slices.ContainsFunc(groups, queryGroup.ownsRootIDs) {
 		return

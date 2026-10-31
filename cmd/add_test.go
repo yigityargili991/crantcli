@@ -446,6 +446,64 @@ func runAddQueryGroups(t *testing.T, run addQueryGroupRun) (map[string]interface
 	return colors, report.String()
 }
 
+// TestAddCommandPlainColorSkipsEmptiedQueryGroups covers a query group whose
+// every match an earlier group already claimed: each PEN neuron here is an LNO
+// neuron too. A plain --color must color the rest as though PEN had never been
+// asked for, as --color-by group does, and say that PEN went uncolored.
+func TestAddCommandPlainColorSkipsEmptiedQueryGroups(t *testing.T) {
+	lnoHoldsPEN := map[string][]string{"LNO": {"a1", "a2", "b1"}, "PEN": {"b1"}}
+
+	t.Run("a lone remaining group takes one color", func(t *testing.T) {
+		colors, report := runAddQueryGroups(t, addQueryGroupRun{
+			classes: []string{"LNO"},
+			types:   []string{"PEN"},
+			matched: lnoHoldsPEN,
+			color:   "colored",
+		})
+		// --cell-class LNO alone paints its result one random color, so a
+		// classifier that adds nothing must not split it into tones.
+		if colors["a1"] == nil || colors["a1"] != colors["a2"] || colors["a1"] != colors["b1"] {
+			t.Fatalf("segmentColors = %v, want a1, a2, and b1 to share one color", colors)
+		}
+		if want := "  group=PEN: no root IDs of its own; not colored\n"; !strings.Contains(report, want) {
+			t.Fatalf("report = %q, want it to contain %q", report, want)
+		}
+	})
+
+	t.Run("the remaining groups keep the palettes they would have alone", func(t *testing.T) {
+		got, _ := runAddQueryGroups(t, addQueryGroupRun{
+			types:   []string{"ER", "ER1", "PEN"},
+			matched: map[string][]string{"ER": {"a1", "a2"}, "ER1": {"a2"}, "PEN": {"c1"}},
+			color:   "colored",
+		})
+		want, _ := runAddQueryGroups(t, addQueryGroupRun{
+			types:   []string{"ER", "PEN"},
+			matched: map[string][]string{"ER": {"a1", "a2"}, "PEN": {"c1"}},
+			color:   "colored",
+		})
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("segmentColors = %v, want the colors without ER1: %v", got, want)
+		}
+	})
+
+	t.Run("a named color matches the run without the emptied group", func(t *testing.T) {
+		got, _ := runAddQueryGroups(t, addQueryGroupRun{
+			classes: []string{"LNO"},
+			types:   []string{"PEN"},
+			matched: lnoHoldsPEN,
+			color:   "blue",
+		})
+		want, _ := runAddQueryGroups(t, addQueryGroupRun{
+			classes: []string{"LNO"},
+			matched: lnoHoldsPEN,
+			color:   "blue",
+		})
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("segmentColors = %v, want the colors of --cell-class LNO alone: %v", got, want)
+		}
+	})
+}
+
 // TestAddCommandQueryReport pins what a query run reports, in order: what each
 // query group matched, the color groups formed, the query groups left
 // uncolored, and the merged total, which counts the neurons PEN shares with
@@ -461,7 +519,7 @@ func TestAddCommandQueryReport(t *testing.T) {
 		name, color, colorBy, want string
 	}{
 		{name: "no color", want: queried + total},
-		{name: "plain color", color: "colored", want: queried + total},
+		{name: "plain color", color: "colored", want: queried + penUncolored + total},
 		{
 			name:    "color by group",
 			colorBy: "group",
@@ -1168,9 +1226,9 @@ func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
 	}
 }
 
-// TestReportUncoloredQueryGroups covers the groups --color-by group leaves out:
-// dropping one also respaces the palettes of the groups that remain, so it must
-// not happen silently.
+// TestReportUncoloredQueryGroups covers the groups coloring by query group
+// leaves out: dropping one also respaces the palettes of the groups that
+// remain, so it must not happen silently.
 func TestReportUncoloredQueryGroups(t *testing.T) {
 	var report bytes.Buffer
 
