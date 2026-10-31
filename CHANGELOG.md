@@ -53,6 +53,15 @@
 
 ### Fixed
 
+- `add --color` with repeated `--cell-class`, `--cell-type`, or
+  `--cell-subtype` flags no longer gives colors to a query group whose every
+  neuron an earlier group already matched, such as a `--cell-type` inside a
+  `--cell-class` given beside it. The other groups are colored as though that
+  flag had not been given, and add reports the group as not colored, as
+  `--color-by group` already did.
+- `add` runs a `--cell-class`, `--cell-type`, or `--cell-subtype` value given
+  more than once as one query group. A repeat no longer queries SeaTable a
+  second time, reports its count twice, or shows up as an uncolored group.
 - `add --clipboard-ids` validates the clipboard instead of injecting whatever
   it holds. A Neuroglancer state URL is rejected with an explanation: add
   copies its output URL back to the clipboard by default, so a second run
