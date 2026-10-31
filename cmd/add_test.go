@@ -396,6 +396,207 @@ func TestAddCommandColorByPipelines(t *testing.T) {
 	})
 }
 
+// stubAddQueryGroups answers each query group with a row per root ID listed
+// under the classifier value the group filters on, and fails the test on a
+// query it was not given.
+func stubAddQueryGroups(t *testing.T, matched map[string][]string) {
+	t.Helper()
+	addQueryNeurons = func(_ *seatable.Client, filters *seatable.Filters) ([]seatable.NeuronRow, error) {
+		ids, ok := matched[filters.CellClass+filters.CellType+filters.CellSubtype]
+		if !ok {
+			t.Fatalf("unexpected query filters: %+v", *filters)
+		}
+		rows := make([]seatable.NeuronRow, 0, len(ids))
+		for _, id := range ids {
+			rows = append(rows, seatable.NeuronRow{RootID: id})
+		}
+		return rows, nil
+	}
+}
+
+// addQueryGroupRun describes an add run over stubbed query groups: the
+// classifier flags forming the groups, what each group matches, and the color
+// flags.
+type addQueryGroupRun struct {
+	classes, types []string
+	matched        map[string][]string
+	color, colorBy string
+}
+
+// runAddQueryGroups runs add as run describes and returns the segment colors it
+// set and what its query reported.
+func runAddQueryGroups(t *testing.T, run addQueryGroupRun) (map[string]interface{}, string) {
+	t.Helper()
+	isolateAddCommandRun(t)
+	addRegions = nil
+	addRootIDsOnly = false
+	addCellClasses = run.classes
+	addCellTypes = run.types
+	addColor = run.color
+	addColorBy = run.colorBy
+	stubAddQueryGroups(t, run.matched)
+	layer := addTestStateDelivery(t)
+	var report bytes.Buffer
+	addCmd.SetErr(&report)
+
+	if err := addCmd.RunE(addCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	colors, _ := layer["segmentColors"].(map[string]interface{})
+	return colors, report.String()
+}
+
+// TestAddCommandQueryReport pins what a query run reports, in order: what each
+// query group matched, the color groups formed, the query groups left
+// uncolored, and the merged total, which counts the neurons PEN shares with
+// LNO once.
+func TestAddCommandQueryReport(t *testing.T) {
+	matched := map[string][]string{"LNO": {"a1", "a2", "b1", "b2"}, "PEN": {"b1", "b2"}}
+	const queried = "  LNO: 4 neurons (4 with root IDs)\n" +
+		"  PEN: 2 neurons (2 with root IDs)\n"
+	const penUncolored = "  group=PEN: no root IDs of its own; not colored\n"
+	const total = "Found 4 neurons (4 with root IDs)\n"
+
+	tests := []struct {
+		name, color, colorBy, want string
+	}{
+		{name: "no color", want: queried + total},
+		{name: "plain color", color: "colored", want: queried + total},
+		{
+			name:    "color by group",
+			colorBy: "group",
+			want:    queried + "  group=LNO: 4 with root IDs\n" + penUncolored + total,
+		},
+		{
+			name:    "color by group, then a field",
+			colorBy: "group,cell_type",
+			want:    queried + "  group=LNO / cell_type=(empty): 4 with root IDs\n" + penUncolored + total,
+		},
+		{
+			name:    "color by a field",
+			colorBy: "cell_type",
+			want:    queried + "  cell_type=(empty): 4 with root IDs\n" + total,
+		},
+		{
+			name:    "color by position",
+			colorBy: "pos_z",
+			want: queried +
+				"  pos_z: no neuron carries a position; all take the unset color\n" +
+				"  pos_z=(unset): 4 without a position\n" +
+				total,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, report := runAddQueryGroups(t, addQueryGroupRun{
+				classes: []string{"LNO"},
+				types:   []string{"PEN"},
+				matched: matched,
+				color:   tt.color,
+				colorBy: tt.colorBy,
+			})
+			if report != tt.want {
+				t.Fatalf("report =\n%s\nwant\n%s", report, tt.want)
+			}
+		})
+	}
+}
+
+// TestAddCommandUnionOverlapInjectsEachNeuronOnce covers union groups that
+// share neurons: each root ID is injected once, in the order its first group
+// found it, even under --replace, which writes the segment list as given.
+func TestAddCommandUnionOverlapInjectsEachNeuronOnce(t *testing.T) {
+	isolateAddCommandRun(t)
+	t.Setenv("HOME", t.TempDir())
+	addRegions = nil
+	addRootIDsOnly = false
+	addReplace = true
+	addCellClasses = []string{"LNO"}
+	addCellTypes = []string{"PEN"}
+	stubAddQueryGroups(t, map[string][]string{"LNO": {"a1", "b1"}, "PEN": {"b1", "c1"}})
+	layer := map[string]interface{}{"type": "segmentation", "segments": []interface{}{"9"}}
+	addTestStateDeliveryFor(t, layer)
+
+	if err := addCmd.RunE(addCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := []interface{}{"a1", "b1", "c1"}
+	if got := layer["segments"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("segments = %#v, want each matched neuron once: %#v", got, want)
+	}
+}
+
+// TestAddCommandQueryFailureLoadsNoState covers a query group failing after an
+// earlier one matched: the run fails as a whole, before any state is loaded.
+func TestAddCommandQueryFailureLoadsNoState(t *testing.T) {
+	isolateAddCommandRun(t)
+	addRegions = nil
+	addRootIDsOnly = false
+	addCellTypes = []string{"ER", "PEN"}
+	queryErr := errors.New("SQL query failed")
+	var queried []string
+	addQueryNeurons = func(_ *seatable.Client, filters *seatable.Filters) ([]seatable.NeuronRow, error) {
+		queried = append(queried, filters.CellType)
+		if filters.CellType == "PEN" {
+			return nil, queryErr
+		}
+		return []seatable.NeuronRow{{RootID: "a1"}}, nil
+	}
+	addLoadState = func(string, bool) (*nglstate.LoadResult, error) {
+		t.Error("loaded a state after a query group failed")
+		return nil, errors.New("unexpected state load")
+	}
+
+	if err := addCmd.RunE(addCmd, nil); !errors.Is(err, queryErr) {
+		t.Fatalf("error = %v, want the failed query's error", err)
+	}
+	if want := []string{"ER", "PEN"}; !reflect.DeepEqual(queried, want) {
+		t.Fatalf("queried %v, want %v", queried, want)
+	}
+}
+
+// TestAddCommandNoRootIDsStopsTheRun covers a query whose rows carry no root
+// IDs: the run reports that and stops without loading a state, printing, or
+// writing the clipboard, with or without --root-ids-only.
+func TestAddCommandNoRootIDsStopsTheRun(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		rootIDsOnly bool
+	}{
+		{name: "state", rootIDsOnly: false},
+		{name: "root IDs only", rootIDsOnly: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateAddCommandRun(t)
+			addRootIDsOnly = tt.rootIDsOnly
+			addQueryNeurons = func(*seatable.Client, *seatable.Filters) ([]seatable.NeuronRow, error) {
+				return []seatable.NeuronRow{{CellType: "ER"}, {CellType: "ER"}}, nil
+			}
+			addLoadState = func(string, bool) (*nglstate.LoadResult, error) {
+				t.Error("loaded a state for a result without root IDs")
+				return nil, errors.New("unexpected state load")
+			}
+			addClipboardWrite = func(string) (clipboard.WriteResult, error) {
+				t.Error("wrote the clipboard for a result without root IDs")
+				return clipboard.WriteResult{}, errors.New("unexpected clipboard write")
+			}
+			var stdout, report bytes.Buffer
+			addCmd.SetOut(&stdout)
+			addCmd.SetErr(&report)
+
+			if err := addCmd.RunE(addCmd, nil); err != nil {
+				t.Fatal(err)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want nothing", stdout.String())
+			}
+			if want := "Found 2 neurons (0 with root IDs)\nNo neurons found matching filters\n"; report.String() != want {
+				t.Errorf("report = %q, want %q", report.String(), want)
+			}
+		})
+	}
+}
+
 func TestResolveAddRegionFilters(t *testing.T) {
 	t.Run("multiple bundles alias regions", func(t *testing.T) {
 		got, err := resolveAddRegionFilters(nil, []string{" RW ", "RX", "RW", ""})
@@ -882,10 +1083,13 @@ func TestPartitionRowsByQueryGroup(t *testing.T) {
 		{RootID: "b1", CellType: "PEN", CellSubtype: "PFNc"},
 		{RootID: "", CellClass: "LNO"},
 	}
-	queryGroups := [][]string{{"a1", "a2"}, {"b1"}, {}}
-	queryLabels := []string{"LNO", "PEN", "EPG"}
+	queryGroups := []queryGroup{
+		{label: "LNO", rootIDs: []string{"a1", "a2"}},
+		{label: "PEN", rootIDs: []string{"b1"}},
+		{label: "EPG"},
+	}
 
-	partitions := partitionRowsByQueryGroup(rows, queryGroups, queryLabels)
+	partitions := partitionRowsByQueryGroup(rows, queryGroups)
 
 	// The third spec matched nothing, so it takes no palette family.
 	if len(partitions) != 2 {
@@ -910,7 +1114,7 @@ func TestPartitionRowsByQueryGroup(t *testing.T) {
 func TestPartitionRowsByQueryGroup_UnnamedGroupIsNotEmpty(t *testing.T) {
 	rows := []seatable.NeuronRow{{RootID: "a1"}, {RootID: "a2"}}
 
-	partitions := partitionRowsByQueryGroup(rows, [][]string{{"a1", "a2"}}, []string{""})
+	partitions := partitionRowsByQueryGroup(rows, []queryGroup{{rootIDs: []string{"a1", "a2"}}})
 
 	if len(partitions) != 1 {
 		t.Fatalf("partitions = %d, want 1", len(partitions))
@@ -929,7 +1133,10 @@ func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
 		{RootID: "a2", CellClass: "LNO", CellSubtype: "PFNm3"},
 		{RootID: "b1", CellType: "PEN", CellSubtype: "PFNc"},
 	}
-	partitions := partitionRowsByQueryGroup(rows, [][]string{{"a1", "a2"}, {"b1"}}, []string{"LNO", "PEN"})
+	partitions := partitionRowsByQueryGroup(rows, []queryGroup{
+		{label: "LNO", rootIDs: []string{"a1", "a2"}},
+		{label: "PEN", rootIDs: []string{"b1"}},
+	})
 
 	groups, labels := nestColorByPartitions(partitions, "cell_subtype")
 
@@ -967,7 +1174,11 @@ func TestNestColorByPartitions_QueryGroupsSplitByField(t *testing.T) {
 func TestReportUncoloredQueryGroups(t *testing.T) {
 	var report bytes.Buffer
 
-	reportUncoloredQueryGroups(&report, [][]string{{"a1"}, {}, {"c1"}}, []string{"ER", "ER1", "PEN"})
+	reportUncoloredQueryGroups(&report, []queryGroup{
+		{label: "ER", rootIDs: []string{"a1"}},
+		{label: "ER1"},
+		{label: "PEN", rootIDs: []string{"c1"}},
+	})
 
 	if want := "  group=ER1: no root IDs of its own; not colored\n"; report.String() != want {
 		t.Fatalf("report = %q, want %q", report.String(), want)
@@ -976,14 +1187,14 @@ func TestReportUncoloredQueryGroups(t *testing.T) {
 	// An unnamed group is the whole result, and it keeps that name whether or
 	// not it holds anything.
 	var unnamed bytes.Buffer
-	reportUncoloredQueryGroups(&unnamed, [][]string{{}, {"b1"}}, []string{"", "PEN"})
+	reportUncoloredQueryGroups(&unnamed, []queryGroup{{}, {label: "PEN", rootIDs: []string{"b1"}}})
 	if want := "  group=(all): no root IDs of its own; not colored\n"; unnamed.String() != want {
 		t.Fatalf("unnamed report = %q, want %q", unnamed.String(), want)
 	}
 
 	// A result where nothing matched has no coloring to be left out of.
 	var nothing bytes.Buffer
-	reportUncoloredQueryGroups(&nothing, [][]string{{}, {}}, []string{"", "PEN"})
+	reportUncoloredQueryGroups(&nothing, []queryGroup{{}, {label: "PEN"}})
 	if nothing.Len() != 0 {
 		t.Fatalf("report for an empty result = %q, want nothing", nothing.String())
 	}
@@ -1952,9 +2163,9 @@ func TestGroupDimensionCount(t *testing.T) {
 // unique in first-seen order, and rows dedupe by RootID.
 func TestDedupeUnionResults(t *testing.T) {
 	// Group 0 (class) and group 1 (a type within it) both contain "20".
-	groups := [][]string{
-		{"10", "20"},
-		{"20", "30"},
+	groups := []queryGroup{
+		{label: "LNO", rootIDs: []string{"10", "20"}},
+		{label: "PEN", rootIDs: []string{"20", "30"}},
 	}
 	rows := []seatable.NeuronRow{
 		{RootID: "10", CellType: "A"},
@@ -1963,18 +2174,21 @@ func TestDedupeUnionResults(t *testing.T) {
 		{RootID: "30", CellType: "B"},
 	}
 
-	gotGroups, gotIDs, gotRows := dedupeUnionResults(groups, rows)
+	got := dedupeUnionResults(groups, rows)
 
-	wantGroups := [][]string{{"10", "20"}, {"30"}}
-	if !reflect.DeepEqual(gotGroups, wantGroups) {
-		t.Errorf("groups = %#v, want %#v (shared id must stay in its first group only)", gotGroups, wantGroups)
+	wantGroups := []queryGroup{
+		{label: "LNO", rootIDs: []string{"10", "20"}},
+		{label: "PEN", rootIDs: []string{"30"}},
+	}
+	if !reflect.DeepEqual(got.groups, wantGroups) {
+		t.Errorf("groups = %#v, want %#v (shared id must stay in its first group only)", got.groups, wantGroups)
 	}
 	wantIDs := []string{"10", "20", "30"}
-	if !reflect.DeepEqual(gotIDs, wantIDs) {
-		t.Errorf("allRootIDs = %#v, want %#v (unique, first-seen order)", gotIDs, wantIDs)
+	if !reflect.DeepEqual(got.rootIDs, wantIDs) {
+		t.Errorf("rootIDs = %#v, want %#v (unique, first-seen order)", got.rootIDs, wantIDs)
 	}
-	if len(gotRows) != 3 {
-		t.Fatalf("rows = %d, want 3 unique by RootID", len(gotRows))
+	if len(got.rows) != 3 {
+		t.Fatalf("rows = %d, want 3 unique by RootID", len(got.rows))
 	}
 }
 
@@ -1982,7 +2196,10 @@ func TestDedupeUnionResults(t *testing.T) {
 // passed through (they carry no identity to dedupe on) and non-overlapping
 // groups are left intact.
 func TestDedupeUnionResults_KeepsRootlessRows(t *testing.T) {
-	groups := [][]string{{"1"}, {"2"}}
+	groups := []queryGroup{
+		{label: "A", rootIDs: []string{"1"}},
+		{label: "B", rootIDs: []string{"2"}},
+	}
 	rows := []seatable.NeuronRow{
 		{RootID: "1"},
 		{RootID: ""},
@@ -1990,16 +2207,16 @@ func TestDedupeUnionResults_KeepsRootlessRows(t *testing.T) {
 		{RootID: "2"},
 	}
 
-	gotGroups, gotIDs, gotRows := dedupeUnionResults(groups, rows)
+	got := dedupeUnionResults(groups, rows)
 
-	if !reflect.DeepEqual(gotGroups, [][]string{{"1"}, {"2"}}) {
-		t.Errorf("non-overlapping groups changed: %#v", gotGroups)
+	if !reflect.DeepEqual(got.groups, groups) {
+		t.Errorf("non-overlapping groups changed: %#v", got.groups)
 	}
-	if !reflect.DeepEqual(gotIDs, []string{"1", "2"}) {
-		t.Errorf("allRootIDs = %#v, want [1 2]", gotIDs)
+	if !reflect.DeepEqual(got.rootIDs, []string{"1", "2"}) {
+		t.Errorf("rootIDs = %#v, want [1 2]", got.rootIDs)
 	}
-	if len(gotRows) != 4 {
-		t.Errorf("rows = %d, want 4 (both rootless rows preserved)", len(gotRows))
+	if len(got.rows) != 4 {
+		t.Errorf("rows = %d, want 4 (both rootless rows preserved)", len(got.rows))
 	}
 }
 

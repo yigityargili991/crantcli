@@ -200,7 +200,7 @@ func init() {
 		if err != nil {
 			return err
 		}
-		results, done, err := collectAddResults(cfg)
+		results, done, err := collectAddResults(cfg, cmd.ErrOrStderr())
 		if err != nil || done {
 			return err
 		}
@@ -217,11 +217,21 @@ func init() {
 // the coloring plan, and the label configuration. --clipboard-ids checks are
 // not repeated here: a run that reaches RunE already passed them in Args.
 type addRunConfig struct {
-	baseFilters   *seatable.Filters
-	hasGroupFlags bool
+	baseFilters *seatable.Filters
+	// The classifier values that split the query into groups, united unless
+	// intersect crosses them.
+	cellClasses   []string
+	cellTypes     []string
+	cellSubtypes  []string
+	intersect     bool
 	color         string
 	colorByFields []string
 	labelOptions  segprops.Options
+}
+
+// groupDimensions counts the classifier flags that split the query into groups.
+func (cfg *addRunConfig) groupDimensions() int {
+	return groupDimensionCount(cfg.cellClasses, cfg.cellTypes, cfg.cellSubtypes)
 }
 
 // resolveAddRunConfig validates the flags both add paths share and resolves the
@@ -270,7 +280,10 @@ func resolveAddRunConfig(cmd *cobra.Command) (*addRunConfig, error) {
 			Tract:      addTract,
 			Proofread:  addProofread,
 		},
-		hasGroupFlags: len(addCellClasses) > 0 || len(addCellTypes) > 0 || len(addCellSubtypes) > 0,
+		cellClasses:   addCellClasses,
+		cellTypes:     addCellTypes,
+		cellSubtypes:  addCellSubtypes,
+		intersect:     addIntersect,
 		color:         normalizedColor,
 		colorByFields: fellBack,
 		labelOptions:  labelOptions,
@@ -288,11 +301,12 @@ type addRunResults struct {
 }
 
 // collectAddResults reads the root IDs from the clipboard or queries SeaTable
-// and forms the color-by groups. done reports that the run is finished: a query
-// that matched nothing has already said so and must not load a state.
-func collectAddResults(cfg *addRunConfig) (*addRunResults, bool, error) {
+// and forms the color-by groups, reporting to errOut. done reports that the run
+// is finished: a query that matched nothing has already said so and must not
+// load a state.
+func collectAddResults(cfg *addRunConfig, errOut io.Writer) (*addRunResults, bool, error) {
 	if addClipboardIDs {
-		ids, err := readAddClipboardRootIDs()
+		ids, err := readAddClipboardRootIDs(errOut)
 		if err != nil {
 			return nil, false, err
 		}
@@ -300,7 +314,7 @@ func collectAddResults(cfg *addRunConfig) (*addRunResults, bool, error) {
 		return &addRunResults{rootIDs: ids, groups: [][]string{ids}}, false, nil
 	}
 
-	results, err := queryAddResults(cfg)
+	results, err := queryAddResults(cfg, errOut)
 	if err != nil {
 		return nil, false, err
 	}
@@ -310,41 +324,85 @@ func collectAddResults(cfg *addRunConfig) (*addRunResults, bool, error) {
 	return results, false, nil
 }
 
-// queryAddResults runs the classifier query groups and reports how the result
-// splits up, then groups it for --color-by.
-func queryAddResults(cfg *addRunConfig) (*addRunResults, error) {
-	if err := validateAddInputs(cfg.baseFilters, cfg.hasGroupFlags); err != nil {
+// queryAddResults runs the classifier query groups, merges what they matched,
+// and groups the result the way the color flags will paint it, reporting each
+// step to errOut.
+func queryAddResults(cfg *addRunConfig, errOut io.Writer) (*addRunResults, error) {
+	specs, err := planAddQueries(cfg, errOut)
+	if err != nil {
 		return nil, err
 	}
-	if addIntersect && groupDimensionCount(addCellClasses, addCellTypes, addCellSubtypes) < 2 {
-		fmt.Fprintln(os.Stderr, "Warning: --intersect has no effect unless you combine two or more of --cell-class/--cell-type/--cell-subtype")
+	matches, err := runAddQueries(specs, errOut)
+	if err != nil {
+		return nil, err
+	}
+	results := groupForColoring(matches, cfg, errOut)
+	reportAddMatchTotal(errOut, matches)
+	return results, nil
+}
+
+// planAddQueries checks that the run filters on something and turns its
+// classifier flags into query groups, warning about flags that cannot shape the
+// result the way they suggest.
+func planAddQueries(cfg *addRunConfig, errOut io.Writer) ([]querySpec, error) {
+	if err := validateAddInputs(cfg.baseFilters, cfg.groupDimensions() > 0); err != nil {
+		return nil, err
+	}
+	if cfg.intersect && cfg.groupDimensions() < 2 {
+		fmt.Fprintln(errOut, "Warning: --intersect has no effect unless you combine two or more of --cell-class/--cell-type/--cell-subtype")
 	}
 
+	// Union (each value its own group) is the default; --intersect opts into
+	// the cross-product (AND). buildQuerySpecs takes a union flag.
+	specs := buildQuerySpecs(cfg.baseFilters, cfg.cellClasses, cfg.cellTypes, cfg.cellSubtypes, !cfg.intersect)
+	if colorByQueryGroup(cfg.colorByFields) && len(specs) == 1 {
+		fmt.Fprintln(errOut, "Warning: --color-by group found a single query group; repeat --cell-class/--cell-type/--cell-subtype to form groups worth separating")
+	}
+	return specs, nil
+}
+
+// queryGroup is one query group's share of a run's matches: the label of the
+// query that formed it and the root IDs it owns. A neuron several groups
+// matched belongs to the first of them alone, so a group can own none.
+type queryGroup struct {
+	label   string
+	rootIDs []string
+}
+
+// ownsRootIDs reports whether the group kept any neuron of its own.
+func (g queryGroup) ownsRootIDs() bool {
+	return len(g.rootIDs) > 0
+}
+
+// addQueryMatches is what a run's query groups matched between them, with each
+// neuron that has a root ID counted once.
+type addQueryMatches struct {
+	groups  []queryGroup         // one per query group, in query order
+	rootIDs []string             // every group's root IDs, in group order
+	rows    []seatable.NeuronRow // one per root ID, plus any rows without one
+}
+
+// runAddQueries runs each query group against SeaTable, reporting what it
+// matched, and merges the groups.
+func runAddQueries(specs []querySpec, errOut io.Writer) (*addQueryMatches, error) {
 	client, err := addNewClient()
 	if err != nil {
 		return nil, err
 	}
 
-	// Union (each value its own group) is the default; --intersect opts into
-	// the cross-product (AND). buildQuerySpecs takes a union flag.
-	specs := buildQuerySpecs(cfg.baseFilters, addCellClasses, addCellTypes, addCellSubtypes, !addIntersect)
-	if len(cfg.colorByFields) > 0 && cfg.colorByFields[0] == queryGroupColorByField && len(specs) == 1 {
-		fmt.Fprintln(os.Stderr, "Warning: --color-by group found a single query group; repeat --cell-class/--cell-type/--cell-subtype to form groups worth separating")
-	}
-
-	var groups [][]string
-	var allRows []seatable.NeuronRow
+	groups := make([]queryGroup, 0, len(specs))
+	var rows []seatable.NeuronRow
 	for _, s := range specs {
-		rows, err := addQueryNeurons(client, &s.filters)
+		specRows, err := addQueryNeurons(client, &s.filters)
 		if err != nil {
 			return nil, err
 		}
-		ids := extractRootIDs(rows)
-		groups = append(groups, ids)
-		allRows = append(allRows, rows...)
+		ids := extractRootIDs(specRows)
 		if s.label != "" {
-			fmt.Fprintf(os.Stderr, "  %s: %d neurons (%d with root IDs)\n", s.label, len(rows), len(ids))
+			fmt.Fprintf(errOut, "  %s: %d neurons (%d with root IDs)\n", s.label, len(specRows), len(ids))
 		}
+		groups = append(groups, queryGroup{label: s.label, rootIDs: ids})
+		rows = append(rows, specRows...)
 	}
 
 	// Union groups (the default) can overlap when one predicate includes
@@ -352,50 +410,61 @@ func queryAddResults(cfg *addRunConfig) (*addRunResults, error) {
 	// neuron may appear in several groups. Collapse to a unique set by root
 	// ID before counting, coloring, output, and injection -- --replace in
 	// particular bypasses AddSegments' append-mode dedupe.
-	groups, allRootIDs, allRows := dedupeUnionResults(groups, allRows)
-	totalRows := len(allRows)
-	results := &addRunResults{rootIDs: allRootIDs, groups: groups, rows: allRows}
+	return dedupeUnionResults(groups, rows), nil
+}
 
-	// --color-by rebinds groups to its own partition, so keep the query
-	// groups and their labels for --color-by group to build from.
-	queryGroups := groups
-	queryLabels := querySpecLabels(specs)
-
+// groupForColoring groups the matches the way the color flags paint them and
+// reports the groups it forms: the query groups under a plain --color, one
+// group per value under a single --color-by field (a ramp for a continuous
+// one), and under two fields a hue family per outer value split into tones.
+func groupForColoring(matches *addQueryMatches, cfg *addRunConfig, errOut io.Writer) *addRunResults {
+	results := &addRunResults{rootIDs: matches.rootIDs, rows: matches.rows}
+	fields := cfg.colorByFields
 	switch {
-	case len(cfg.colorByFields) == 1 && continuousAddColorByFields[cfg.colorByFields[0]]:
-		// A continuous field has one value per neuron, so report its span
-		// rather than a line for every distinct value.
-		built := buildGradientColorByValues(allRows, cfg.colorByFields[0])
-		results.gradient = &built
-		if len(built.values) == 0 {
-			fmt.Fprintf(os.Stderr, "  %s: no neuron carries a position; all take the unset color\n", cfg.colorByFields[0])
-		} else {
-			fmt.Fprintf(os.Stderr, "  %s: %d with root IDs, %g to %g\n", cfg.colorByFields[0], len(built.values), built.low, built.high)
-		}
-		if len(built.unset) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s=(unset): %d without a position\n", cfg.colorByFields[0], len(built.unset))
-		}
-	case len(cfg.colorByFields) == 1:
+	case len(fields) == 0:
+		results.groups = queryGroupIDs(matches.groups)
+	case len(fields) == 1 && continuousAddColorByFields[fields[0]]:
+		gradient := buildGradientColorByValues(matches.rows, fields[0])
+		results.gradient = &gradient
+		reportGradientColorBy(errOut, fields[0], gradient)
+	case len(fields) == 1:
 		var labels []string
-		results.groups, labels = colorByGroupsFromPartitions(
-			colorByOuterPartitions(allRows, cfg.colorByFields[0], queryGroups, queryLabels))
-		reportColorByGroups(os.Stderr, cfg.colorByFields, results.groups, labels)
-	case len(cfg.colorByFields) == maxAddColorByFields:
+		results.groups, labels = colorByGroupsFromPartitions(colorByOuterPartitions(matches, fields[0]))
+		reportColorByGroups(errOut, fields, results.groups, labels)
+	case len(fields) == maxAddColorByFields:
 		var labels [][]string
-		results.nestedGroups, labels = nestColorByPartitions(
-			colorByOuterPartitions(allRows, cfg.colorByFields[0], queryGroups, queryLabels), cfg.colorByFields[1])
-		reportNestedColorByGroups(os.Stderr, cfg.colorByFields, results.nestedGroups, labels)
+		results.nestedGroups, labels = nestColorByPartitions(colorByOuterPartitions(matches, fields[0]), fields[1])
+		reportNestedColorByGroups(errOut, fields, results.nestedGroups, labels)
 	}
 	// After the groups that were colored, so the two read together.
-	if len(cfg.colorByFields) > 0 && cfg.colorByFields[0] == queryGroupColorByField {
-		reportUncoloredQueryGroups(os.Stderr, queryGroups, queryLabels)
+	if colorByQueryGroup(cfg.colorByFields) {
+		reportUncoloredQueryGroups(errOut, matches.groups)
 	}
+	return results
+}
 
-	fmt.Fprintf(os.Stderr, "Found %d neurons (%d with root IDs)\n", totalRows, len(allRootIDs))
-	if len(allRootIDs) == 0 {
-		fmt.Fprintln(os.Stderr, "No neurons found matching filters")
+// queryGroupIDs returns each query group's root IDs, in query order.
+func queryGroupIDs(groups []queryGroup) [][]string {
+	ids := make([][]string, 0, len(groups))
+	for _, group := range groups {
+		ids = append(ids, group.rootIDs)
 	}
-	return results, nil
+	return ids
+}
+
+// colorByQueryGroup reports whether --color-by starts with "group", whose outer
+// level is the query groups rather than a field's values.
+func colorByQueryGroup(fields []string) bool {
+	return len(fields) > 0 && fields[0] == queryGroupColorByField
+}
+
+// reportAddMatchTotal closes the query report with the size of the merged
+// result.
+func reportAddMatchTotal(w io.Writer, matches *addQueryMatches) {
+	fmt.Fprintf(w, "Found %d neurons (%d with root IDs)\n", len(matches.rows), len(matches.rootIDs))
+	if len(matches.rootIDs) == 0 {
+		fmt.Fprintln(w, "No neurons found matching filters")
+	}
 }
 
 // deliverAddState loads the base state, injects and colors the root IDs,
@@ -485,7 +554,7 @@ func extractRootIDs(rows []seatable.NeuronRow) []string {
 // clipboard for --clipboard-ids. The clipboard must hold root IDs: a state URL
 // or any token that is not a decimal uint64 would otherwise be injected as a
 // segment ID, producing a state the viewer cannot resolve.
-func readAddClipboardRootIDs() ([]string, error) {
+func readAddClipboardRootIDs(errOut io.Writer) ([]string, error) {
 	text, err := addClipboardRead()
 	if err != nil {
 		return nil, fmt.Errorf("reading clipboard: %w", err)
@@ -507,7 +576,7 @@ func readAddClipboardRootIDs() ([]string, error) {
 			return nil, fmt.Errorf("clipboard entry %q is not a root ID", id)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "Read %d IDs from clipboard\n", len(ids))
+	fmt.Fprintf(errOut, "Read %d IDs from clipboard\n", len(ids))
 	return ids, nil
 }
 
@@ -539,13 +608,13 @@ func queryAddClipboardLabelRows(ids []string) ([]seatable.NeuronRow, error) {
 // dedupes in append mode). The returned groups partition the unique root IDs so
 // per-group coloring stays consistent with the injected set. Rows without a
 // root ID carry no identity and are passed through unchanged.
-func dedupeUnionResults(groups [][]string, rows []seatable.NeuronRow) ([][]string, []string, []seatable.NeuronRow) {
+func dedupeUnionResults(groups []queryGroup, rows []seatable.NeuronRow) *addQueryMatches {
 	seenID := make(map[string]bool)
-	dedupedGroups := make([][]string, len(groups))
+	dedupedGroups := make([]queryGroup, len(groups))
 	var allRootIDs []string
 	for i, group := range groups {
-		kept := make([]string, 0, len(group))
-		for _, id := range group {
+		kept := make([]string, 0, len(group.rootIDs))
+		for _, id := range group.rootIDs {
 			if id == "" || seenID[id] {
 				continue
 			}
@@ -553,7 +622,7 @@ func dedupeUnionResults(groups [][]string, rows []seatable.NeuronRow) ([][]strin
 			kept = append(kept, id)
 			allRootIDs = append(allRootIDs, id)
 		}
-		dedupedGroups[i] = kept
+		dedupedGroups[i] = queryGroup{label: group.label, rootIDs: kept}
 	}
 
 	seenRow := make(map[string]bool)
@@ -568,7 +637,7 @@ func dedupeUnionResults(groups [][]string, rows []seatable.NeuronRow) ([][]strin
 		dedupedRows = append(dedupedRows, r)
 	}
 
-	return dedupedGroups, allRootIDs, dedupedRows
+	return &addQueryMatches{groups: dedupedGroups, rootIDs: allRootIDs, rows: dedupedRows}
 }
 
 func resolveAddRegionFilters(regions, bundles []string) ([]string, error) {
@@ -778,16 +847,6 @@ type querySpec struct {
 	filters seatable.Filters
 }
 
-// querySpecLabels lists the query group labels in spec order, so they stay
-// aligned with the groups built alongside them.
-func querySpecLabels(specs []querySpec) []string {
-	labels := make([]string, 0, len(specs))
-	for _, s := range specs {
-		labels = append(labels, s.label)
-	}
-	return labels
-}
-
 // specDim is one grouping dimension (cell_class, cell_type, or cell_subtype)
 // contributing its values to the query specs.
 type specDim struct {
@@ -945,11 +1004,11 @@ type colorByPartition struct {
 // colorByOuterPartitions forms the outer level. Every field but "group" reads a
 // value off each row; "group" instead reuses the query groups, which is the one
 // partition no field can describe.
-func colorByOuterPartitions(rows []seatable.NeuronRow, field string, queryGroups [][]string, queryLabels []string) []colorByPartition {
+func colorByOuterPartitions(matches *addQueryMatches, field string) []colorByPartition {
 	if field == queryGroupColorByField {
-		return partitionRowsByQueryGroup(rows, queryGroups, queryLabels)
+		return partitionRowsByQueryGroup(matches.rows, matches.groups)
 	}
-	return partitionRowsByField(rows, field)
+	return partitionRowsByField(matches.rows, field)
 }
 
 // partitionRowsByField collects the rows sharing each value of a field, in
@@ -978,19 +1037,18 @@ func partitionRowsByField(rows []seatable.NeuronRow, field string) []colorByPart
 }
 
 // partitionRowsByQueryGroup rebuilds the query groups as partitions. After
-// dedupeUnionResults, queryGroups[i] holds exactly the root IDs spec i owns and
-// queryLabels[i] names that spec, so a row belongs to the group holding its
-// root ID. Groups left empty by deduplication are dropped rather than handed a
-// palette family that would color nothing.
-func partitionRowsByQueryGroup(rows []seatable.NeuronRow, queryGroups [][]string, queryLabels []string) []colorByPartition {
+// dedupeUnionResults every root ID belongs to exactly one group, so a row
+// belongs to the group holding its root ID. Groups left empty by deduplication
+// are dropped rather than handed a palette family that would color nothing.
+func partitionRowsByQueryGroup(rows []seatable.NeuronRow, groups []queryGroup) []colorByPartition {
 	owner := make(map[string]int)
-	for i, group := range queryGroups {
-		for _, rootID := range group {
+	for i, group := range groups {
+		for _, rootID := range group.rootIDs {
 			owner[rootID] = i
 		}
 	}
 
-	rowsByGroup := make([][]seatable.NeuronRow, len(queryGroups))
+	rowsByGroup := make([][]seatable.NeuronRow, len(groups))
 	for _, row := range rows {
 		if row.RootID == "" {
 			continue
@@ -1002,13 +1060,13 @@ func partitionRowsByQueryGroup(rows []seatable.NeuronRow, queryGroups [][]string
 		rowsByGroup[i] = append(rowsByGroup[i], row)
 	}
 
-	partitions := make([]colorByPartition, 0, len(queryGroups))
+	partitions := make([]colorByPartition, 0, len(groups))
 	for i, groupRows := range rowsByGroup {
 		if len(groupRows) == 0 {
 			continue
 		}
 		partitions = append(partitions, colorByPartition{
-			label: queryGroupLabel(queryLabels[i]),
+			label: queryGroupLabel(groups[i].label),
 			rows:  groupRows,
 		})
 	}
@@ -1032,15 +1090,15 @@ func queryGroupLabel(specLabel string) string {
 // existed. Saying so beats dropping it silently. A result where no group holds
 // anything has no coloring for a group to be left out of, so it reports
 // nothing.
-func reportUncoloredQueryGroups(w io.Writer, queryGroups [][]string, queryLabels []string) {
-	if !slices.ContainsFunc(queryGroups, func(group []string) bool { return len(group) > 0 }) {
+func reportUncoloredQueryGroups(w io.Writer, groups []queryGroup) {
+	if !slices.ContainsFunc(groups, queryGroup.ownsRootIDs) {
 		return
 	}
-	for i, group := range queryGroups {
-		if len(group) > 0 {
+	for _, group := range groups {
+		if group.ownsRootIDs() {
 			continue
 		}
-		fmt.Fprintf(w, "  %s: no root IDs of its own; not colored\n", queryGroupLabel(queryLabels[i]))
+		fmt.Fprintf(w, "  %s: no root IDs of its own; not colored\n", queryGroupLabel(group.label))
 	}
 }
 
@@ -1203,6 +1261,19 @@ func reportNestedColorByGroups(w io.Writer, fields []string, groups [][][]string
 		for j, group := range family {
 			fmt.Fprintf(w, "  %s: %d with root IDs\n", labels[i][j], len(group))
 		}
+	}
+}
+
+// reportGradientColorBy prints the span a continuous --color-by field covers
+// rather than a line per distinct value, which would be a line per neuron.
+func reportGradientColorBy(w io.Writer, field string, gradient gradientColorBy) {
+	if len(gradient.values) == 0 {
+		fmt.Fprintf(w, "  %s: no neuron carries a position; all take the unset color\n", field)
+	} else {
+		fmt.Fprintf(w, "  %s: %d with root IDs, %g to %g\n", field, len(gradient.values), gradient.low, gradient.high)
+	}
+	if len(gradient.unset) > 0 {
+		fmt.Fprintf(w, "  %s=(unset): %d without a position\n", field, len(gradient.unset))
 	}
 }
 
