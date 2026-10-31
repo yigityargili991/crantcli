@@ -218,8 +218,8 @@ func init() {
 // not repeated here: a run that reaches RunE already passed them in Args.
 type addRunConfig struct {
 	baseFilters *seatable.Filters
-	// The classifier values that split the query into groups, united unless
-	// intersect crosses them.
+	// The classifier values that split the query into groups, each value once,
+	// united unless intersect crosses them.
 	cellClasses   []string
 	cellTypes     []string
 	cellSubtypes  []string
@@ -280,9 +280,9 @@ func resolveAddRunConfig(cmd *cobra.Command) (*addRunConfig, error) {
 			Tract:      addTract,
 			Proofread:  addProofread,
 		},
-		cellClasses:   addCellClasses,
-		cellTypes:     addCellTypes,
-		cellSubtypes:  addCellSubtypes,
+		cellClasses:   uniqueAddValues(addCellClasses),
+		cellTypes:     uniqueAddValues(addCellTypes),
+		cellSubtypes:  uniqueAddValues(addCellSubtypes),
 		intersect:     addIntersect,
 		color:         normalizedColor,
 		colorByFields: fellBack,
@@ -671,6 +671,23 @@ func compactAddValues(values []string) []string {
 	for _, value := range values {
 		value = strings.TrimSpace(value)
 		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+// uniqueAddValues drops repeated values, keeping each first occurrence in
+// order. Unlike compactAddValues it neither trims nor drops values: classifier
+// values are matched exactly, so one that differs only in whitespace stays a
+// query of its own.
+func uniqueAddValues(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
 			continue
 		}
 		seen[value] = true

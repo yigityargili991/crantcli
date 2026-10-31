@@ -419,6 +419,7 @@ func stubAddQueryGroups(t *testing.T, matched map[string][]string) {
 // flags.
 type addQueryGroupRun struct {
 	classes, types []string
+	intersect      bool
 	matched        map[string][]string
 	color, colorBy string
 }
@@ -432,6 +433,7 @@ func runAddQueryGroups(t *testing.T, run addQueryGroupRun) (map[string]interface
 	addRootIDsOnly = false
 	addCellClasses = run.classes
 	addCellTypes = run.types
+	addIntersect = run.intersect
 	addColor = run.color
 	addColorBy = run.colorBy
 	stubAddQueryGroups(t, run.matched)
@@ -652,6 +654,62 @@ func TestAddCommandNoRootIDsStopsTheRun(t *testing.T) {
 				t.Errorf("report = %q, want %q", report.String(), want)
 			}
 		})
+	}
+}
+
+// TestAddCommandMergesRepeatedClassifierValues covers a classifier value given
+// more than once: it forms one query group, so SeaTable is queried and the
+// count reported once, rather than a second group finding every neuron already
+// claimed.
+func TestAddCommandMergesRepeatedClassifierValues(t *testing.T) {
+	matched := map[string][]string{"PEN": {"p1", "p2"}, "ER": {"e1", "e2"}, "LNOPEN": {"p1", "p2"}}
+	tests := []struct {
+		name string
+		run  addQueryGroupRun
+		want string
+	}{
+		{
+			name: "union",
+			run:  addQueryGroupRun{types: []string{"PEN", "ER", "PEN"}, color: "colored"},
+			want: "  PEN: 2 neurons (2 with root IDs)\n" +
+				"  ER: 2 neurons (2 with root IDs)\n" +
+				"Found 4 neurons (4 with root IDs)\n",
+		},
+		{
+			name: "intersect",
+			run:  addQueryGroupRun{classes: []string{"LNO", "LNO"}, types: []string{"PEN"}, intersect: true},
+			want: "  LNO/PEN: 2 neurons (2 with root IDs)\n" +
+				"Found 2 neurons (2 with root IDs)\n",
+		},
+		{
+			// A repeated value forms a single group, so --color-by group has
+			// nothing to separate and says so.
+			name: "color by group",
+			run:  addQueryGroupRun{types: []string{"PEN", "PEN"}, colorBy: "group"},
+			want: "Warning: --color-by group found a single query group; repeat --cell-class/--cell-type/--cell-subtype to form groups worth separating\n" +
+				"  PEN: 2 neurons (2 with root IDs)\n" +
+				"  group=PEN: 2 with root IDs\n" +
+				"Found 2 neurons (2 with root IDs)\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.run.matched = matched
+			_, report := runAddQueryGroups(t, tt.run)
+			if report != tt.want {
+				t.Fatalf("report =\n%s\nwant\n%s", report, tt.want)
+			}
+		})
+	}
+}
+
+// TestUniqueAddValues covers how repeated classifier values merge: an exact
+// repeat collapses into its first occurrence, while a value that differs only
+// in whitespace stays apart, since each is matched exactly.
+func TestUniqueAddValues(t *testing.T) {
+	got := uniqueAddValues([]string{"PEN", "ER", "PEN", " PEN", "ER"})
+	if want := []string{"PEN", "ER", " PEN"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("uniqueAddValues = %q, want %q", got, want)
 	}
 }
 
