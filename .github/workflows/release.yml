@@ -21,10 +21,13 @@ jobs:
         run: |
           # Created as a draft so "latest" keeps resolving to the previous
           # release until every asset is uploaded; the publish job flips it.
+          # A tag with a pre-release suffix (v0.22.4-rc1) is marked as one.
+          prerelease=""
+          case "$REF_NAME" in *-*) prerelease=--prerelease ;; esac
           if gh release view "$REF_NAME" >/dev/null 2>&1; then
             echo "Release already exists for tag $REF_NAME"
           else
-            gh release create "$REF_NAME" --title "$REF_NAME" --generate-notes --draft
+            gh release create "$REF_NAME" --title "$REF_NAME" --generate-notes --draft $prerelease
           fi
 
   release:
@@ -178,8 +181,14 @@ jobs:
           # onto the draft it left behind, so claim it only when this tag sorts
           # above the newest published release.
           published=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          # A pre-release never claims Latest: sort -V ranks v0.22.4-rc1 above
+          # v0.22.4, and install.sh, install.ps1 and crantcli update all follow
+          # Latest.
           latest=--latest
-          if [ -n "$published" ] && [ "$(printf '%s\n%s\n' "$REF_NAME" "$published" | sort -V | tail -n 1)" != "$REF_NAME" ]; then
+          if [ "${REF_NAME#*-}" != "$REF_NAME" ]; then
+            echo "Publishing pre-release $REF_NAME without claiming Latest"
+            latest=--latest=false
+          elif [ -n "$published" ] && [ "$(printf '%s\n%s\n' "$REF_NAME" "$published" | sort -V | tail -n 1)" != "$REF_NAME" ]; then
             echo "Publishing $REF_NAME without claiming Latest; $published is newer"
             latest=--latest=false
           fi
