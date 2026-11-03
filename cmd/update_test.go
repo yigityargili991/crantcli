@@ -134,21 +134,194 @@ func assertInstallerCredentialEnv(t *testing.T, env []string) {
 	}
 }
 
-func readyReleaseJSON(tag string) []byte {
+// readyReleaseJSON returns a release list response holding one installable
+// release per tag.
+func readyReleaseJSON(tags ...string) []byte {
+	releases := make([]string, len(tags))
+	for i, tag := range tags {
+		releases[i] = readyReleaseObject(tag, false)
+	}
+	return []byte("[" + strings.Join(releases, ",") + "]")
+}
+
+func readyReleaseObject(tag string, draft bool) string {
 	scriptName := installerScriptName(updateGOOS)
-	return []byte(fmt.Sprintf(
-		`{"tag_name":%q,"assets":[{"name":"checksums.txt"},{"name":%q},{"name":%q},{"name":%q},{"name":%q}]}`,
+	return fmt.Sprintf(
+		`{"tag_name":%q,"draft":%t,"assets":[{"name":"checksums.txt"},{"name":%q},{"name":%q},{"name":%q},{"name":%q}]}`,
 		tag,
+		draft,
 		releaseAssetName(updateGOOS, updateGOARCH),
 		releaseAssetName(updateGOOS, updateGOARCH)+updateBundleSuffix,
 		scriptName,
 		scriptName+updateBundleSuffix,
-	))
+	)
+}
+
+// releaseFetch serves releases as the release list, an installer and bundle
+// for every tag, and changelog as each tag's CHANGELOG.md, failing the fetch
+// when changelog is empty.
+func releaseFetch(releases []byte, changelog string) func(url string) ([]byte, error) {
+	return func(url string) ([]byte, error) {
+		switch {
+		case url == updateReleasesURL:
+			return releases, nil
+		case strings.HasPrefix(url, updateReleaseDownloadURL) && strings.HasSuffix(url, "/install.sh"):
+			return []byte("#!/bin/sh\necho installer\n"), nil
+		case strings.HasPrefix(url, updateReleaseDownloadURL) && strings.HasSuffix(url, "/install.sh.bundle.json"):
+			return []byte(`{"bundle":true}`), nil
+		case strings.HasPrefix(url, updateChangelogURL) && strings.HasSuffix(url, "/CHANGELOG.md") && changelog != "":
+			return []byte(changelog), nil
+		default:
+			return nil, fmt.Errorf("unexpected fetch %s", url)
+		}
+	}
+}
+
+const updateTestChangelog = `# Changelog
+
+## Unreleased
+
+### Added
+
+- Candidate feature.
+
+## v0.22.3 - 2026-10-22
+
+### Fixed
+
+- Patch fix.
+
+## v0.22.2 - 2026-10-21
+
+- Older fix.
+`
+
+func TestUpdateInstallsNewestReleaseCandidate(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.22.3", "linux", "/nonexistent/bin/crantcli", nil)
+	releases := []byte("[" + strings.Join([]string{
+		readyReleaseObject("v0.22.3", false),
+		readyReleaseObject("raider-v4", false),
+		readyReleaseObject("v0.22.4-rc1", false),
+		readyReleaseObject("v0.22.5", true),
+		readyReleaseObject("v0.22.2", false),
+	}, ",") + "]")
+	updateFetch = releaseFetch(releases, "")
+
+	out, _, err := executeRootForTest(t, "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "Updating crantcli v0.22.3 -> v0.22.4-rc1") {
+		t.Fatalf("stdout = %q, want an update to the release candidate", out)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("start calls = %+v, want exactly one", *calls)
+	}
+	if version, _ := envValue((*calls)[0].env, "CRANTCLI_VERSION"); version != "v0.22.4-rc1" {
+		t.Fatalf("installer CRANTCLI_VERSION = %q, want v0.22.4-rc1", version)
+	}
+}
+
+func TestUpdateMovesReleaseCandidateToFinalRelease(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.22.4-rc1", "linux", "/nonexistent/bin/crantcli", nil)
+	updateFetch = releaseFetch(readyReleaseJSON("v0.22.4", "v0.22.4-rc2", "v0.22.4-rc1"), "")
+
+	out, _, err := executeRootForTest(t, "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "Updating crantcli v0.22.4-rc1 -> v0.22.4") {
+		t.Fatalf("stdout = %q, want an update to the final release", out)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("start calls = %+v, want exactly one", *calls)
+	}
+}
+
+func TestUpdateReleaseCandidateAlreadyUpToDate(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.22.4-rc1", "linux", "/nonexistent/bin/crantcli", nil)
+	updateFetch = releaseFetch(readyReleaseJSON("v0.22.3", "v0.22.4-rc1"), "")
+
+	out, _, err := executeRootForTest(t, "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "already up to date (v0.22.4-rc1)") {
+		t.Fatalf("stdout = %q, want already-up-to-date message", out)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started despite up-to-date version: %+v", *calls)
+	}
+}
+
+func TestUpdateWithoutCrantcliRelease(t *testing.T) {
+	calls := stubUpdateSeams(t, "v0.22.3", "linux", "/nonexistent/bin/crantcli", nil)
+	updateFetch = releaseFetch(readyReleaseJSON("raider-v4"), "")
+
+	_, _, err := executeRootForTest(t, "update")
+	if err == nil || !strings.Contains(err.Error(), "no crantcli release") {
+		t.Fatalf("error = %v, want no-release error", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("installer started without a crantcli release: %+v", *calls)
+	}
+}
+
+func TestUpdatePrintsChangelog(t *testing.T) {
+	stubUpdateSeams(t, "v0.22.3", "linux", "/nonexistent/bin/crantcli", nil)
+	updateFetch = releaseFetch(readyReleaseJSON("v0.22.4-rc1"), updateTestChangelog)
+
+	out, _, err := executeRootForTest(t, "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "Updated crantcli to v0.22.4-rc1\n\n## Unreleased\n\n### Added\n\n- Candidate feature.\n") {
+		t.Fatalf("stdout = %q, want the Unreleased section after the completion message", out)
+	}
+	if strings.Contains(out, "v0.22.3 - 2026-10-22") {
+		t.Fatalf("stdout = %q, want no section of the replaced version", out)
+	}
+}
+
+func TestUpdateChangelogFailureLinksReleasePage(t *testing.T) {
+	stubUpdateSeams(t, "v0.22.3", "linux", "/nonexistent/bin/crantcli", nil)
+	updateFetch = releaseFetch(readyReleaseJSON("v0.22.4-rc1"), "")
+
+	out, _, err := executeRootForTest(t, "update")
+	if err != nil {
+		t.Fatalf("update: %v, want success despite the unreadable changelog", err)
+	}
+	want := "Release notes: " + updateReleasePageURL + "v0.22.4-rc1\n"
+	if !strings.HasSuffix(out, want) {
+		t.Fatalf("stdout = %q, want it to end with %q", out, want)
+	}
+}
+
+func TestChangelogSections(t *testing.T) {
+	cases := []struct {
+		name, from, to string
+		want           []string
+	}{
+		{"release candidate", "v0.22.3", "v0.22.4-rc1", []string{"## Unreleased\n\n### Added\n\n- Candidate feature."}},
+		{"several releases", "v0.22.1", "v0.22.3", []string{
+			"## v0.22.3 - 2026-10-22\n\n### Fixed\n\n- Patch fix.",
+			"## v0.22.2 - 2026-10-21\n\n- Older fix.",
+		}},
+		{"one release", "v0.22.2", "v0.22.3", []string{"## v0.22.3 - 2026-10-22\n\n### Fixed\n\n- Patch fix."}},
+		{"development build", "vdev", "v0.22.3", []string{"## v0.22.3 - 2026-10-22\n\n### Fixed\n\n- Patch fix."}},
+		{"no matching section", "v0.22.3", "v0.22.4", nil},
+	}
+	for _, tc := range cases {
+		got := changelogSections(updateTestChangelog, tc.from, tc.to)
+		if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+			t.Errorf("%s: changelogSections(%q, %q) = %q, want %q", tc.name, tc.from, tc.to, got, tc.want)
+		}
+	}
 }
 
 func TestUpdateAlreadyUpToDate(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.2", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url != updateLatestURL {
+		if url != updateReleasesURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return readyReleaseJSON("v0.16.2"), nil
@@ -171,7 +344,7 @@ func TestUpdateAlreadyUpToDate(t *testing.T) {
 
 func TestUpdateDoesNotDowngradeNewerBuild(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.17.0-rc.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url != updateLatestURL {
+		if url != updateReleasesURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return readyReleaseJSON("v0.16.2"), nil
@@ -192,11 +365,11 @@ func TestUpdateDoesNotDowngradeNewerBuild(t *testing.T) {
 func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 	binaryName := releaseAssetName("linux", "amd64")
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url != updateLatestURL {
+		if url != updateReleasesURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return []byte(fmt.Sprintf(
-			`{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"},{"name":"install.sh.bundle.json"}]}`,
+			`[{"tag_name":"v0.16.2","assets":[{"name":"checksums.txt"},{"name":%q},{"name":"install.sh"},{"name":"install.sh.bundle.json"}]}]`,
 			binaryName,
 		)), nil
 	})
@@ -216,7 +389,7 @@ func TestUpdateWaitsForInstallableRelease(t *testing.T) {
 func TestUpdateRunsShOnUnix(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "darwin", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
-		case updateLatestURL:
+		case updateReleasesURL:
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\necho installer\n"), nil
@@ -255,7 +428,7 @@ func TestUpdateRunsShOnUnix(t *testing.T) {
 func TestUpdateRunsPowerShellOnWindows(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "windows", "/nonexistent/bin/crantcli.exe", func(url string) ([]byte, error) {
 		switch url {
-		case updateLatestURL:
+		case updateReleasesURL:
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.ps1":
 			return []byte("Write-Host installer\n"), nil
@@ -286,7 +459,7 @@ func TestUpdateRunsPowerShellOnWindows(t *testing.T) {
 func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 	calls := stubUpdateSeams(t, "dev", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
-		case updateLatestURL:
+		case updateReleasesURL:
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
@@ -307,7 +480,7 @@ func TestUpdateDevBuildAlwaysUpdates(t *testing.T) {
 
 func TestUpdateLookupFailureDoesNotDowngrade(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.17.0-rc.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url != updateLatestURL {
+		if url != updateReleasesURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return nil, errors.New("network down")
@@ -324,7 +497,7 @@ func TestUpdateLookupFailureDoesNotDowngrade(t *testing.T) {
 
 func TestUpdateRejectsRenamedExecutable(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/downloads/crant_type_look-linux-amd64", func(url string) ([]byte, error) {
-		if url != updateLatestURL {
+		if url != updateReleasesURL {
 			return nil, fmt.Errorf("unexpected fetch %s", url)
 		}
 		return readyReleaseJSON("v0.16.2"), nil
@@ -357,7 +530,7 @@ func TestUpdateTargetsCanonicalSymlinkLauncher(t *testing.T) {
 
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", target, func(url string) ([]byte, error) {
 		switch url {
-		case updateLatestURL:
+		case updateReleasesURL:
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
@@ -382,7 +555,7 @@ func TestUpdateTargetsCanonicalSymlinkLauncher(t *testing.T) {
 
 func TestUpdateScriptDownloadFails(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url == updateLatestURL {
+		if url == updateReleasesURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return nil, errors.New("not found")
@@ -400,7 +573,7 @@ func TestUpdateScriptDownloadFails(t *testing.T) {
 func TestUpdateInstallerBundleDownloadFails(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
 		switch url {
-		case updateLatestURL:
+		case updateReleasesURL:
 			return readyReleaseJSON("v0.16.2"), nil
 		case updateReleaseDownloadURL + "v0.16.2/install.sh":
 			return []byte("#!/bin/sh\n"), nil
@@ -420,7 +593,7 @@ func TestUpdateInstallerBundleDownloadFails(t *testing.T) {
 
 func TestUpdateRejectsUnverifiedInstaller(t *testing.T) {
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url == updateLatestURL {
+		if url == updateReleasesURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("fixture"), nil
@@ -438,7 +611,7 @@ func TestUpdateRejectsUnverifiedInstaller(t *testing.T) {
 
 func TestUpdateRunFailure(t *testing.T) {
 	stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url == updateLatestURL {
+		if url == updateReleasesURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
@@ -475,7 +648,7 @@ func TestUpdateTargetsRunningInstallDir(t *testing.T) {
 	executable := "/nonexistent/bin/crantcli"
 
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", executable, func(url string) ([]byte, error) {
-		if url == updateLatestURL {
+		if url == updateReleasesURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
@@ -508,7 +681,7 @@ func TestUpdateRespectsExportedInstallDir(t *testing.T) {
 	t.Setenv("CRANTCLI_INSTALL_DIR", "/custom/dir")
 
 	calls := stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url == updateLatestURL {
+		if url == updateReleasesURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\n"), nil
@@ -541,7 +714,7 @@ func TestUpdateRemovesCredentialsFromInstallerEnv(t *testing.T) {
 		t.Run(tc.goos, func(t *testing.T) {
 			setUpdateCredentialEnv(t)
 			calls := stubUpdateSeams(t, "v0.16.1", tc.goos, tc.executable, func(url string) ([]byte, error) {
-				if url == updateLatestURL {
+				if url == updateReleasesURL {
 					return readyReleaseJSON("v0.16.2"), nil
 				}
 				return []byte("fixture"), nil
@@ -570,7 +743,7 @@ func TestUpdateInstallerProcessDoesNotInheritCredentials(t *testing.T) {
 	dump := filepath.Join(t.TempDir(), "installer.env")
 	t.Setenv("CRANTCLI_TEST_ENV_DUMP", dump)
 	stubUpdateSeams(t, "v0.16.1", "linux", "/nonexistent/bin/crantcli", func(url string) ([]byte, error) {
-		if url == updateLatestURL {
+		if url == updateReleasesURL {
 			return readyReleaseJSON("v0.16.2"), nil
 		}
 		return []byte("#!/bin/sh\nenv > \"$CRANTCLI_TEST_ENV_DUMP\"\n"), nil

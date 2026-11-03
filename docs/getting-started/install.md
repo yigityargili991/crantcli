@@ -110,6 +110,13 @@ so no separate Cosign installation is required:
 crantcli update
 ```
 
+`crantcli update` installs the newest release, release candidates included: it
+moves v0.22.3 to v0.22.4-rc1 as soon as that is published, and v0.22.4-rc1 to
+v0.22.4 when the final release follows. The installers above keep installing
+the latest final release. After updating, it prints the `CHANGELOG.md` sections
+released since the version it replaced; a release candidate's changes are
+still under `Unreleased`.
+
 On Windows, the installer removes the previous executable in the background
 after the updating process exits. A locked backup does not block another update.
 

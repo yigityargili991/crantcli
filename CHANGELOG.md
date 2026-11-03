@@ -25,8 +25,17 @@
   default-state source, and the ask model, and with `--online` to check
   SeaTable and CAVE reachability, skipping a check whose token is not
   configured. It prints no token values.
+- `crantcli update` prints the `CHANGELOG.md` sections released since the
+  version it replaced, or a link to the release page when the changelog
+  cannot be read.
 
 ### Changed
+
+- `crantcli update` installs the newest release, release candidates
+  included: it moves v0.22.3 to v0.22.4-rc1, and v0.22.4-rc1 to v0.22.4 once
+  that is published. `install.sh` and `install.ps1` still install the latest
+  final release. Tags that are not crantcli versions, such as the `raider-vN`
+  model releases, are skipped.
 
 - Deprecate `crantcli lookup-column`; use `crantcli root-info` with a root ID
   or `--pos x,y,z` instead. `lookup-column` still runs but is hidden from
