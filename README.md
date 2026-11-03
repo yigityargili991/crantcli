@@ -120,9 +120,7 @@ Replace `vX.Y.Z` with a published release tag.
 
 `crantcli update` verifies the downloaded installer and binary with Sigstore
 before replacing the current executable. Verification is built into crantcli;
-users do not need to install Cosign separately. It installs the newest
-release, release candidates included, and prints the changelog sections
-released since the version it replaced.
+users do not need to install Cosign separately.
 
 Both installers fail closed if release checksums cannot be downloaded or
 verified. `CRANTCLI_SKIP_CHECKSUM=1` is available as an explicit insecure
