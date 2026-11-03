@@ -1,13 +1,14 @@
 # crantcli update
 
-Update crantcli to the latest release
+Update crantcli to the newest release
 
 ## Synopsis
 
-Check for a newer crantcli release and update in place.
+Check for a newer crantcli release, release candidates included, and
+update in place.
 
 The update authenticates the release's platform installer with Sigstore, then
-runs it to verify and install the latest binary. It returns only after the
+runs it to verify and install the newest binary. It returns only after the
 binary has been atomically replaced. Signature verification is built in; no
 separate cosign installation is required.
 

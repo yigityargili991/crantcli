@@ -32,5 +32,5 @@ Run 'crantcli setup' to configure your SeaTable API token.
 * [crantcli root-info](crantcli_root-info.md)	 - Show CRANT, CAVE, and nearest-column info for a root ID
 * [crantcli setup](crantcli_setup.md)	 - Set or update API tokens (SeaTable and CAVE)
 * [crantcli side-check](crantcli_side-check.md)	 - Check selected neuron sides against the nearest EPG/PEG neuron
-* [crantcli update](crantcli_update.md)	 - Update crantcli to the latest release
+* [crantcli update](crantcli_update.md)	 - Update crantcli to the newest release
 

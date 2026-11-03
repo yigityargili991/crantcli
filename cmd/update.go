@@ -25,8 +25,10 @@ import (
 const (
 	updateRepoSlug            = "yigityargili991/crantcli"
 	updateAssetPrefix         = "crant_type_look"
-	updateLatestURL           = "https://api.github.com/repos/" + updateRepoSlug + "/releases/latest"
+	updateReleasesURL         = "https://api.github.com/repos/" + updateRepoSlug + "/releases?per_page=100"
 	updateReleaseDownloadURL  = "https://github.com/" + updateRepoSlug + "/releases/download/"
+	updateReleasePageURL      = "https://github.com/" + updateRepoSlug + "/releases/tag/"
+	updateChangelogURL        = "https://raw.githubusercontent.com/" + updateRepoSlug + "/"
 	updateCertificateIssuer   = "https://token.actions.githubusercontent.com"
 	updateCertificateIdentity = `^https://github\.com/yigityargili991/crantcli/\.github/workflows/release\.yml@refs/tags/v[^/]+$`
 	updateBundleSuffix        = ".bundle.json"
@@ -49,11 +51,12 @@ var (
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update crantcli to the latest release",
-	Long: `Check for a newer crantcli release and update in place.
+	Short: "Update crantcli to the newest release",
+	Long: `Check for a newer crantcli release, release candidates included, and
+update in place.
 
 The update authenticates the release's platform installer with Sigstore, then
-runs it to verify and install the latest binary. It returns only after the
+runs it to verify and install the newest binary. It returns only after the
 binary has been atomically replaced. Signature verification is built in; no
 separate cosign installation is required.`,
 	Args: cobra.NoArgs,
@@ -116,6 +119,7 @@ func runUpdate(cmd *cobra.Command) error {
 		return fmt.Errorf("run installer: %w", err)
 	}
 	fmt.Fprintf(out, "Updated crantcli to %s\n", latest)
+	printChangelog(out, Version, latest)
 	return nil
 }
 
@@ -141,23 +145,38 @@ func canonicalSemver(version string) string {
 	return version
 }
 
+// latestReleaseTag returns the newest published release by semver, release
+// candidates included, so v0.22.4 outranks v0.22.4-rc1 and both outrank
+// v0.22.3. Tags that are not semver, such as the raider model's raider-vN
+// pre-releases, carry no crantcli binaries and are skipped.
 func latestReleaseTag() (string, error) {
-	body, err := updateFetch(updateLatestURL)
+	body, err := updateFetch(updateReleasesURL)
 	if err != nil {
 		return "", err
 	}
-	var payload struct {
+	var releases []struct {
 		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
 		Assets  []struct {
 			Name string `json:"name"`
 		} `json:"assets"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", fmt.Errorf("parse latest release response: %w", err)
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return "", fmt.Errorf("parse release list response: %w", err)
 	}
-	if payload.TagName == "" {
-		return "", errors.New("latest release response has no tag_name")
+	newest := -1
+	for i, release := range releases {
+		if release.Draft || !semver.IsValid(release.TagName) {
+			continue
+		}
+		if newest < 0 || semver.Compare(release.TagName, releases[newest].TagName) > 0 {
+			newest = i
+		}
 	}
+	if newest < 0 {
+		return "", errors.New("release list response has no crantcli release")
+	}
+	payload := releases[newest]
 	scriptName := installerScriptName(updateGOOS)
 	binaryName := releaseAssetName(updateGOOS, updateGOARCH)
 	required := []string{
@@ -181,6 +200,59 @@ func latestReleaseTag() (string, error) {
 		return payload.TagName, fmt.Errorf("%w: %s is missing %s", errReleaseNotReady, payload.TagName, strings.Join(missing, ", "))
 	}
 	return payload.TagName, nil
+}
+
+// printChangelog prints the CHANGELOG.md sections released after from, up to
+// and including tag, read from the changelog at tag. The update has already
+// succeeded, so a changelog that cannot be read or has no such section only
+// points at the release page.
+func printChangelog(out io.Writer, from, tag string) {
+	var sections []string
+	if body, err := updateFetch(updateChangelogURL + tag + "/CHANGELOG.md"); err == nil {
+		sections = changelogSections(string(body), canonicalSemver(from), tag)
+	}
+	if len(sections) == 0 {
+		fmt.Fprintf(out, "Release notes: %s%s\n", updateReleasePageURL, tag)
+		return
+	}
+	fmt.Fprintf(out, "\n%s\n", strings.Join(sections, "\n\n"))
+}
+
+// changelogSections returns the "## " sections of changelog whose version is
+// newer than from and at most to. A release candidate's changes are still
+// listed under "Unreleased", so that section counts when to is a
+// pre-release. When from is not a version, as for a development build, only
+// to's own section counts.
+func changelogSections(changelog, from, to string) []string {
+	var sections []string
+	var current []string
+	keep := false
+	flush := func() {
+		if keep {
+			sections = append(sections, strings.TrimSpace(strings.Join(current, "\n")))
+		}
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(changelog, "\r\n", "\n"), "\n") {
+		if !strings.HasPrefix(line, "## ") {
+			current = append(current, line)
+			continue
+		}
+		flush()
+		current = []string{line}
+		version, _, _ := strings.Cut(strings.TrimPrefix(line, "## "), " ")
+		switch {
+		case version == "Unreleased":
+			keep = semver.Prerelease(to) != ""
+		case !semver.IsValid(version):
+			keep = false
+		case !semver.IsValid(from):
+			keep = semver.Compare(version, to) == 0
+		default:
+			keep = semver.Compare(version, from) > 0 && semver.Compare(version, to) <= 0
+		}
+	}
+	flush()
+	return sections
 }
 
 func releaseAssetName(goos, goarch string) string {

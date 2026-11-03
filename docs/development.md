@@ -100,5 +100,3 @@ The repository README stays concise and points to the site as the canonical manu
 Tagged releases build binaries for Linux, macOS, and Windows on amd64 and arm64. The binary is called `crantcli`; release files currently use the historical `crant_type_look-<os>-<arch>` prefix.
 
 The release workflow creates the GitHub release as a draft, uploads every binary, signature, installer, and `checksums.txt`, and only then publishes it. Until that final step, `releases/latest` still resolves to the previous release, so `install.sh` and `install.ps1` never see a release whose assets are missing or still uploading.
-
-A tag with a pre-release suffix, such as `v0.22.4-rc1`, is published as a GitHub pre-release and never becomes Latest, so `install.sh`, `install.ps1`, and `crantcli update` keep serving the previous release. Install a release candidate explicitly with `CRANTCLI_VERSION=v0.22.4-rc1`.
