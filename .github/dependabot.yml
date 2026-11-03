@@ -10,6 +10,10 @@ updates:
       golang-x:
         patterns:
           - "golang.org/x/*"
+    ignore:
+      # sigstore-go 1.4.0 requires Go 1.27; we stay on Go 1.26.
+      - dependency-name: "github.com/sigstore/sigstore-go"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
