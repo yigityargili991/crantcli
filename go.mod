@@ -7,7 +7,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.3
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.design/x/clipboard v0.11.0
 	golang.org/x/mod v0.42.0
