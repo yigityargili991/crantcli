@@ -99,6 +99,12 @@
   leaves the layer's sources as they are. Sources deleted before this release
   are not remembered.
 
+### Security
+
+- Update golang.org/x/net to v0.62.0, which fixes two advisories in its `html`
+  package (GO-2026-6860 and GO-2026-6866). crantcli does not import that
+  package, so earlier releases were not affected.
+
 ## v0.22.3 - 2026-10-22
 
 ### Added
